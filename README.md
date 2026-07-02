@@ -1,9 +1,35 @@
-# tbh-presence — TaskBarHero live stage reader
+# tbh-presence — TaskBarHero Discord Rich Presence
 
-Reads, in real time, **which stage TaskBarHero is currently on**, by reading the
-running game's memory (read-only — no injection, no writes, no game files touched).
+Shows, in real time, **which stage TaskBarHero is on and your deployed party**
+on your Discord profile, by reading the running game's memory (read-only — no
+injection, no writes, no game files touched).
 
-## Quick start
+```
+Playing TaskBarHero
+Act 3 - Stage 3  (HELL, Lv 72)
+Ranger Lv80, Sorcerer Lv23, Priest Lv35
+23:41 elapsed
+```
+
+## Rich Presence
+
+```powershell
+.\Start-TbhPresence.ps1                      # default: poll every 15s
+.\Start-TbhPresence.ps1 -IntervalSeconds 30  # slower polling
+.\Start-TbhPresence.ps1 -ClientId <id>       # use your own Discord application
+```
+
+Talks to the Discord desktop client over its local IPC named pipe
+(`discord-ipc-N`) — no libraries needed. It only sends an update when something
+changed, survives game and Discord restarts, clears the presence while the game
+is closed, and shows elapsed time from the game process start. Ctrl+C to quit
+(presence is cleared on exit).
+
+The client id is a Discord *application* id (create one at
+https://discord.com/developers/applications — its name is what "Playing …"
+shows). No bot token or secret is involved.
+
+## Stage reader (standalone)
 
 The game must be running.
 
@@ -132,6 +158,7 @@ update the offsets in `Get-TbhStage.ps1` (`$OFF`) if they moved.
 
 ## Files
 
+- `Start-TbhPresence.ps1` — Discord Rich Presence (polls the reader, pushes to Discord IPC).
 - `Get-TbhStage.ps1` — the monitor (resolve + poll + report/JSON, address cache, auto-reattach).
 - `TbhMemory.cs` — read-only memory reader + IL2CPP class/object locator (compiled via `Add-Type`).
 - `cache.json` — generated at runtime (gitignored); delete it or pass `-NoCache` to force a rescan.
