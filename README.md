@@ -40,9 +40,10 @@ Example output:
 {"stageKey":3305,"savedWave":20,"maxCompletedStage":3307,"act":3,"stageNo":5,
  "level":74,"waveAmount":27,"difficulty":"HELL","stageType":"NORMAL",
  "nameKey":"StageName_1305",
- "heroes":[{"key":201,"name":"Ranger"},{"key":301,"name":"Sorcerer"},{"key":401,"name":"Priest"}],
+ "heroes":[{"key":201,"name":"Ranger","level":80},{"key":301,"name":"Sorcerer","level":23},
+           {"key":401,"name":"Priest","level":35}],
  "petKey":1005,
- "label":"Act 3 - Stage 5  (Lv 74, HELL, 27 waves)  |  Ranger, Sorcerer, Priest"}
+ "label":"Act 3 - Stage 5  (Lv 74, HELL, 27 waves)  |  Ranger Lv80, Sorcerer Lv23, Priest Lv35"}
 ```
 
 ## What each field means
@@ -54,6 +55,7 @@ Example output:
 | `savedWave` | `CommonSaveData.currentStageWave` | **Only updates on game save**, not per wave |
 | `maxCompletedStage` | `CommonSaveData.maxCompletedStage` | Updates on clear |
 | `heroes` | `CommonSaveData.arrangedHeroKey` (int[]) + `HeroInfoData` table | Updates when you re-arrange your party |
+| `heroes[].level` | `PlayerSaveData.heroSaveDatas` (`HeroSaveData.HeroLevel`) | Updates on level-up |
 | `petKey` | `CommonSaveData.ArrangedPetKey` | Updates when you swap pets |
 
 Hero names come from `EEquipClassType` — each hero maps 1:1 to a class:
@@ -104,6 +106,11 @@ CommonSaveData.arrangedHeroKey    +0x48   (int[]: length +0x18, elements +0x20)
 HeroInfoData.HeroKey              +0x30   (int)
 HeroInfoData.HeroNameKey          +0x38   (System.String)
 HeroInfoData.ClassType            +0x48   (EEquipClassType: 1 Knight, 2 Ranger, 3 Sorcerer, 4 Priest, 5 Hunter, 6 Slayer)
+PlayerSaveData.heroSaveDatas      +0x58   (List<HeroSaveData>: items +0x10, count +0x18; element ptrs from items+0x20)
+HeroSaveData.heroKey              +0x10   (int)
+HeroSaveData.HeroLevel            +0x14   (int)
+HeroSaveData.IsUnLock             +0x18   (bool)
+HeroSaveData.HeroExp              +0x1C   (float)
 StageInfoData.StageKey            +0x30   (int)
 StageInfoData.StageNameKey        +0x38   (System.String)
 StageInfoData.STAGETYPE           +0x40   (EStageType:   0 NORMAL, 1 ACTBOSS)

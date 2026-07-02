@@ -65,6 +65,13 @@ $OFF = @{
     HID_HeroKey     = 0x30
     HID_HeroNameKey = 0x38
     HID_ClassType   = 0x48   # EEquipClassType
+    # PlayerSaveData
+    PSD_heroSaves   = 0x58   # List<HeroSaveData>
+    # HeroSaveData
+    HSD_heroKey     = 0x10
+    HSD_level       = 0x14
+    HSD_unlocked    = 0x18
+    HSD_exp         = 0x1C
     # StageInfoData
     SID_StageKey    = 0x30
     SID_StageNameKey= 0x38
@@ -79,7 +86,7 @@ $DIFF = @('NORMAL','NIGHTMARE','HELL','TORMENT')
 $STYPE = @('NORMAL','ACTBOSS')
 # EEquipClassType: each hero maps 1:1 to a class, which doubles as its name
 $HCLASS = @('All','Knight','Ranger','Sorcerer','Priest','Hunter','Slayer')
-$CACHE_VERSION = 2
+$CACHE_VERSION = 3
 
 function Get-GameStamp($proc) {
     # Identifies the game build; invalidates the cached stage table on updates.
@@ -142,14 +149,14 @@ function Build-HeroTable($mem) {
 }
 
 function Find-LiveSaveData($mem) {
-    # Returns @{ CsdAddr; CsdKlass } for the live CommonSaveData object.
+    # Returns @{ PsdAddr; CsdAddr; CsdKlass } for the live save-data objects.
     $psdKlass = $mem.FindClass('PlayerSaveData', 'TaskbarHero')
     $csdKlass = $mem.FindClass('CommonSaveData', 'TaskbarHero')
     if ($psdKlass -eq 0 -or $csdKlass -eq 0) { throw 'Could not resolve save-data classes (game not fully loaded yet?).' }
     foreach ($r in $mem.FindInstances($psdKlass, 4096)) {
         $c = $mem.ReadPtr($r + $OFF.PSD_common)
         if ($c -ne 0 -and $mem.ReadPtr($c) -eq $csdKlass) {
-            return @{ CsdAddr = $c; CsdKlass = $csdKlass }
+            return @{ PsdAddr = $r; CsdAddr = $c; CsdKlass = $csdKlass }
         }
     }
     throw 'Could not find CommonSaveData instance.'
@@ -171,11 +178,13 @@ function Resolve-Targets($mem, $proc) {
     # Fast path: same game process still alive -> reuse addresses after validating.
     if ($cache -and $cache.bootId -eq $bootId -and $cache.gameStamp -eq $stamp) {
         $csd = [long]$cache.csdAddr
-        if ($mem.ReadPtr($csd) -eq [long]$cache.csdKlass) {
+        $psd = [long]$cache.psdAddr
+        if ($mem.ReadPtr($csd) -eq [long]$cache.csdKlass -and $mem.ReadPtr($psd + $OFF.PSD_common) -eq $csd) {
             $key = $mem.ReadInt($csd + $OFF.CSD_stageKey)
             if ($key -ge 0 -and $key -lt 1000000) {
                 Write-Host 'Address cache hit - skipping memory scan.' -ForegroundColor DarkGray
                 return [pscustomobject]@{
+                    PsdAddr = $psd
                     CsdAddr = $csd
                     Table   = ConvertTo-Hashtable $cache.table
                     Heroes  = ConvertTo-Hashtable $cache.heroTable
@@ -207,12 +216,13 @@ function Resolve-Targets($mem, $proc) {
         version   = $CACHE_VERSION
         gameStamp = $stamp
         bootId    = $bootId
+        psdAddr   = $live.PsdAddr
         csdAddr   = $live.CsdAddr
         csdKlass  = $live.CsdKlass
         table     = $table
         heroTable = $heroTable
     })
-    return [pscustomobject]@{ CsdAddr = $live.CsdAddr; Table = $table; Heroes = $heroTable }
+    return [pscustomobject]@{ PsdAddr = $live.PsdAddr; CsdAddr = $live.CsdAddr; Table = $table; Heroes = $heroTable }
 }
 
 function Read-Stage($mem, $ctx) {
@@ -220,6 +230,21 @@ function Read-Stage($mem, $ctx) {
     $wave     = $mem.ReadInt($ctx.CsdAddr + $OFF.CSD_stageWave)
     $maxStage = $mem.ReadInt($ctx.CsdAddr + $OFF.CSD_maxStage)
     $info     = $ctx.Table[[string]$key]
+
+    # hero levels: List<HeroSaveData> re-read every poll (small: one entry per hero)
+    $levels = @{}
+    $hlist = $mem.ReadPtr($ctx.PsdAddr + $OFF.PSD_heroSaves)
+    if ($hlist -ne 0) {
+        $items = $mem.ReadPtr($hlist + 0x10)
+        $n = $mem.ReadInt($hlist + 0x18)
+        if ($items -ne 0 -and $n -gt 0 -and $n -le 64) {
+            for ($i = 0; $i -lt $n; $i++) {
+                $h = $mem.ReadPtr($items + 0x20 + 8 * $i)
+                if ($h -eq 0) { continue }
+                $levels[$mem.ReadInt($h + $OFF.HSD_heroKey)] = $mem.ReadInt($h + $OFF.HSD_level)
+            }
+        }
+    }
 
     # deployed heroes: int[] pointer re-read every poll (array is replaced on re-arrange)
     $heroes = @()
@@ -231,7 +256,11 @@ function Read-Stage($mem, $ctx) {
                 $hk = $mem.ReadInt($arr + 0x20 + 4 * $i)
                 if ($hk -le 0) { continue }
                 $hn = $ctx.Heroes[[string]$hk]
-                $heroes += [pscustomobject]@{ key = $hk; name = if ($hn) { $hn } else { "Hero_$hk" } }
+                $heroes += [pscustomobject]@{
+                    key   = $hk
+                    name  = if ($hn) { $hn } else { "Hero_$hk" }
+                    level = if ($levels.ContainsKey($hk)) { $levels[$hk] } else { $null }
+                }
             }
         }
     }
@@ -240,7 +269,9 @@ function Read-Stage($mem, $ctx) {
     $label = if ($info) {
         "Act $($info.Act) - Stage $($info.StageNo)  (Lv $($info.Level), $($info.Difficulty), $($info.WaveAmount) waves)"
     } else { "StageKey $key" }
-    if ($heroes.Count -gt 0) { $label += "  |  " + (($heroes | ForEach-Object { $_.name }) -join ', ') }
+    if ($heroes.Count -gt 0) {
+        $label += "  |  " + (($heroes | ForEach-Object { if ($_.level) { "$($_.name) Lv$($_.level)" } else { $_.name } }) -join ', ')
+    }
     return [pscustomobject]@{
         stageKey          = $key
         savedWave         = $wave
