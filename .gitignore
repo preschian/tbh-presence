@@ -1,3 +1,4 @@
 # runtime output
 state.json
+cache.json
 *.log

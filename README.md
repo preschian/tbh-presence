@@ -16,7 +16,23 @@ The game must be running.
 
 # Continuously mirror state to a file another process can read
 .\Get-TbhStage.ps1 -JsonOut state.json
+
+# Ignore the address cache and do a full rescan
+.\Get-TbhStage.ps1 -NoCache
 ```
+
+The first run scans the game's memory (~1 minute). Results are cached in
+`cache.json` next to the script, so later runs start in under a second:
+
+- **Same game process**: cached addresses are validated (PID + process start
+  time + class pointer) and reused directly — no scan at all.
+- **After a game restart**: addresses are re-resolved (the live object moved),
+  but the stage table is reused, roughly halving the scan.
+- **After a game update**: the cache is invalidated automatically (keyed on the
+  game binary's timestamp/size) and everything is rebuilt.
+
+In continuous mode the script also survives game restarts: when the game exits
+it waits for a new process and re-attaches automatically.
 
 Example output:
 
@@ -95,8 +111,9 @@ update the offsets in `Get-TbhStage.ps1` (`$OFF`) if they moved.
 
 ## Files
 
-- `Get-TbhStage.ps1` — the monitor (resolve + poll + report/JSON).
+- `Get-TbhStage.ps1` — the monitor (resolve + poll + report/JSON, address cache, auto-reattach).
 - `TbhMemory.cs` — read-only memory reader + IL2CPP class/object locator (compiled via `Add-Type`).
+- `cache.json` — generated at runtime (gitignored); delete it or pass `-NoCache` to force a rescan.
 
 ## Notes
 
