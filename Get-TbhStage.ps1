@@ -59,6 +59,12 @@ $OFF = @{
     CSD_stageKey    = 0x58
     CSD_stageWave   = 0x5C
     CSD_playTime    = 0x20
+    CSD_petKey      = 0x40
+    CSD_heroKeys    = 0x48   # int[] of deployed hero keys
+    # HeroInfoData
+    HID_HeroKey     = 0x30
+    HID_HeroNameKey = 0x38
+    HID_ClassType   = 0x48   # EEquipClassType
     # StageInfoData
     SID_StageKey    = 0x30
     SID_StageNameKey= 0x38
@@ -71,6 +77,9 @@ $OFF = @{
 }
 $DIFF = @('NORMAL','NIGHTMARE','HELL','TORMENT')
 $STYPE = @('NORMAL','ACTBOSS')
+# EEquipClassType: each hero maps 1:1 to a class, which doubles as its name
+$HCLASS = @('All','Knight','Ranger','Sorcerer','Priest','Hunter','Slayer')
+$CACHE_VERSION = 2
 
 function Get-GameStamp($proc) {
     # Identifies the game build; invalidates the cached stage table on updates.
@@ -114,6 +123,24 @@ function Build-StageTable($mem) {
     return $table
 }
 
+function Build-HeroTable($mem) {
+    # heroKey -> class/display name, from HeroInfoData instances
+    $hidKlass = $mem.FindClass('HeroInfoData', 'TaskbarHero.Data')
+    $table = @{}
+    if ($hidKlass -eq 0) { return $table }
+    foreach ($r in $mem.FindInstances($hidKlass, 4096)) {
+        $key = $mem.ReadInt($r + $OFF.HID_HeroKey)
+        if ($key -le 0 -or $key -gt 99999) { continue }
+        # real rows have a HeroNameKey string; false positives don't
+        $nameKey = $mem.ReadIl2CppString($mem.ReadPtr($r + $OFF.HID_HeroNameKey), 64)
+        if (-not $nameKey) { continue }
+        $ct = $mem.ReadInt($r + $OFF.HID_ClassType)
+        $name = if ($ct -ge 1 -and $ct -lt $HCLASS.Count) { $HCLASS[$ct] } else { $nameKey }
+        if (-not $table.ContainsKey([string]$key)) { $table[[string]$key] = $name }
+    }
+    return $table
+}
+
 function Find-LiveSaveData($mem) {
     # Returns @{ CsdAddr; CsdKlass } for the live CommonSaveData object.
     $psdKlass = $mem.FindClass('PlayerSaveData', 'TaskbarHero')
@@ -133,6 +160,14 @@ function Resolve-Targets($mem, $proc) {
     $bootId = "$($proc.Id)|$($proc.StartTime.ToFileTimeUtc())"
     $cache = Load-Cache
 
+    if ($cache -and $cache.version -ne $CACHE_VERSION) { $cache = $null }
+
+    function ConvertTo-Hashtable($psobj) {
+        $h = @{}
+        if ($psobj) { foreach ($p in $psobj.PSObject.Properties) { $h[$p.Name] = $p.Value } }
+        return $h
+    }
+
     # Fast path: same game process still alive -> reuse addresses after validating.
     if ($cache -and $cache.bootId -eq $bootId -and $cache.gameStamp -eq $stamp) {
         $csd = [long]$cache.csdAddr
@@ -140,20 +175,22 @@ function Resolve-Targets($mem, $proc) {
             $key = $mem.ReadInt($csd + $OFF.CSD_stageKey)
             if ($key -ge 0 -and $key -lt 1000000) {
                 Write-Host 'Address cache hit - skipping memory scan.' -ForegroundColor DarkGray
-                $table = @{}
-                foreach ($p in $cache.table.PSObject.Properties) { $table[$p.Name] = $p.Value }
-                return [pscustomobject]@{ CsdAddr = $csd; Table = $table }
+                return [pscustomobject]@{
+                    CsdAddr = $csd
+                    Table   = ConvertTo-Hashtable $cache.table
+                    Heroes  = ConvertTo-Hashtable $cache.heroTable
+                }
             }
         }
         Write-Host 'Cached address failed validation - rescanning.' -ForegroundColor DarkGray
     }
 
-    # Stage table: reusable across restarts of the same game build.
-    $table = $null
+    # Static tables: reusable across restarts of the same game build.
+    $table = $null; $heroTable = $null
     if ($cache -and $cache.gameStamp -eq $stamp -and $cache.table) {
-        $table = @{}
-        foreach ($p in $cache.table.PSObject.Properties) { $table[$p.Name] = $p.Value }
-        Write-Host "Stage table from cache ($($table.Count) entries) - scanning live object only..." -ForegroundColor DarkGray
+        $table = ConvertTo-Hashtable $cache.table
+        $heroTable = ConvertTo-Hashtable $cache.heroTable
+        Write-Host "Static tables from cache - scanning live object only..." -ForegroundColor DarkGray
     }
 
     $live = Find-LiveSaveData $mem
@@ -161,15 +198,21 @@ function Resolve-Targets($mem, $proc) {
         Write-Host 'Building stage table (one-time full scan)...' -ForegroundColor DarkGray
         $table = Build-StageTable $mem
     }
+    if ($null -eq $heroTable -or $heroTable.Count -eq 0) {
+        Write-Host 'Building hero table...' -ForegroundColor DarkGray
+        $heroTable = Build-HeroTable $mem
+    }
 
     Save-Cache ([pscustomobject]@{
+        version   = $CACHE_VERSION
         gameStamp = $stamp
         bootId    = $bootId
         csdAddr   = $live.CsdAddr
         csdKlass  = $live.CsdKlass
         table     = $table
+        heroTable = $heroTable
     })
-    return [pscustomobject]@{ CsdAddr = $live.CsdAddr; Table = $table }
+    return [pscustomobject]@{ CsdAddr = $live.CsdAddr; Table = $table; Heroes = $heroTable }
 }
 
 function Read-Stage($mem, $ctx) {
@@ -177,9 +220,27 @@ function Read-Stage($mem, $ctx) {
     $wave     = $mem.ReadInt($ctx.CsdAddr + $OFF.CSD_stageWave)
     $maxStage = $mem.ReadInt($ctx.CsdAddr + $OFF.CSD_maxStage)
     $info     = $ctx.Table[[string]$key]
+
+    # deployed heroes: int[] pointer re-read every poll (array is replaced on re-arrange)
+    $heroes = @()
+    $arr = $mem.ReadPtr($ctx.CsdAddr + $OFF.CSD_heroKeys)
+    if ($arr -ne 0) {
+        $len = $mem.ReadInt($arr + 0x18)
+        if ($len -gt 0 -and $len -le 16) {
+            for ($i = 0; $i -lt $len; $i++) {
+                $hk = $mem.ReadInt($arr + 0x20 + 4 * $i)
+                if ($hk -le 0) { continue }
+                $hn = $ctx.Heroes[[string]$hk]
+                $heroes += [pscustomobject]@{ key = $hk; name = if ($hn) { $hn } else { "Hero_$hk" } }
+            }
+        }
+    }
+    $petKey = $mem.ReadInt($ctx.CsdAddr + $OFF.CSD_petKey)
+
     $label = if ($info) {
         "Act $($info.Act) - Stage $($info.StageNo)  (Lv $($info.Level), $($info.Difficulty), $($info.WaveAmount) waves)"
     } else { "StageKey $key" }
+    if ($heroes.Count -gt 0) { $label += "  |  " + (($heroes | ForEach-Object { $_.name }) -join ', ') }
     return [pscustomobject]@{
         stageKey          = $key
         savedWave         = $wave
@@ -191,6 +252,8 @@ function Read-Stage($mem, $ctx) {
         difficulty        = if ($info) { $info.Difficulty } else { $null }
         stageType         = if ($info) { $info.StageType } else { $null }
         nameKey           = if ($info) { $info.NameKey } else { $null }
+        heroes            = $heroes
+        petKey            = $petKey
         label             = $label
         timestamp         = (Get-Date).ToString('s')
     }

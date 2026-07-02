@@ -39,7 +39,10 @@ Example output:
 ```json
 {"stageKey":3305,"savedWave":20,"maxCompletedStage":3307,"act":3,"stageNo":5,
  "level":74,"waveAmount":27,"difficulty":"HELL","stageType":"NORMAL",
- "nameKey":"StageName_1305","label":"Act 3 - Stage 5  (Lv 74, HELL, 27 waves)"}
+ "nameKey":"StageName_1305",
+ "heroes":[{"key":201,"name":"Ranger"},{"key":301,"name":"Sorcerer"},{"key":401,"name":"Priest"}],
+ "petKey":1005,
+ "label":"Act 3 - Stage 5  (Lv 74, HELL, 27 waves)  |  Ranger, Sorcerer, Priest"}
 ```
 
 ## What each field means
@@ -50,6 +53,12 @@ Example output:
 | `act`, `stageNo`, `level`, `waveAmount`, `difficulty`, `stageType`, `nameKey` | `StageInfoData` table, looked up by `stageKey` | Static definition |
 | `savedWave` | `CommonSaveData.currentStageWave` | **Only updates on game save**, not per wave |
 | `maxCompletedStage` | `CommonSaveData.maxCompletedStage` | Updates on clear |
+| `heroes` | `CommonSaveData.arrangedHeroKey` (int[]) + `HeroInfoData` table | Updates when you re-arrange your party |
+| `petKey` | `CommonSaveData.ArrangedPetKey` | Updates when you swap pets |
+
+Hero names come from `EEquipClassType` — each hero maps 1:1 to a class:
+Knight (101), Ranger (201), Sorcerer (301), Priest (401), Hunter (501), Slayer (601).
+Pet names are only available as localization keys, so `petKey` stays numeric.
 
 `nameKey` (e.g. `StageName_1305`) is a localization key; the display name comes
 from the game's language table, which this tool does not read.
@@ -90,6 +99,11 @@ PlayerSaveData.commonSaveData     +0x10
 CommonSaveData.maxCompletedStage  +0x54   (int)
 CommonSaveData.currentStageKey    +0x58   (int)
 CommonSaveData.currentStageWave   +0x5C   (int)
+CommonSaveData.ArrangedPetKey     +0x40   (int)
+CommonSaveData.arrangedHeroKey    +0x48   (int[]: length +0x18, elements +0x20)
+HeroInfoData.HeroKey              +0x30   (int)
+HeroInfoData.HeroNameKey          +0x38   (System.String)
+HeroInfoData.ClassType            +0x48   (EEquipClassType: 1 Knight, 2 Ranger, 3 Sorcerer, 4 Priest, 5 Hunter, 6 Slayer)
 StageInfoData.StageKey            +0x30   (int)
 StageInfoData.StageNameKey        +0x38   (System.String)
 StageInfoData.STAGETYPE           +0x40   (EStageType:   0 NORMAL, 1 ACTBOSS)
