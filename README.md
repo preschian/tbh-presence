@@ -11,10 +11,38 @@ Ranger Lv80, Sorcerer Lv23, Priest Lv35
 23:41 elapsed
 ```
 
-## Rich Presence
+## TbhPresence.exe — portable single file (recommended)
+
+Build once, then distribute/run the exe anywhere — no PowerShell, no execution
+policy, no runtime install (uses .NET Framework 4.x, preinstalled on Windows 10/11):
 
 ```powershell
-.\Start-TbhPresence.ps1                      # default: poll every 15s
+.\build.ps1        # compiles src\*.cs with Windows' built-in csc.exe
+.\TbhPresence.exe  # run it (double-click works too)
+```
+
+```
+TbhPresence.exe                 run presence (default)
+TbhPresence.exe --once          print one state reading as JSON and exit
+  --interval <sec>              poll interval (default 5)
+  --client-id <id>              Discord application id
+  --no-cache                    ignore the address cache, full rescan
+```
+
+The exe keeps its address cache in `%LOCALAPPDATA%\tbh-presence\cache.txt`.
+First run per game build does a full scan (~90s); afterwards it starts
+instantly. It waits for the game/Discord if they aren't running yet, so you can
+autostart it at login (Task Scheduler or the `shell:startup` folder).
+
+Distribution note: it's an unsigned exe that reads another process's memory, so
+SmartScreen/antivirus may warn on other machines — "More info → Run anyway", or
+build from source with `build.ps1`. Prefer sharing via GitHub Releases rather
+than committing the binary.
+
+## Rich Presence (PowerShell version)
+
+```powershell
+.\Start-TbhPresence.ps1                      # default: poll every 5s
 .\Start-TbhPresence.ps1 -IntervalSeconds 30  # slower polling
 .\Start-TbhPresence.ps1 -ClientId <id>       # use your own Discord application
 ```
@@ -158,6 +186,7 @@ update the offsets in `Get-TbhStage.ps1` (`$OFF`) if they moved.
 
 ## Files
 
+- `src\*.cs` + `build.ps1` — the portable `TbhPresence.exe` (reader + presence in one binary).
 - `Start-TbhPresence.ps1` — Discord Rich Presence (polls the reader, pushes to Discord IPC).
 - `Get-TbhStage.ps1` — the monitor (resolve + poll + report/JSON, address cache, auto-reattach).
 - `TbhMemory.cs` — read-only memory reader + IL2CPP class/object locator (compiled via `Add-Type`).
