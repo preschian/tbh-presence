@@ -16,15 +16,16 @@
     game is closed. Ctrl+C to quit.
 
 .PARAMETER IntervalSeconds
-    How often to poll the game and (on change) update Discord. Default 15
-    (Discord rate-limits presence updates; don't go much lower).
+    How often to poll the game and (on change) update Discord. Default 5,
+    which stays within Discord's SET_ACTIVITY rate limit (5 updates / 20s)
+    even if every poll changed.
 
 .PARAMETER ClientId
     Discord application id. Default: the TaskbarHero presence app.
 #>
 [CmdletBinding()]
 param(
-    [int]$IntervalSeconds = 15,
+    [int]$IntervalSeconds = 5,
     [string]$ClientId = '1522386796078432429'
 )
 

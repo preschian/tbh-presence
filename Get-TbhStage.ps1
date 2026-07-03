@@ -72,6 +72,12 @@ $OFF = @{
     HSD_level       = 0x14
     HSD_unlocked    = 0x18
     HSD_exp         = 0x1C
+    # vb.uu static fields (live stage system)
+    UU_currentCache = 0x88   # vb.StageCache bezt: the stage currently loaded
+    # vb.StageCache
+    SC_infoData     = 0x10   # StageInfoData
+    # Il2CppClass
+    KLASS_staticFields = 0xB8
     # StageInfoData
     SID_StageKey    = 0x30
     SID_StageNameKey= 0x38
@@ -86,7 +92,7 @@ $DIFF = @('NORMAL','NIGHTMARE','HELL','TORMENT')
 $STYPE = @('NORMAL','ACTBOSS')
 # EEquipClassType: each hero maps 1:1 to a class, which doubles as its name
 $HCLASS = @('All','Knight','Ranger','Sorcerer','Priest','Hunter','Slayer')
-$CACHE_VERSION = 3
+$CACHE_VERSION = 4
 
 function Get-GameStamp($proc) {
     # Identifies the game build; invalidates the cached stage table on updates.
@@ -148,6 +154,30 @@ function Build-HeroTable($mem) {
     return $table
 }
 
+function Find-LiveStageStatics($mem) {
+    # Locates the static-field block of vb.uu (the live stage system) and the
+    # StageCache class pointer. Self-validating: the block is only accepted if
+    # its +0x88 slot points at a StageCache instance.
+    # Returns @{ Statics; ScKlass } or $null (non-fatal; save data is the fallback).
+    $scKlass = $mem.FindClass('StageCache', '')
+    if ($scKlass -eq 0) { return $null }
+    $pat = [byte[]](0x00, 0x75, 0x75, 0x00)   # "\0uu\0"
+    $strHits = $mem.FindBytes($pat, 256)
+    if ($strHits.Count -eq 0) { return $null }
+    $targets = New-Object 'System.Collections.Generic.HashSet[long]'
+    foreach ($s in $strHits) { [void]$targets.Add($s + 1) }
+    foreach ($r in $mem.FindQwordRefs($targets, 512)) {
+        $klass = $r - 0x10
+        $statics = $mem.ReadPtr($klass + $OFF.KLASS_staticFields)
+        if ($statics -eq 0) { continue }
+        $obj = $mem.ReadPtr($statics + $OFF.UU_currentCache)
+        if ($obj -ne 0 -and $mem.ReadPtr($obj) -eq $scKlass) {
+            return @{ Statics = $statics; ScKlass = $scKlass }
+        }
+    }
+    return $null
+}
+
 function Find-LiveSaveData($mem) {
     # Returns @{ PsdAddr; CsdAddr; CsdKlass } for the live save-data objects.
     $psdKlass = $mem.FindClass('PlayerSaveData', 'TaskbarHero')
@@ -183,11 +213,18 @@ function Resolve-Targets($mem, $proc) {
             $key = $mem.ReadInt($csd + $OFF.CSD_stageKey)
             if ($key -ge 0 -and $key -lt 1000000) {
                 Write-Host 'Address cache hit - skipping memory scan.' -ForegroundColor DarkGray
+                $uuStatics = [long]$cache.uuStatics
+                if ($uuStatics -ne 0) {
+                    # validate the live-stage static block still points at a StageCache
+                    $obj = $mem.ReadPtr($uuStatics + $OFF.UU_currentCache)
+                    if ($obj -eq 0 -or $mem.ReadPtr($obj) -ne [long]$cache.scKlass) { $uuStatics = 0 }
+                }
                 return [pscustomobject]@{
-                    PsdAddr = $psd
-                    CsdAddr = $csd
-                    Table   = ConvertTo-Hashtable $cache.table
-                    Heroes  = ConvertTo-Hashtable $cache.heroTable
+                    PsdAddr   = $psd
+                    CsdAddr   = $csd
+                    UuStatics = $uuStatics
+                    Table     = ConvertTo-Hashtable $cache.table
+                    Heroes    = ConvertTo-Hashtable $cache.heroTable
                 }
             }
         }
@@ -211,6 +248,9 @@ function Resolve-Targets($mem, $proc) {
         Write-Host 'Building hero table...' -ForegroundColor DarkGray
         $heroTable = Build-HeroTable $mem
     }
+    Write-Host 'Locating live stage statics...' -ForegroundColor DarkGray
+    $uu = Find-LiveStageStatics $mem
+    if (-not $uu) { Write-Host 'Live stage statics not found - falling back to save data for stage.' -ForegroundColor Yellow }
 
     Save-Cache ([pscustomobject]@{
         version   = $CACHE_VERSION
@@ -219,14 +259,36 @@ function Resolve-Targets($mem, $proc) {
         psdAddr   = $live.PsdAddr
         csdAddr   = $live.CsdAddr
         csdKlass  = $live.CsdKlass
+        uuStatics = if ($uu) { $uu.Statics } else { 0 }
+        scKlass   = if ($uu) { $uu.ScKlass } else { 0 }
         table     = $table
         heroTable = $heroTable
     })
-    return [pscustomobject]@{ PsdAddr = $live.PsdAddr; CsdAddr = $live.CsdAddr; Table = $table; Heroes = $heroTable }
+    return [pscustomobject]@{
+        PsdAddr   = $live.PsdAddr
+        CsdAddr   = $live.CsdAddr
+        UuStatics = if ($uu) { $uu.Statics } else { 0 }
+        Table     = $table
+        Heroes    = $heroTable
+    }
 }
 
 function Read-Stage($mem, $ctx) {
-    $key      = $mem.ReadInt($ctx.CsdAddr + $OFF.CSD_stageKey)
+    # stage identity: prefer the live loaded stage (vb.uu.bezt -> StageInfoData),
+    # which flips the moment a new stage loads; save data lags until autosave.
+    $key = 0
+    $source = 'save'
+    if ($ctx.UuStatics -ne 0) {
+        $sc = $mem.ReadPtr($ctx.UuStatics + $OFF.UU_currentCache)
+        if ($sc -ne 0) {
+            $sid = $mem.ReadPtr($sc + $OFF.SC_infoData)
+            if ($sid -ne 0) {
+                $k = $mem.ReadInt($sid + $OFF.SID_StageKey)
+                if ($k -gt 0 -and $k -lt 1000000) { $key = $k; $source = 'live' }
+            }
+        }
+    }
+    if ($key -eq 0) { $key = $mem.ReadInt($ctx.CsdAddr + $OFF.CSD_stageKey) }
     $wave     = $mem.ReadInt($ctx.CsdAddr + $OFF.CSD_stageWave)
     $maxStage = $mem.ReadInt($ctx.CsdAddr + $OFF.CSD_maxStage)
     $info     = $ctx.Table[[string]$key]
@@ -285,6 +347,7 @@ function Read-Stage($mem, $ctx) {
         nameKey           = if ($info) { $info.NameKey } else { $null }
         heroes            = $heroes
         petKey            = $petKey
+        stageSource       = $source
         label             = $label
         timestamp         = (Get-Date).ToString('s')
     }
