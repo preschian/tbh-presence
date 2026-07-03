@@ -1,0 +1,47 @@
+name: Build and release
+
+# Builds TbhPresence.exe on a Windows runner and attaches it to a GitHub Release.
+# Trigger by pushing a version tag, e.g.:
+#     git tag v1.0.0 && git push origin v1.0.0
+# Or run manually from the Actions tab (produces a build artifact, no release).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build TbhPresence.exe
+        shell: pwsh
+        run: |
+          $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          if (-not (Test-Path $csc)) { throw "csc.exe not found at $csc" }
+          & $csc /nologo /optimize+ /target:exe /platform:anycpu `
+              /out:TbhPresence.exe `
+              /r:System.Web.Extensions.dll `
+              src\*.cs
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+          Get-Item TbhPresence.exe | Select-Object Name, Length
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TbhPresence
+          path: TbhPresence.exe
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: TbhPresence.exe
+          generate_release_notes: true

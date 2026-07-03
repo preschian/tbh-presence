@@ -39,6 +39,19 @@ SmartScreen/antivirus may warn on other machines — "More info → Run anyway",
 build from source with `build.ps1`. Prefer sharing via GitHub Releases rather
 than committing the binary.
 
+### Releasing
+
+Pushing a version tag builds the exe on a Windows runner and publishes it as a
+GitHub Release asset (see `.github/workflows/release.yml`):
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+You can also trigger the workflow manually from the **Actions** tab to get a
+build artifact without cutting a release.
+
 ## Rich Presence (PowerShell version)
 
 ```powershell
