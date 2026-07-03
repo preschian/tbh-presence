@@ -2,8 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Threading;
+using System.Runtime.InteropServices;
 using System.Web.Script.Serialization;
+using System.Windows.Forms;
 
 namespace TbhPresence
 {
@@ -12,11 +13,22 @@ namespace TbhPresence
         const string GAME = "TaskBarHero";
         const string DEFAULT_CLIENT_ID = "1522386796078432429";
 
-        static volatile bool _running = true;
+        [DllImport("kernel32.dll")] static extern bool AttachConsole(int pid);
+        [DllImport("kernel32.dll")] static extern bool AllocConsole();
+        [DllImport("kernel32.dll")] static extern bool FreeConsole();
+        const int ATTACH_PARENT_PROCESS = -1;
 
+        static string CachePath()
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "tbh-presence", "cache.txt");
+        }
+
+        [STAThread]
         static int Main(string[] argv)
         {
-            bool once = false, noCache = false;
+            bool once = false, noCache = false, console = false;
             int interval = 5;
             string clientId = DEFAULT_CLIENT_ID;
 
@@ -25,55 +37,68 @@ namespace TbhPresence
                 switch (argv[i])
                 {
                     case "--once": once = true; break;
+                    case "--console": console = true; break;
                     case "--no-cache": noCache = true; break;
                     case "--interval": interval = int.Parse(argv[++i]); break;
                     case "--client-id": clientId = argv[++i]; break;
                     case "-h":
                     case "--help":
-                        Console.WriteLine("TbhPresence - TaskBarHero Discord Rich Presence (read-only memory reader)");
-                        Console.WriteLine();
-                        Console.WriteLine("  TbhPresence.exe                 run presence (default)");
-                        Console.WriteLine("  TbhPresence.exe --once          print one state reading as JSON and exit");
-                        Console.WriteLine("  --interval <sec>                poll interval (default 5)");
-                        Console.WriteLine("  --client-id <id>                Discord application id");
-                        Console.WriteLine("  --no-cache                      ignore the address cache, full rescan");
-                        return 0;
+                        return ShowHelp();
                     default:
+                        EnsureConsole();
                         Console.Error.WriteLine("unknown argument: " + argv[i]);
                         return 2;
                 }
             }
             if (interval < 1) interval = 1;
 
-            string cachePath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "tbh-presence", "cache.txt");
+            if (once) return RunOnce(noCache);
 
-            if (once) return RunOnce(noCache, cachePath);
-            return RunPresence(noCache, interval, clientId, cachePath);
-        }
-
-        static Process FindGame()
-        {
-            var procs = Process.GetProcessesByName(GAME);
-            return procs.Length > 0 ? procs[0] : null;
-        }
-
-        static void Log(string msg) { Log(msg, ConsoleColor.Gray); }
-        static void Log(string msg, ConsoleColor color)
-        {
-            Console.ForegroundColor = color;
-            Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss") + "] " + msg);
-            Console.ResetColor();
-        }
-
-        static int RunOnce(bool noCache, string cachePath)
-        {
-            var proc = FindGame();
-            if (proc == null) { Console.Error.WriteLine("TaskBarHero is not running."); return 1; }
-            using (var mem = new Mem(proc.Id))
+            // One presence at a time: two would fight over Discord.
+            bool createdNew;
+            using (var mutex = new System.Threading.Mutex(true, "TbhPresence.SingleInstance", out createdNew))
             {
-                var reader = new GameReader(mem, proc, cachePath);
+                if (!createdNew)
+                {
+                    EnsureConsole();
+                    Console.Error.WriteLine("TbhPresence is already running (see the system tray).");
+                    return 1;
+                }
+                if (console) return RunConsole(noCache, interval, clientId);
+                return RunTray(noCache, interval, clientId);
+            }
+        }
+
+        // Attach to the parent console (when launched from a terminal) or allocate
+        // one, so console modes can print even though the exe is a Windows-subsystem app.
+        static void EnsureConsole()
+        {
+            if (!AttachConsole(ATTACH_PARENT_PROCESS)) AllocConsole();
+        }
+
+        static int ShowHelp()
+        {
+            EnsureConsole();
+            Console.WriteLine("TbhPresence - TaskBarHero Discord Rich Presence (read-only memory reader)");
+            Console.WriteLine();
+            Console.WriteLine("  TbhPresence.exe                 run in the system tray (no window)");
+            Console.WriteLine("  TbhPresence.exe --console       run in the console with live logging");
+            Console.WriteLine("  TbhPresence.exe --once          print one state reading as JSON and exit");
+            Console.WriteLine();
+            Console.WriteLine("  --interval <sec>                poll interval (default 5)");
+            Console.WriteLine("  --client-id <id>                Discord application id");
+            Console.WriteLine("  --no-cache                      ignore the address cache, full rescan");
+            return 0;
+        }
+
+        static int RunOnce(bool noCache)
+        {
+            EnsureConsole();
+            var proc = Process.GetProcessesByName(GAME);
+            if (proc.Length == 0) { Console.Error.WriteLine("TaskBarHero is not running."); return 1; }
+            using (var mem = new Mem(proc[0].Id))
+            {
+                var reader = new GameReader(mem, proc[0], CachePath());
                 reader.Resolve(noCache, delegate(string m) { Console.Error.WriteLine(m); });
                 var st = reader.Read();
                 var o = new Dictionary<string, object>();
@@ -102,114 +127,29 @@ namespace TbhPresence
             return 0;
         }
 
-        static int RunPresence(bool noCache, int interval, string clientId, string cachePath)
+        static int RunConsole(bool noCache, int interval, string clientId)
         {
-            Console.CancelKeyPress += delegate(object s, ConsoleCancelEventArgs e)
+            EnsureConsole();
+            var engine = new PresenceEngine(noCache, interval, clientId, CachePath());
+            engine.OnStatus += delegate(string s)
+            {
+                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss") + "] " + s);
+            };
+            Console.CancelKeyPress += delegate(object o, ConsoleCancelEventArgs e)
             {
                 e.Cancel = true;
-                _running = false;
+                engine.Stop();
             };
-            Log("TaskBarHero Rich Presence - client id " + clientId + ". Ctrl+C to quit.", ConsoleColor.Cyan);
-
-            var discord = new DiscordRpc(clientId);
-            string lastSent = null;          // null = nothing sent yet, "" = cleared
-            DateTime lastDiscordTry = DateTime.MinValue;
-
-            try
-            {
-                while (_running)
-                {
-                    // 1. game process
-                    var proc = FindGame();
-                    if (proc == null)
-                    {
-                        if (lastSent != "" && discord.Connected)
-                        {
-                            try { discord.ClearActivity(); Log("game closed - presence cleared", ConsoleColor.Yellow); }
-                            catch { discord.Dispose(); }
-                            lastSent = "";
-                        }
-                        SleepInterruptible(5);
-                        continue;
-                    }
-
-                    // 2. attach + resolve (retries until the save data exists)
-                    Log("attached to " + GAME + " (PID " + proc.Id + ")", ConsoleColor.Cyan);
-                    using (var mem = new Mem(proc.Id))
-                    {
-                        var reader = new GameReader(mem, proc, cachePath);
-                        bool resolved = false;
-                        while (_running && !proc.HasExited && !resolved)
-                        {
-                            try
-                            {
-                                reader.Resolve(noCache, delegate(string m) { Log(m, ConsoleColor.DarkGray); });
-                                resolved = true;
-                            }
-                            catch (Exception ex)
-                            {
-                                Log("not ready (" + ex.Message + ") - retrying in 10s...", ConsoleColor.Yellow);
-                                SleepInterruptible(10);
-                            }
-                        }
-                        if (!resolved) continue;
-
-                        long startEpoch = 0;
-                        try { startEpoch = new DateTimeOffset(proc.StartTime).ToUnixTimeSeconds(); } catch { }
-
-                        // 3. poll loop
-                        while (_running && !proc.HasExited)
-                        {
-                            // ensure Discord connection (retry every 30s)
-                            if (!discord.Connected && (DateTime.Now - lastDiscordTry).TotalSeconds >= 30)
-                            {
-                                lastDiscordTry = DateTime.Now;
-                                if (discord.Connect()) { Log("connected to Discord", ConsoleColor.Cyan); lastSent = null; }
-                                else Log("Discord not running - will retry", ConsoleColor.Yellow);
-                            }
-
-                            GameState st = null;
-                            try { st = reader.Read(); } catch { }
-                            if (st != null && st.StageKey > 0 && discord.Connected)
-                            {
-                                string sig = st.Details() + "|" + st.PartyLine();
-                                if (sig != lastSent)
-                                {
-                                    try
-                                    {
-                                        discord.SetActivity(st.Details(), st.PartyLine(), startEpoch);
-                                        Log("presence: " + st.Label(), ConsoleColor.Green);
-                                        lastSent = sig;
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        Log("Discord lost (" + ex.Message + ") - reconnecting...", ConsoleColor.Yellow);
-                                        discord.Dispose();
-                                    }
-                                }
-                            }
-                            SleepInterruptible(interval);
-                        }
-                    }
-                    if (_running) Log("game closed - waiting for restart...", ConsoleColor.Yellow);
-                }
-            }
-            finally
-            {
-                if (discord.Connected)
-                {
-                    try { discord.ClearActivity(); } catch { }
-                }
-                discord.Dispose();
-            }
-            Log("bye");
+            engine.Run();
             return 0;
         }
 
-        static void SleepInterruptible(int seconds)
+        static int RunTray(bool noCache, int interval, string clientId)
         {
-            for (int i = 0; i < seconds * 2 && _running; i++)
-                Thread.Sleep(500);
+            Application.EnableVisualStyles();
+            var engine = new PresenceEngine(noCache, interval, clientId, CachePath());
+            Application.Run(new TrayApp(engine));
+            return 0;
         }
     }
 }

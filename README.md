@@ -22,17 +22,31 @@ policy, no runtime install (uses .NET Framework 4.x, preinstalled on Windows 10/
 ```
 
 ```
-TbhPresence.exe                 run presence (default)
+TbhPresence.exe                 run in the system tray (no window)
+TbhPresence.exe --console       run in the console with live logging
 TbhPresence.exe --once          print one state reading as JSON and exit
   --interval <sec>              poll interval (default 5)
   --client-id <id>              Discord application id
   --no-cache                    ignore the address cache, full rescan
 ```
 
+Default (double-click) runs **windowless in the system tray**: a small icon
+whose menu shows the current stage/party and a **Quit** entry (which clears the
+presence on the way out). Only one presence runs at a time — a second launch
+exits with a notice. Use `--console` when you want to watch the log live.
+
 The exe keeps its address cache in `%LOCALAPPDATA%\tbh-presence\cache.txt`.
 First run per game build does a full scan (~90s); afterwards it starts
-instantly. It waits for the game/Discord if they aren't running yet, so you can
-autostart it at login (Task Scheduler or the `shell:startup` folder).
+instantly. It waits for the game/Discord if they aren't running yet.
+
+### Autostart at login
+
+Because it just waits for the game, you can start it with Windows and forget it:
+
+- Press <kbd>Win</kbd>+<kbd>R</kbd>, run `shell:startup`, and drop a shortcut to
+  `TbhPresence.exe` in that folder; **or**
+- Task Scheduler → Create Task → trigger "At log on" → action: start
+  `TbhPresence.exe`.
 
 Distribution note: it's an unsigned exe that reads another process's memory, so
 SmartScreen/antivirus may warn on other machines — "More info → Run anyway", or
@@ -199,7 +213,7 @@ update the offsets in `Get-TbhStage.ps1` (`$OFF`) if they moved.
 
 ## Files
 
-- `src\*.cs` + `build.ps1` — the portable `TbhPresence.exe` (reader + presence in one binary).
+- `src\*.cs` + `build.ps1` — the portable `TbhPresence.exe` (reader + presence + tray in one binary).
 - `Start-TbhPresence.ps1` — Discord Rich Presence (polls the reader, pushes to Discord IPC).
 - `Get-TbhStage.ps1` — the monitor (resolve + poll + report/JSON, address cache, auto-reattach).
 - `TbhMemory.cs` — read-only memory reader + IL2CPP class/object locator (compiled via `Add-Type`).
