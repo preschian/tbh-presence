@@ -61,7 +61,7 @@ namespace TbhPresence
                     activity["timestamps"] = ts;
                 }
                 var assets = new Dictionary<string, object>();
-                assets["large_image"] = "logo_2x";   // uploaded in the Discord dev portal (Rich Presence > Art Assets)
+                assets["large_image"] = "tbh";   // uploaded in the Discord dev portal (Rich Presence > Art Assets)
                 assets["large_text"] = "TaskBarHero";
                 activity["assets"] = assets;
                 args["activity"] = activity;

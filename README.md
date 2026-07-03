@@ -85,10 +85,10 @@ https://discord.com/developers/applications — its name is what "Playing …"
 shows, so name the application `TaskBarHero`). No bot token or secret is
 involved.
 
-The presence references an art asset named `logo_2x` (the large image). Upload
-`assets\logo_2x.png` in the developer portal under **Rich Presence → Art
-Assets** with exactly that name; until it exists Discord simply shows no image.
-Asset changes can take a few minutes (and a Discord restart) to propagate.
+The presence references an art asset named `tbh` (the large image). Upload
+`assets\tbh.jpg` in the developer portal under **Rich Presence → Art Assets**
+with exactly that name; until it exists Discord simply shows no image. Asset
+changes can take a few minutes (and a Discord restart) to propagate.
 
 ## Stage reader (standalone)
 
