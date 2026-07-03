@@ -24,17 +24,10 @@ jobs:
       - name: Build TbhPresence.exe
         shell: pwsh
         run: |
-          $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-          if (-not (Test-Path $csc)) { throw "csc.exe not found at $csc" }
-          & $csc /nologo /optimize+ /target:winexe /platform:anycpu `
-              /out:TbhPresence.exe `
-              /win32icon:assets\app.ico `
-              /r:System.Web.Extensions.dll `
-              /r:System.Windows.Forms.dll `
-              /r:System.Drawing.dll `
-              src\*.cs
-          if ($LASTEXITCODE -ne 0) { throw "build failed" }
-          Get-Item TbhPresence.exe | Select-Object Name, Length
+          # version from the tag (refs/tags/v1.2.3 -> 1.2.3); dev fallback otherwise
+          $ver = if ($env:GITHUB_REF -like 'refs/tags/*') { ($env:GITHUB_REF -replace '^refs/tags/v?', '') } else { '0.0.0' }
+          .\build.ps1 -Version $ver
+          Get-Item TbhPresence.exe | Select-Object Name, Length, VersionInfo
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
