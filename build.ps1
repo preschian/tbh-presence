@@ -9,6 +9,7 @@ $out = Join-Path $here 'TbhPresence.exe'
 # /target:winexe -> no console window in tray mode (console modes attach on demand)
 & $csc /nologo /optimize+ /target:winexe /platform:anycpu `
     /out:$out `
+    "/win32icon:$(Join-Path $here 'assets\app.ico')" `
     /r:System.Web.Extensions.dll `
     /r:System.Windows.Forms.dll `
     /r:System.Drawing.dll `

@@ -28,6 +28,7 @@ jobs:
           if (-not (Test-Path $csc)) { throw "csc.exe not found at $csc" }
           & $csc /nologo /optimize+ /target:winexe /platform:anycpu `
               /out:TbhPresence.exe `
+              /win32icon:assets\app.ico `
               /r:System.Web.Extensions.dll `
               /r:System.Windows.Forms.dll `
               /r:System.Drawing.dll `

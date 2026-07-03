@@ -25,7 +25,7 @@ namespace TbhPresence
             menu.Items.Add(quit);
 
             _icon = new NotifyIcon();
-            _icon.Icon = MakeIcon();
+            _icon.Icon = LoadIcon();
             _icon.Text = "TaskBarHero Presence";   // tooltip (<= 63 chars)
             _icon.Visible = true;
             _icon.ContextMenuStrip = menu;
@@ -63,6 +63,19 @@ namespace TbhPresence
         static string Truncate(string s, int max)
         {
             return s != null && s.Length > max ? s.Substring(0, max) : s;
+        }
+
+        // The exe's own icon (embedded TBH logo via /win32icon); drawn fallback
+        // keeps things working if extraction ever fails.
+        static Icon LoadIcon()
+        {
+            try
+            {
+                var ico = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+                if (ico != null) return ico;
+            }
+            catch { }
+            return MakeIcon();
         }
 
         // Draw a tiny icon at runtime so the exe stays a single self-contained file.
