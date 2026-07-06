@@ -174,6 +174,21 @@ dotnet build autosynth/TbhAutoSynth.csproj -c Release
 present (the exe deploys it to the game's `BepInEx\plugins` at runtime); without
 it the exe builds fine and simply skips deployment.
 
+## Installing BepInEx manually
+
+The Status & Settings window has a **Set up auto-synthesis** button that
+downloads and installs BepInEx automatically (`src/BepInExSetup.cs`, pinned to
+a validated bleeding-edge build). To do it by hand instead:
+
+1. Back up your save:
+   `%USERPROFILE%\AppData\LocalLow\TesseractStudio\TaskbarHero\SaveFile_Live.es3`
+2. Download the newest `BepInEx-Unity.IL2CPP-win-x64-*.zip` from
+   [builds.bepinex.dev/projects/bepinex_be](https://builds.bepinex.dev/projects/bepinex_be).
+3. Extract it into the game folder so `winhttp.dll` and `BepInEx\` sit next to
+   `TaskBarHero.exe`.
+4. Launch the game once (BepInEx generates its interop assemblies), then close.
+5. With `TbhCompanion.exe` running, the plugin is deployed automatically.
+
 ## Command-line options
 
 ```

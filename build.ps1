@@ -40,6 +40,8 @@ try {
         /r:System.Web.Extensions.dll `
         /r:System.Windows.Forms.dll `
         /r:System.Drawing.dll `
+        /r:System.IO.Compression.dll `
+        /r:System.IO.Compression.FileSystem.dll `
         @resArgs `
         (Join-Path $here 'src\*.cs')
     if ($LASTEXITCODE -ne 0) { throw "build failed" }

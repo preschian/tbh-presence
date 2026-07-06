@@ -42,22 +42,21 @@ To stop the app, right-click the tray icon and choose **Quit**.
 
 ## Setting up auto-synthesis (one time)
 
-The auto-synthesis feature is a small mod that runs inside the game, which
-needs the free mod loader **BepInEx** installed once:
+Auto-synthesis is a small mod that runs inside the game, which needs the free
+mod loader **BepInEx** installed once. The app can do this for you:
 
-1. **Back up your save** (copy this file somewhere safe):
-   `%USERPROFILE%\AppData\LocalLow\TesseractStudio\TaskbarHero\SaveFile_Live.es3`
-2. Download BepInEx: get the newest
-   `BepInEx-Unity.IL2CPP-win-x64-*.zip` from
-   [builds.bepinex.dev/projects/bepinex_be](https://builds.bepinex.dev/projects/bepinex_be).
-3. Extract the zip **into the game folder**
-   (`...\Steam\steamapps\common\TaskbarHero`), so `winhttp.dll` and the
-   `BepInEx` folder sit next to `TaskBarHero.exe`.
-4. Start the game once and wait about a minute (BepInEx sets itself up), then
-   close it.
-5. Make sure `TbhCompanion.exe` is running — it installs and updates the mod
-   into the game automatically from now on.
-6. Start the game again. Done.
+1. With TaskBarHero **closed**, open the Status & Settings window (double-click
+   the tray icon).
+2. Click **Set up auto-synthesis** and confirm. The app backs up your save,
+   downloads BepInEx, and installs it into the game folder for you.
+3. Start TaskBarHero once and wait about a minute (BepInEx finishes setting
+   itself up), then open the **Cube** panel.
+
+That's it — the button disappears once it's installed, and the app keeps the
+mod up to date after that.
+
+> Prefer to do it by hand? The manual steps (download BepInEx, extract into the
+> game folder) are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Using auto-synthesis
 

@@ -28,6 +28,10 @@ namespace TbhCompanion
 
         Label _presenceDot, _presenceText;
         Label _synthDot, _synthText, _synthDetail;
+        FlowLayoutPanel _setupPanel;
+        Button _setupBtn;
+        Label _setupNote;
+        bool _setupRunning;
         CheckBox _autoStart;
         ComboBox _maxGrade;
         NumericUpDown _cycleMin, _fillSec, _synthSec;
@@ -74,6 +78,26 @@ namespace TbhCompanion
             _synthDetail.ForeColor = SystemColors.GrayText;
             _synthDetail.Margin = new Padding(24, 2, 0, 0);
             _root.Controls.Add(_synthDetail);
+
+            // Shown only when BepInEx is missing: one-click setup.
+            _setupPanel = new FlowLayoutPanel();
+            _setupPanel.AutoSize = true;
+            _setupPanel.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            _setupPanel.WrapContents = false;
+            _setupPanel.Margin = new Padding(24, 4, 0, 0);
+            _setupBtn = new Button();
+            _setupBtn.Text = "Set up auto-synthesis";
+            _setupBtn.AutoSize = true;
+            _setupBtn.Click += delegate { RunSetup(); };
+            _setupPanel.Controls.Add(_setupBtn);
+            _setupNote = new Label();
+            _setupNote.AutoSize = true;
+            _setupNote.MaximumSize = new Size(300, 0);
+            _setupNote.ForeColor = SystemColors.GrayText;
+            _setupNote.Margin = new Padding(10, 6, 0, 0);
+            _setupPanel.Controls.Add(_setupNote);
+            _root.Controls.Add(_setupPanel);
+
             AddSpacer(10);
 
             AddHeader("Auto Synthesis Settings");
@@ -212,6 +236,78 @@ namespace TbhCompanion
             return n;
         }
 
+        // ---- one-click BepInEx setup ----
+
+        void RunSetup()
+        {
+            if (_setupRunning) return;
+
+            if (!BepInExSetup.GameFound)
+            {
+                MessageBox.Show(this,
+                    "Couldn't find the TaskBarHero game folder.\n\nStart the game once so it can be located, then try again.",
+                    "Set up auto-synthesis", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (BepInExSetup.GameRunning())
+            {
+                MessageBox.Show(this,
+                    "Please close TaskBarHero first, then run setup again.",
+                    "Set up auto-synthesis", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var ok = MessageBox.Show(this,
+                "This will set up auto-synthesis by:\n\n" +
+                "  - backing up your save file\n" +
+                "  - downloading BepInEx (the mod loader, ~35 MB)\n" +
+                "  - installing it into the TaskBarHero folder\n\n" +
+                "The presence feature is unaffected. Continue?",
+                "Set up auto-synthesis", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+            if (ok != DialogResult.OK) return;
+
+            _setupRunning = true;
+            _setupBtn.Enabled = false;
+            _setupNote.Text = "working...";
+
+            var t = new System.Threading.Thread(delegate()
+            {
+                bool success = BepInExSetup.Install(delegate(string s) { PostSetupNote(s); });
+                PostSetupDone(success);
+            });
+            t.IsBackground = true;
+            t.Start();
+        }
+
+        void PostSetupNote(string s)
+        {
+            try
+            {
+                if (IsDisposed) return;
+                BeginInvoke((Action)delegate { _setupNote.Text = s; });
+            }
+            catch { }
+        }
+
+        void PostSetupDone(bool success)
+        {
+            try
+            {
+                if (IsDisposed) return;
+                BeginInvoke((Action)delegate
+                {
+                    _setupRunning = false;
+                    _setupBtn.Enabled = true;
+                    if (success)
+                    {
+                        _setupPanel.Visible = false;
+                        LoadConfig(); // config appears after the game's first run; refresh if present
+                    }
+                });
+            }
+            catch { }
+        }
+
         // ---- live status ----
 
         void UpdateStatus()
@@ -222,6 +318,10 @@ namespace TbhCompanion
             bool waiting = p.IndexOf("waiting", StringComparison.OrdinalIgnoreCase) >= 0;
             _presenceDot.ForeColor = waiting ? Color.Goldenrod : Color.ForestGreen;
             _presenceText.Text = p;
+
+            // offer one-click setup while BepInEx isn't installed (skip during a run)
+            if (!_setupRunning)
+                _setupPanel.Visible = !BepInExSetup.IsInstalled();
 
             // auto-synthesis: read the status file the plugin refreshes every ~3s
             try
