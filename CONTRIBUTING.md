@@ -170,9 +170,13 @@ by BepInEx on first game launch):
 dotnet build autosynth/TbhAutoSynth.csproj -c Release
 ```
 
-`build.ps1` embeds `autosynth\bin\Release\TbhAutoSynth.dll` into the exe when
-present (the exe deploys it to the game's `BepInEx\plugins` at runtime); without
-it the exe builds fine and simply skips deployment.
+`build.ps1` embeds the plugin dll into the exe (the exe deploys it to the
+game's `BepInEx\plugins` at runtime). It uses a fresh `autosynth\bin\Release\`
+build if present, otherwise the committed `autosynth\prebuilt\TbhAutoSynth.dll`.
+CI can't build the plugin (no game to generate the interop assemblies), so it
+relies on the prebuilt copy — **after changing `autosynth\Plugin.cs`, rebuild
+the plugin and refresh `autosynth\prebuilt\TbhAutoSynth.dll` before tagging a
+release**, or the shipped exe carries a stale plugin.
 
 ## Installing BepInEx manually
 

@@ -27,12 +27,15 @@ using System.Reflection;
 
 try {
     $out = Join-Path $here 'TbhCompanion.exe'
-    # embed the auto-synthesis BepInEx plugin when it has been built, so the exe
-    # can deploy it into the game's BepInEx\plugins folder on startup
+    # Embed the auto-synthesis BepInEx plugin so the exe can deploy it into the
+    # game's BepInEx\plugins folder at runtime. Prefer a fresh local build;
+    # fall back to the committed prebuilt copy (the plugin can't be built in CI,
+    # since it references interop assemblies the game generates on first run).
     $synthDll = Join-Path $here 'autosynth\bin\Release\TbhAutoSynth.dll'
+    if (-not (Test-Path $synthDll)) { $synthDll = Join-Path $here 'autosynth\prebuilt\TbhAutoSynth.dll' }
     $resArgs = @()
     if (Test-Path $synthDll) { $resArgs += "/res:$synthDll,TbhAutoSynth.dll" }
-    else { Write-Host "note: $synthDll not found - building without the embedded autosynth plugin" -ForegroundColor Yellow }
+    else { Write-Host "note: TbhAutoSynth.dll not found - building without the embedded autosynth plugin" -ForegroundColor Yellow }
     # /target:winexe -> no console window in tray mode (console modes attach on demand)
     & $csc /nologo /optimize+ /target:winexe /platform:anycpu `
         /out:$out `
