@@ -12,7 +12,7 @@ using UnityEngine.EventSystems;
 
 namespace TbhAutoSynth;
 
-[BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", "0.11.0")]
+[BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", "0.12.0")]
 public class AutoSynthPlugin : BasePlugin
 {
     internal static ManualLogSource Logger;
@@ -40,7 +40,7 @@ public class AutoSynthPlugin : BasePlugin
         if (!ClassInjector.IsTypeRegisteredInIl2Cpp<AutoSynthBehaviour>())
             ClassInjector.RegisterTypeInIl2Cpp<AutoSynthBehaviour>();
         AddComponent<AutoSynthBehaviour>();
-        Logger.LogInfo("TBH Auto Synthesis 0.11.0: F8 = toggle auto (select recipe -> fill -> synth -> clear loop), F9 = click trigger once, F10 = dump cube state.");
+        Logger.LogInfo("TBH Auto Synthesis 0.12.0: F8 = toggle auto (select recipe -> fill -> synth -> clear loop), F9 = click trigger once, F10 = dump cube state.");
     }
 }
 
@@ -54,6 +54,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     private Phase _phase;
     private int _cycles;
     private bool _recipeSelected;
+    private int _recipeAttempts;
     private float _nextTick;
     private UI_Cube _cube;
     private bool _legacyInputBroken;
@@ -77,6 +78,7 @@ public class AutoSynthBehaviour : MonoBehaviour
             _phase = Phase.Fill;
             _cycles = 0;
             _recipeSelected = false;
+            _recipeAttempts = 0;
             _nextTick = 0f;
             AutoSynthPlugin.Logger.LogInfo($"Auto-synthesis: {(_auto ? "ON" : "OFF")}");
         }
@@ -104,10 +106,14 @@ public class AutoSynthBehaviour : MonoBehaviour
             switch (_phase)
             {
                 case Phase.Fill:
-                    if (!_recipeSelected)
+                    if (!_recipeSelected && _recipeAttempts < 5)
                     {
-                        _recipeSelected = true;
-                        SelectHighestUnlockedRecipe();
+                        // the sub-recipe UI is built lazily, so retry until it exists
+                        _recipeAttempts++;
+                        _recipeSelected = SelectHighestUnlockedRecipe();
+                        if (!_recipeSelected && _recipeAttempts >= 5)
+                            AutoSynthPlugin.Logger.LogWarning(
+                                "recipe select: giving up after 5 attempts; using whatever recipe is currently selected");
                         // give the UI a tick to apply the recipe before filling
                         _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
                         break;
@@ -166,7 +172,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         AutoSynthPlugin.Logger.LogInfo($"item grade map built: {_gradeByItemKey.Count} items");
     }
 
-    private void SelectHighestUnlockedRecipe()
+    private bool SelectHighestUnlockedRecipe()
     {
         try
         {
@@ -176,14 +182,14 @@ public class AutoSynthBehaviour : MonoBehaviour
                 if (c != null && c.bfyp == ERecipeType.SYNTHESIS) { synth = c; break; }
             if (synth == null)
             {
-                AutoSynthPlugin.Logger.LogWarning("recipe select: SYNTHESIS sub-recipe combo box not found");
-                return;
+                AutoSynthPlugin.Logger.LogWarning("recipe select: SYNTHESIS sub-recipe combo box not found yet, will retry");
+                return false;
             }
             var buttons = synth.m_subRecipeSlotButton;
             if (buttons == null || buttons.Count == 0)
             {
-                AutoSynthPlugin.Logger.LogWarning("recipe select: no sub-recipe buttons");
-                return;
+                AutoSynthPlugin.Logger.LogWarning("recipe select: no sub-recipe buttons yet, will retry");
+                return false;
             }
             for (int i = buttons.Count - 1; i >= 0; i--)
             {
@@ -193,22 +199,25 @@ public class AutoSynthBehaviour : MonoBehaviour
                 if (b.m_isSelected)
                 {
                     AutoSynthPlugin.Logger.LogInfo($"recipe select: highest unlocked '{label}' already selected");
-                    return;
+                    return true;
                 }
                 var btn = b.m_clickButton;
                 if (btn != null && btn.onClick != null)
                 {
                     btn.onClick.Invoke();
                     AutoSynthPlugin.Logger.LogInfo($"recipe select: picked highest unlocked '{label}'");
+                    return true;
                 }
-                else AutoSynthPlugin.Logger.LogWarning($"recipe select: '{label}' has no click button");
-                return;
+                AutoSynthPlugin.Logger.LogWarning($"recipe select: '{label}' has no click button, will retry");
+                return false;
             }
             AutoSynthPlugin.Logger.LogWarning("recipe select: every sub-recipe is locked");
+            return true; // nothing selectable; don't keep retrying
         }
         catch (Exception e)
         {
             AutoSynthPlugin.Logger.LogError($"recipe select failed: {e}");
+            return false;
         }
     }
 
