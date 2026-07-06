@@ -37,6 +37,20 @@ namespace TbhCompanion
             {
                 switch (argv[i])
                 {
+                    case "--shot":  // dev: render the settings window to a PNG and exit
+                        Application.EnableVisualStyles();
+                        string shotPath = argv[++i];
+                        var form = new StatusForm(delegate { return "Act 3 - Stage 5  (HELL, Lv 74)  |  Ranger Lv80"; });
+                        form.ShowInTaskbar = false;
+                        form.StartPosition = FormStartPosition.Manual;
+                        form.Location = new System.Drawing.Point(-3000, -3000);
+                        form.Show();
+                        for (int k = 0; k < 8; k++) { Application.DoEvents(); System.Threading.Thread.Sleep(60); }
+                        var bmp = new System.Drawing.Bitmap(form.Width, form.Height);
+                        form.DrawToBitmap(bmp, new System.Drawing.Rectangle(0, 0, form.Width, form.Height));
+                        bmp.Save(shotPath);
+                        form.Close();
+                        return 0;
                     case "--once": once = true; break;
                     case "--console": console = true; break;
                     case "--no-cache": noCache = true; break;
@@ -151,7 +165,6 @@ namespace TbhCompanion
 
         static int RunTray(bool noCache, int interval, string clientId)
         {
-            try { SetProcessDPIAware(); } catch { }   // crisp text on high-DPI displays
             Application.EnableVisualStyles();
             AutoSynthDeploy.TryDeploy(delegate(string s) { Debug.WriteLine(s); });
             var engine = new PresenceEngine(noCache, interval, clientId, CachePath());
