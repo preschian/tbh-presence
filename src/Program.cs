@@ -38,6 +38,7 @@ namespace TbhCompanion
                 switch (argv[i])
                 {
                     case "--shot":  // dev: render the settings window to a PNG and exit
+                        try { SetProcessDPIAware(); } catch { }
                         Application.EnableVisualStyles();
                         string shotPath = argv[++i];
                         var form = new StatusForm(delegate { return "Act 3 - Stage 5  (HELL, Lv 74)  |  Ranger Lv80"; });
@@ -165,6 +166,7 @@ namespace TbhCompanion
 
         static int RunTray(bool noCache, int interval, string clientId)
         {
+            try { SetProcessDPIAware(); } catch { }
             Application.EnableVisualStyles();
             AutoSynthDeploy.TryDeploy(delegate(string s) { Debug.WriteLine(s); });
             var engine = new PresenceEngine(noCache, interval, clientId, CachePath());

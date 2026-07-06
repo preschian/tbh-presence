@@ -55,6 +55,10 @@ namespace TbhCompanion
         public static Font F(float size, FontStyle style) { return new Font("Segoe UI", size, style); }
         public static Font FSerif(float size, FontStyle style) { return new Font(Serif, size, style); }
 
+        // DPI scale for a paint surface (1.0 at 96 dpi, 1.25 at 125%, ...).
+        public static float Scale(Graphics g) { return g.DpiX / 96f; }
+        public static float ScaleOf(Control c) { return c.DeviceDpi / 96f; }
+
         static bool FontInstalled(string name)
         {
             try { using (var f = new Font(name, 10f)) return string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase); }
@@ -110,10 +114,11 @@ namespace TbhCompanion
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            float s = Theme.Scale(g);
             var r = ClientRectangle;
             using (var b = new SolidBrush(Parent != null ? Parent.BackColor : Theme.FormBg)) g.FillRectangle(b, r);
-            Theme.FillRound(g, r, Radius, BackColor);
-            Theme.DrawRoundBorder(g, r, Radius, Border, BorderWidth);
+            Theme.FillRound(g, r, (int)(Radius * s), BackColor);
+            Theme.DrawRoundBorder(g, r, (int)(Radius * s), Border, BorderWidth * s);
             base.OnPaint(e);
         }
     }
@@ -135,14 +140,16 @@ namespace TbhCompanion
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            float s = Theme.Scale(g);
             if (Parent != null) using (var b = new SolidBrush(Parent.BackColor)) g.FillRectangle(b, ClientRectangle);
             int h = Height, w = Width;
-            var track = new Rectangle(0, (Height - h) / 2, w, h);
+            var track = new Rectangle(0, 0, w, h);
             Theme.FillRound(g, track, h / 2, Enabled ? (_on ? Theme.Green : Theme.ToggleOff) : Theme.ToggleOff);
-            int kd = h - 6;
-            int kx = _on ? w - kd - 3 : 3;
+            int pad = (int)Math.Round(3 * s);
+            int kd = h - pad * 2;
+            int kx = _on ? w - kd - pad : pad;
             using (var b = new SolidBrush(Color.White))
-                g.FillEllipse(b, kx, 3, kd, kd);
+                g.FillEllipse(b, kx, pad, kd, kd);
         }
     }
 
@@ -165,18 +172,19 @@ namespace TbhCompanion
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            float s = Theme.Scale(g);
             using (var b = new SolidBrush(Parent != null ? Parent.BackColor : Theme.CardBg)) g.FillRectangle(b, ClientRectangle);
             var r = new Rectangle(0, 0, Width, Height);
             Color fill = _sel ? Theme.TypeSelBg : Theme.FormBg;
             Color border = _sel ? Theme.Terracotta : Theme.CardBorder;
             Color text = _sel ? Theme.Terracotta : Theme.TextMuted;
-            Theme.FillRound(g, r, 9, fill);
-            Theme.DrawRoundBorder(g, r, 9, border, _sel ? 2f : 1f);
+            Theme.FillRound(g, r, (int)(9 * s), fill);
+            Theme.DrawRoundBorder(g, r, (int)(9 * s), border, (_sel ? 2f : 1f) * s);
             var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
             using (var f = Theme.F(14f, FontStyle.Regular)) using (var b = new SolidBrush(text))
-                g.DrawString(Icon, f, b, new RectangleF(0, 6, Width, 22), sf);
+                g.DrawString(Icon, f, b, new RectangleF(0, 6 * s, Width, 22 * s), sf);
             using (var f = Theme.F(9.5f, _sel ? FontStyle.Bold : FontStyle.Regular)) using (var b = new SolidBrush(text))
-                g.DrawString(Caption, f, b, new RectangleF(0, 28, Width, 20), sf);
+                g.DrawString(Caption, f, b, new RectangleF(0, 28 * s, Width, 20 * s), sf);
         }
     }
 
@@ -201,22 +209,23 @@ namespace TbhCompanion
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            float s = Theme.Scale(g);
             using (var b = new SolidBrush(Parent != null ? Parent.BackColor : Theme.CardBg)) g.FillRectangle(b, ClientRectangle);
-            int n = 10, gap = 4;
+            int n = 10; float gap = 4 * s;
             float segW = (Width - gap * (n - 1)) / (float)n;
             for (int i = 0; i < n; i++)
             {
                 float x = i * (segW + gap);
                 var r = new Rectangle((int)x, 1, (int)Math.Ceiling(segW), Height - 2);
                 Color c = i <= _value ? Theme.GradeColors[i] : Theme.SegEmpty;
-                int rad = (i == 0 || i == n - 1) ? 5 : 0;
+                int rad = (i == 0 || i == n - 1) ? (int)(5 * s) : 0;
                 // rounded only on the outer ends
                 if (i == 0) FillLeftRound(g, r, rad, c);
                 else if (i == n - 1) FillRightRound(g, r, rad, c);
                 else using (var b = new SolidBrush(c)) g.FillRectangle(b, r);
                 if (i == _value)
                 {
-                    using (var pen = new Pen(Theme.TextDark, 2f))
+                    using (var pen = new Pen(Theme.TextDark, 2f * s))
                         g.DrawRectangle(pen, r.X, r.Y - 1, r.Width - 1, r.Height + 1);
                 }
             }
@@ -272,22 +281,24 @@ namespace TbhCompanion
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            float s = Theme.Scale(g);
             using (var b = new SolidBrush(Parent != null ? Parent.BackColor : Theme.CardBg)) g.FillRectangle(b, ClientRectangle);
             var box = new Rectangle(0, 0, Width, Height);
-            Theme.FillRound(g, box, 8, Theme.CardBg);
-            Theme.DrawRoundBorder(g, box, 8, Theme.CardBorder, 1f);
+            Theme.FillRound(g, box, (int)(8 * s), Theme.CardBg);
+            Theme.DrawRoundBorder(g, box, (int)(8 * s), Theme.CardBorder, 1f);
             string val = Value.ToString(Decimals > 0 ? "0.0" : "0", System.Globalization.CultureInfo.InvariantCulture);
             using (var f = Theme.F(10.5f, FontStyle.Regular)) using (var b = new SolidBrush(Theme.TextDark))
-                g.DrawString(val, f, b, new PointF(10, (Height - f.Height) / 2f));
-            int bs = Height - 8;
-            _plus = new Rectangle(Width - bs - 3, 4, bs, bs);
-            _minus = new Rectangle(Width - bs * 2 - 5, 4, bs, bs);
-            DrawStepBtn(g, _minus, "−");
-            DrawStepBtn(g, _plus, "+");
+                g.DrawString(val, f, b, new PointF(10 * s, (Height - f.Height) / 2f));
+            int pad = (int)Math.Round(4 * s);
+            int bs = Height - pad * 2;
+            _plus = new Rectangle(Width - bs - pad, pad, bs, bs);
+            _minus = new Rectangle(Width - bs * 2 - pad - (int)(2 * s), pad, bs, bs);
+            DrawStepBtn(g, _minus, "−", s);
+            DrawStepBtn(g, _plus, "+", s);
         }
-        void DrawStepBtn(Graphics g, Rectangle r, string sym)
+        void DrawStepBtn(Graphics g, Rectangle r, string sym, float s)
         {
-            Theme.FillRound(g, r, 6, Theme.StepBtnBg);
+            Theme.FillRound(g, r, (int)(6 * s), Theme.StepBtnBg);
             var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
             using (var f = Theme.F(11f, FontStyle.Bold)) using (var b = new SolidBrush(Theme.Brown))
                 g.DrawString(sym, f, b, r, sf);
@@ -310,13 +321,15 @@ namespace TbhCompanion
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            float s = Theme.Scale(g);
             using (var b = new SolidBrush(Parent != null ? Parent.BackColor : Theme.TitleBottom)) g.FillRectangle(b, ClientRectangle);
             var r = new Rectangle(0, 0, Width, Height);
             Theme.FillRound(g, r, Height / 2, Theme.BadgeBg);
             Theme.DrawRoundBorder(g, r, Height / 2, Theme.BadgeBorder, 1f);
-            using (var b = new SolidBrush(_dot)) g.FillEllipse(b, 11, Height / 2 - 4, 8, 8);
+            int dd = (int)Math.Round(8 * s);
+            using (var b = new SolidBrush(_dot)) g.FillEllipse(b, (int)(11 * s), (Height - dd) / 2, dd, dd);
             using (var f = Theme.F(9f, FontStyle.Regular)) using (var b = new SolidBrush(Theme.BadgeText))
-                g.DrawString(_text, f, b, new PointF(23, (Height - f.Height) / 2f));
+                g.DrawString(_text, f, b, new PointF(22 * s, (Height - f.Height) / 2f));
         }
     }
 
@@ -335,9 +348,10 @@ namespace TbhCompanion
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            float s = Theme.Scale(g);
             using (var b = new SolidBrush(Parent != null ? Parent.BackColor : Theme.FormBg)) g.FillRectangle(b, ClientRectangle);
             var r = new Rectangle(0, 0, Width, Height);
-            Theme.FillRound(g, r, 10, Enabled ? Fill : Theme.ToggleOff);
+            Theme.FillRound(g, r, (int)(10 * s), Enabled ? Fill : Theme.ToggleOff);
             var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
             using (var f = Theme.F(10.5f, FontStyle.Bold)) using (var b = new SolidBrush(TextColor))
                 g.DrawString(Text, f, b, r, sf);

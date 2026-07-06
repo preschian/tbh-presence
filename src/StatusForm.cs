@@ -32,6 +32,8 @@ namespace TbhCompanion
         Bitmap _icon;
         Rectangle _closeRect;
         Point _dragOffset; bool _dragging;
+        float _s = 1f;
+        int Sc(double v) { return (int)Math.Round(v * _s); }
 
         PillBadge _presencePill, _synthPill;
         StatusCard _cardStage, _cardCycles, _cardLast;
@@ -54,7 +56,8 @@ namespace TbhCompanion
             AutoScaleMode = AutoScaleMode.None;   // fixed 96dpi design; Windows scales the window
             Font = Theme.F(9f, FontStyle.Regular);
             BackColor = Theme.FormBg;
-            ClientSize = new Size(W, 604);
+            try { using (var g = Graphics.FromHwnd(IntPtr.Zero)) _s = g.DpiX / 96f; } catch { _s = 1f; }
+            ClientSize = new Size(Sc(W), Sc(604));
             DoubleBuffered = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
@@ -78,7 +81,7 @@ namespace TbhCompanion
 
         void ApplyRegion()
         {
-            using (var p = Theme.Round(new Rectangle(0, 0, Width, Height), 14))
+            using (var p = Theme.Round(new Rectangle(0, 0, Width, Height), Sc(14)))
                 Region = new Region(p);
         }
 
@@ -89,9 +92,10 @@ namespace TbhCompanion
             _presencePill = new PillBadge();
             _synthPill = new PillBadge();
             foreach (var pill in new[] { _presencePill, _synthPill }) Controls.Add(pill);
-            _presencePill.Width = 96; _synthPill.Width = 92;
-            _synthPill.Location = new Point(W - 20 - _synthPill.Width, 36);
-            _presencePill.Location = new Point(_synthPill.Left - 6 - _presencePill.Width, 36);
+            _presencePill.SetBounds(0, 0, Sc(96), Sc(26));
+            _synthPill.SetBounds(0, 0, Sc(92), Sc(26));
+            _synthPill.Location = new Point(Sc(W - 20) - _synthPill.Width, Sc(36));
+            _presencePill.Location = new Point(_synthPill.Left - Sc(6) - _presencePill.Width, Sc(36));
             _presencePill.Set("Presence", Theme.TextMuted);
             _synthPill.Set("Synth", Theme.TextMuted);
         }
@@ -100,7 +104,7 @@ namespace TbhCompanion
 
         void BuildStatusStrip()
         {
-            int y = TitleH + 16, h = 64;
+            int y = Sc(TitleH + 16), h = Sc(64);
             int[] xs = { 20, 197, 373 };
             int[] ws = { 167, 166, 167 };
             _cardStage = new StatusCard { Title = "CURRENT STAGE" };
@@ -109,7 +113,7 @@ namespace TbhCompanion
             var cards = new[] { _cardStage, _cardCycles, _cardLast };
             for (int i = 0; i < 3; i++)
             {
-                cards[i].SetBounds(xs[i], y, ws[i], h);
+                cards[i].SetBounds(Sc(xs[i]), y, Sc(ws[i]), h);
                 cards[i].Radius = 10;
                 Controls.Add(cards[i]);
             }
@@ -119,77 +123,73 @@ namespace TbhCompanion
 
         void BuildSettingsCard()
         {
-            int cardY = TitleH + 16 + 64 + 16; // below strip
+            int cardY = TitleH + 16 + 64 + 16; // below strip (logical)
             _settingsCard = new Card { Radius = 12 };
-            _settingsCard.SetBounds(20, cardY, 520, 372);
+            _settingsCard.SetBounds(Sc(20), Sc(cardY), Sc(520), Sc(372));
             Controls.Add(_settingsCard);
             var c = _settingsCard;
 
-            AddCardLabel(c, "AUTO-SYNTHESIS", 16, 14, Theme.Brown, Theme.FSerif(10.5f, FontStyle.Bold), 300);
+            AddLabel(c, "AUTO-SYNTHESIS", 16, 14, Theme.Brown, Theme.FSerif(10.5f, FontStyle.Bold));
 
             // toggle rows
-            AddCardLabel(c, "Start automatically when the game launches", 16, 42, Theme.TextDark, Theme.F(10f, FontStyle.Regular), 380);
-            AddCardLabel(c, "no F8 needed", 16, 60, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular), 380);
-            _autoStart = new Toggle { Location = new Point(504 - 44, 46) };
-            _autoStart.CheckedChanged += delegate { };
+            AddLabel(c, "Start automatically when the game launches", 16, 40, Theme.TextDark, Theme.F(10f, FontStyle.Regular));
+            AddLabel(c, "no F8 needed", 16, 60, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+            _autoStart = new Toggle(); _autoStart.SetBounds(Sc(504 - 44), Sc(44), Sc(44), Sc(24));
             c.Controls.Add(_autoStart);
 
-            AddCardLabel(c, "Show the BepInEx log console", 16, 86, Theme.TextDark, Theme.F(10f, FontStyle.Regular), 380);
-            AddCardLabel(c, "applies on next game start", 16, 104, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular), 380);
-            _showConsole = new Toggle { Location = new Point(504 - 44, 90) };
+            AddLabel(c, "Show the BepInEx log console", 16, 84, Theme.TextDark, Theme.F(10f, FontStyle.Regular));
+            AddLabel(c, "applies on next game start", 16, 104, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+            _showConsole = new Toggle(); _showConsole.SetBounds(Sc(504 - 44), Sc(88), Sc(44), Sc(24));
             c.Controls.Add(_showConsole);
 
             AddDivider(c, 128);
 
             // types
-            AddCardLabel(c, "Synthesize which types", 16, 140, Theme.TextDark, Theme.F(10f, FontStyle.Regular), 200);
-            AddCardLabel(c, "rotates each round", 168, 142, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular), 160);
+            AddLabel(c, "Synthesize which types", 16, 140, Theme.TextDark, Theme.F(10f, FontStyle.Regular));
+            AddLabel(c, "rotates each round", 176, 142, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
             _tEquip = new TypeTile { Icon = "⚔", Caption = "Equipment" };
             _tMaterials = new TypeTile { Icon = "◆", Caption = "Materials" };
             _tAccessories = new TypeTile { Icon = "◎", Caption = "Accessories" };
             var tiles = new[] { _tEquip, _tMaterials, _tAccessories };
             int[] tx = { 16, 181, 346 };
             int[] tw = { 157, 157, 158 };
-            for (int i = 0; i < 3; i++) { tiles[i].SetBounds(tx[i], 164, tw[i], 52); c.Controls.Add(tiles[i]); }
+            for (int i = 0; i < 3; i++) { tiles[i].SetBounds(Sc(tx[i]), Sc(164), Sc(tw[i]), Sc(52)); c.Controls.Add(tiles[i]); }
 
             // rarity
-            AddCardLabel(c, "Max rarity to synthesize", 16, 228, Theme.TextDark, Theme.F(10f, FontStyle.Regular), 240);
-            _rarityValue = AddCardLabel(c, "★ Legendary", 300, 228, Theme.Amber, Theme.F(9.5f, FontStyle.Bold), 204);
-            _rarityValue.TextAlign = ContentAlignment.MiddleRight;
-            _rarityValue.SetBounds(300, 228, 188, 18);
+            AddLabel(c, "Max rarity to synthesize", 16, 228, Theme.TextDark, Theme.F(10f, FontStyle.Regular));
+            _rarityValue = AddLabelBox(c, "★ Legendary", 300, 227, 188, 20, Theme.Amber, Theme.F(9.5f, FontStyle.Bold), ContentAlignment.MiddleRight);
             _seg = new SegmentBar { Value = 3 };
-            _seg.SetBounds(16, 250, 488, 12);
+            _seg.SetBounds(Sc(16), Sc(250), Sc(488), Sc(12));
             _seg.ValueChanged += delegate { UpdateRarityLabel(); };
             c.Controls.Add(_seg);
-            AddCardLabel(c, "Common", 16, 266, Theme.TextMuted, Theme.F(8f, FontStyle.Regular), 100);
-            var cosmic = AddCardLabel(c, "Cosmic", 404, 266, Theme.TextMuted, Theme.F(8f, FontStyle.Regular), 100);
-            cosmic.TextAlign = ContentAlignment.MiddleRight; cosmic.SetBounds(404, 266, 100, 16);
+            AddLabel(c, "Common", 16, 266, Theme.TextMuted, Theme.F(8f, FontStyle.Regular));
+            AddLabelBox(c, "Cosmic", 404, 266, 100, 16, Theme.TextMuted, Theme.F(8f, FontStyle.Regular), ContentAlignment.MiddleRight);
 
             AddDivider(c, 288);
 
             // timings
             int[] colx = { 16, 182, 348 };
             int[] colw = { 156, 156, 156 };
-            AddCardLabel(c, "Cycle interval (min)", colx[0], 300, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular), colw[0]);
-            AddCardLabel(c, "After auto-fill (s)", colx[1], 300, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular), colw[1]);
-            AddCardLabel(c, "After synthesis (s)", colx[2], 300, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular), colw[2]);
+            AddLabel(c, "Cycle interval (min)", colx[0], 300, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+            AddLabel(c, "After auto-fill (s)", colx[1], 300, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+            AddLabel(c, "After synthesis (s)", colx[2], 300, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
             _cycleMin = new Stepper { Min = 1, Max = 1440, Step = 1, Decimals = 0, Value = 5 };
             _fillSec = new Stepper { Min = 0.5m, Max = 60, Step = 0.5m, Decimals = 1, Value = 1 };
             _synthSec = new Stepper { Min = 0.5m, Max = 60, Step = 0.5m, Decimals = 1, Value = 4 };
             var steps = new[] { _cycleMin, _fillSec, _synthSec };
-            for (int i = 0; i < 3; i++) { steps[i].SetBounds(colx[i], 318, colw[i], 30); c.Controls.Add(steps[i]); }
+            for (int i = 0; i < 3; i++) { steps[i].SetBounds(Sc(colx[i]), Sc(318), Sc(colw[i]), Sc(30)); c.Controls.Add(steps[i]); }
         }
 
         void BuildSaveRow()
         {
-            int y = _settingsCard.Bottom + 16;
+            int y = _settingsCard.Bottom + Sc(16);
             _saveBtn = new FlatButton { Text = "Save settings", Fill = Theme.Terracotta };
-            _saveBtn.SetBounds(20, y, 150, 38);
+            _saveBtn.SetBounds(Sc(20), y, Sc(150), Sc(38));
             _saveBtn.Click += delegate { SaveConfig(); };
             Controls.Add(_saveBtn);
 
             _setupBtn = new FlatButton { Text = "Set up auto-synthesis", Fill = Theme.Brown };
-            _setupBtn.SetBounds(20, y, 200, 38);
+            _setupBtn.SetBounds(Sc(20), y, Sc(200), Sc(38));
             _setupBtn.Click += delegate { RunSetup(); };
             _setupBtn.Visible = false;
             Controls.Add(_setupBtn);
@@ -197,8 +197,8 @@ namespace TbhCompanion
             _cfgNote = new Label
             {
                 AutoSize = false,
-                Location = new Point(182, y + 10),
-                Size = new Size(358, 34),
+                Location = new Point(Sc(182), y),
+                Size = new Size(Sc(358), Sc(38)),
                 ForeColor = Theme.TextMuted,
                 BackColor = Theme.FormBg,
                 Font = Theme.F(9f, FontStyle.Regular),
@@ -210,13 +210,24 @@ namespace TbhCompanion
 
         // ---- helpers ----
 
-        Label AddCardLabel(Card card, string text, int x, int y, Color color, Font font, int width)
+        Label AddLabel(Card card, string text, int x, int y, Color color, Font font)
         {
             var l = new Label
             {
-                Text = text, AutoSize = false, Location = new Point(x, y),
-                Size = new Size(width, font.Height + 2), ForeColor = color,
-                BackColor = card.BackColor, Font = font
+                Text = text, AutoSize = true, Location = new Point(Sc(x), Sc(y)),
+                ForeColor = color, BackColor = card.BackColor, Font = font
+            };
+            card.Controls.Add(l);
+            return l;
+        }
+
+        Label AddLabelBox(Card card, string text, int x, int y, int w, int h, Color color, Font font, ContentAlignment align)
+        {
+            var l = new Label
+            {
+                Text = text, AutoSize = false, Location = new Point(Sc(x), Sc(y)),
+                Size = new Size(Sc(w), Sc(h)), ForeColor = color, BackColor = card.BackColor,
+                Font = font, TextAlign = align
             };
             card.Controls.Add(l);
             return l;
@@ -224,7 +235,7 @@ namespace TbhCompanion
 
         void AddDivider(Card card, int y)
         {
-            var p = new Panel { BackColor = Theme.Divider, Location = new Point(16, y), Size = new Size(488, 1) };
+            var p = new Panel { BackColor = Theme.Divider, Location = new Point(Sc(16), Sc(y)), Size = new Size(Sc(488), 1) };
             card.Controls.Add(p);
         }
 
@@ -240,38 +251,38 @@ namespace TbhCompanion
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            int th = Sc(TitleH);
             var full = new Rectangle(0, 0, Width, Height);
-            Theme.FillRound(g, full, 14, Theme.FormBg);
+            Theme.FillRound(g, full, Sc(14), Theme.FormBg);
 
             // title bar gradient
-            var tb = new Rectangle(0, 0, Width, TitleH);
-            using (var path = Theme.Round(new Rectangle(0, 0, Width, TitleH * 2), 14))
-            using (var clip = new Region(new Rectangle(0, 0, Width, TitleH)))
+            var tb = new Rectangle(0, 0, Width, th);
+            using (var clip = new Region(new Rectangle(0, 0, Width, th)))
             {
                 g.SetClip(clip, CombineMode.Replace);
                 using (var br = new LinearGradientBrush(tb, Theme.TitleTop, Theme.TitleBottom, 90f))
                     g.FillRectangle(br, tb);
                 g.ResetClip();
             }
-            using (var pen = new Pen(Theme.CardBorder)) g.DrawLine(pen, 0, TitleH, Width, TitleH);
+            using (var pen = new Pen(Theme.CardBorder)) g.DrawLine(pen, 0, th, Width, th);
 
             // icon
             if (_icon != null)
             {
-                var ir = new Rectangle(20, 18, 36, 36);
-                using (var pth = Theme.Round(ir, 8)) { g.SetClip(pth); g.DrawImage(_icon, ir); g.ResetClip(); }
-                Theme.DrawRoundBorder(g, ir, 8, Theme.CardBorder, 1f);
+                var ir = new Rectangle(Sc(20), Sc(18), Sc(36), Sc(36));
+                using (var pth = Theme.Round(ir, Sc(8))) { g.SetClip(pth); g.DrawImage(_icon, ir); g.ResetClip(); }
+                Theme.DrawRoundBorder(g, ir, Sc(8), Theme.CardBorder, 1f);
             }
 
             // title + subtitle
             using (var f = Theme.FSerif(15f, FontStyle.Bold)) using (var b = new SolidBrush(Theme.TextDark))
-                g.DrawString("TBH Companion", f, b, new PointF(64, 16));
+                g.DrawString("TBH Companion", f, b, new PointF(Sc(64), Sc(15)));
             using (var f = Theme.F(8.5f, FontStyle.Regular)) using (var b = new SolidBrush(Theme.TextMuted))
-                g.DrawString("STATUS  ·  SETTINGS", f, b, new PointF(66, 42));
+                g.DrawString("STATUS  ·  SETTINGS", f, b, new PointF(Sc(66), Sc(43)));
 
             // outer border + close
-            Theme.DrawRoundBorder(g, full, 14, Theme.CardBorder, 1f);
-            _closeRect = new Rectangle(Width - 26, 10, 16, 16);
+            Theme.DrawRoundBorder(g, full, Sc(14), Theme.CardBorder, 1f);
+            _closeRect = new Rectangle(Width - Sc(28), Sc(10), Sc(18), Sc(18));
             using (var f = Theme.F(11f, FontStyle.Bold)) using (var b = new SolidBrush(Theme.TextMuted))
             {
                 var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
@@ -282,7 +293,7 @@ namespace TbhCompanion
         protected override void OnMouseDown(MouseEventArgs e)
         {
             if (_closeRect.Contains(e.Location)) { Close(); return; }
-            if (e.Y <= TitleH) { _dragging = true; _dragOffset = e.Location; }
+            if (e.Y <= Sc(TitleH)) { _dragging = true; _dragOffset = e.Location; }
             base.OnMouseDown(e);
         }
         protected override void OnMouseMove(MouseEventArgs e)
@@ -556,12 +567,13 @@ namespace TbhCompanion
         {
             base.OnPaint(e);
             var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            float s = Theme.Scale(g);
             using (var f = Theme.F(8f, FontStyle.Regular)) using (var b = new SolidBrush(Theme.TextMuted))
-                g.DrawString(_title, f, b, new PointF(11, 8));
+                g.DrawString(_title, f, b, new PointF(11 * s, 8 * s));
             using (var f = Theme.F(11f, FontStyle.Bold)) using (var b = new SolidBrush(ValueColor))
-                g.DrawString(_value, f, b, new PointF(11, 24));
+                g.DrawString(_value, f, b, new PointF(11 * s, 24 * s));
             using (var f = Theme.F(9f, FontStyle.Bold)) using (var b = new SolidBrush(SubColor))
-                g.DrawString(_sub, f, b, new PointF(11, 44));
+                g.DrawString(_sub, f, b, new PointF(11 * s, 44 * s));
         }
     }
 }
