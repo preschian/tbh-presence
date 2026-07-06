@@ -13,6 +13,7 @@ namespace TbhPresence
         const string GAME = "TaskBarHero";
         const string DEFAULT_CLIENT_ID = "1522386796078432429";
 
+        [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
         [DllImport("kernel32.dll")] static extern bool AttachConsole(int pid);
         [DllImport("kernel32.dll")] static extern bool AllocConsole();
         [DllImport("kernel32.dll")] static extern bool FreeConsole();
@@ -150,6 +151,7 @@ namespace TbhPresence
 
         static int RunTray(bool noCache, int interval, string clientId)
         {
+            try { SetProcessDPIAware(); } catch { }   // crisp text on high-DPI displays
             Application.EnableVisualStyles();
             AutoSynthDeploy.TryDeploy(delegate(string s) { Debug.WriteLine(s); });
             var engine = new PresenceEngine(noCache, interval, clientId, CachePath());

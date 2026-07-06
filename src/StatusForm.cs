@@ -30,7 +30,7 @@ namespace TbhPresence
         Label _synthDot, _synthText, _synthDetail;
         CheckBox _autoStart;
         ComboBox _maxGrade;
-        NumericUpDown _cycleSec, _fillSec, _synthSec;
+        NumericUpDown _cycleMin, _fillSec, _synthSec;
         Button _saveBtn;
         Label _cfgNote;
 
@@ -42,6 +42,8 @@ namespace TbhPresence
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
+            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96f, 96f);   // layout below is designed at 96 dpi
             ClientSize = new Size(420, 388);
             Font = new Font("Segoe UI", 9f);
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
@@ -78,8 +80,9 @@ namespace TbhPresence
             Controls.Add(_maxGrade);
             y += 30;
 
-            AddLabel("Cycle interval (seconds):", 16, y);
-            _cycleSec = MakeNum(5, 86400, 0, 220, y);
+            AddLabel("Cycle interval (minutes):", 16, y);
+            _cycleMin = MakeNum(1, 1440, 0, 220, y);
+            _cycleMin.Increment = 1;
             y += 30;
 
             AddLabel("Delay after auto-fill (seconds):", 16, y);
@@ -243,7 +246,8 @@ namespace TbhPresence
                 int mg;
                 if (!int.TryParse(GetVal(text, "MaxGrade", "2"), out mg) || mg < 0 || mg > 9) mg = 2;
                 _maxGrade.SelectedIndex = mg;
-                _cycleSec.Value = Clamp(ParseF(GetVal(text, "CycleIntervalSeconds", "300")), _cycleSec);
+                decimal cycleSec = ParseF(GetVal(text, "CycleIntervalSeconds", "300"));
+                _cycleMin.Value = Clamp(Math.Round(cycleSec / 60m), _cycleMin);
                 _fillSec.Value = Clamp(ParseF(GetVal(text, "AfterFillSeconds", "1")), _fillSec);
                 _synthSec.Value = Clamp(ParseF(GetVal(text, "AfterSynthesisSeconds", "4")), _synthSec);
                 SetConfigEnabled(true);
@@ -268,7 +272,7 @@ namespace TbhPresence
                 string text = File.ReadAllText(_cfgPath);
                 text = SetVal(text, "AutoStart", _autoStart.Checked ? "true" : "false");
                 text = SetVal(text, "MaxGrade", _maxGrade.SelectedIndex.ToString(CultureInfo.InvariantCulture));
-                text = SetVal(text, "CycleIntervalSeconds", _cycleSec.Value.ToString(CultureInfo.InvariantCulture));
+                text = SetVal(text, "CycleIntervalSeconds", (_cycleMin.Value * 60).ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "AfterFillSeconds", _fillSec.Value.ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "AfterSynthesisSeconds", _synthSec.Value.ToString(CultureInfo.InvariantCulture));
                 File.WriteAllText(_cfgPath, text);
@@ -284,7 +288,7 @@ namespace TbhPresence
         {
             _autoStart.Enabled = on;
             _maxGrade.Enabled = on;
-            _cycleSec.Enabled = on;
+            _cycleMin.Enabled = on;
             _fillSec.Enabled = on;
             _synthSec.Enabled = on;
             _saveBtn.Enabled = on;
