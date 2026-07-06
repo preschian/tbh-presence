@@ -34,6 +34,8 @@ namespace TbhPresence
         Button _saveBtn;
         Label _cfgNote;
 
+        TableLayoutPanel _root;
+
         public StatusForm(Func<string> presenceStatus)
         {
             _presenceStatus = presenceStatus;
@@ -42,67 +44,86 @@ namespace TbhPresence
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
-            AutoScaleMode = AutoScaleMode.Dpi;
-            AutoScaleDimensions = new SizeF(96f, 96f);   // layout below is designed at 96 dpi
-            ClientSize = new Size(420, 388);
+            AutoScaleMode = AutoScaleMode.Font;
+            AutoScaleDimensions = new SizeF(7f, 15f);   // Segoe UI 9pt at 96 dpi
             Font = new Font("Segoe UI", 9f);
+            AutoSize = true;
+            AutoSizeMode = AutoSizeMode.GrowAndShrink;
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
-            int y = 12;
-            AddHeader("Discord Presence", ref y);
-            _presenceDot = AddDot(ref y);
-            _presenceText = AddText("starting...", _presenceDot);
-            y += 30;
+            // Single-column stack; every row sizes itself, so nothing can overlap
+            // regardless of DPI scaling.
+            _root = new TableLayoutPanel();
+            _root.ColumnCount = 1;
+            _root.AutoSize = true;
+            _root.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            _root.Padding = new Padding(14, 12, 14, 12);
+            Controls.Add(_root);
 
-            AddHeader("Auto Synthesis (in-game)", ref y);
-            _synthDot = AddDot(ref y);
-            _synthText = AddText("checking...", _synthDot);
-            y += 26;
-            _synthDetail = new Label();
-            _synthDetail.SetBounds(30, y, 380, 18);
+            AddHeader("Discord Presence");
+            _presenceDot = MakeDot();
+            _presenceText = MakeText("starting...");
+            AddDotRow(_presenceDot, _presenceText);
+            AddSpacer(10);
+
+            AddHeader("Auto Synthesis (in-game)");
+            _synthDot = MakeDot();
+            _synthText = MakeText("checking...");
+            AddDotRow(_synthDot, _synthText);
+            _synthDetail = MakeText("");
             _synthDetail.ForeColor = SystemColors.GrayText;
-            Controls.Add(_synthDetail);
-            y += 30;
+            _synthDetail.Margin = new Padding(24, 2, 0, 0);
+            _root.Controls.Add(_synthDetail);
+            AddSpacer(10);
 
-            AddHeader("Auto Synthesis Settings", ref y);
+            AddHeader("Auto Synthesis Settings");
 
             _autoStart = new CheckBox();
             _autoStart.Text = "Start automatically when the game launches (no F8 needed)";
-            _autoStart.SetBounds(16, y, 396, 22);
-            Controls.Add(_autoStart);
-            y += 28;
+            _autoStart.AutoSize = true;
+            _autoStart.MaximumSize = new Size(400, 0);
+            _autoStart.Margin = new Padding(3, 4, 3, 6);
+            _root.Controls.Add(_autoStart);
 
-            AddLabel("Max rarity to synthesize:", 16, y);
+            var grid = new TableLayoutPanel();
+            grid.ColumnCount = 2;
+            grid.AutoSize = true;
+            grid.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            _root.Controls.Add(grid);
+
             _maxGrade = new ComboBox();
             _maxGrade.DropDownStyle = ComboBoxStyle.DropDownList;
             for (int i = 0; i < Grades.Length; i++) _maxGrade.Items.Add(Grades[i]);
-            _maxGrade.SetBounds(220, y - 3, 130, 24);
-            Controls.Add(_maxGrade);
-            y += 30;
+            _maxGrade.Width = 140;
+            AddSettingRow(grid, "Max rarity to synthesize:", _maxGrade);
 
-            AddLabel("Cycle interval (minutes):", 16, y);
-            _cycleMin = MakeNum(1, 1440, 0, 220, y);
+            _cycleMin = MakeNum(1, 1440, 0);
             _cycleMin.Increment = 1;
-            y += 30;
+            AddSettingRow(grid, "Cycle interval (minutes):", _cycleMin);
 
-            AddLabel("Delay after auto-fill (seconds):", 16, y);
-            _fillSec = MakeNum(0.5m, 60, 1, 220, y);
-            y += 30;
+            _fillSec = MakeNum(0.5m, 60, 1);
+            AddSettingRow(grid, "Delay after auto-fill (seconds):", _fillSec);
 
-            AddLabel("Delay after synthesis (seconds):", 16, y);
-            _synthSec = MakeNum(0.5m, 60, 1, 220, y);
-            y += 34;
+            _synthSec = MakeNum(0.5m, 60, 1);
+            AddSettingRow(grid, "Delay after synthesis (seconds):", _synthSec);
 
+            var saveRow = new FlowLayoutPanel();
+            saveRow.AutoSize = true;
+            saveRow.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            saveRow.WrapContents = false;
+            saveRow.Margin = new Padding(0, 8, 0, 0);
             _saveBtn = new Button();
             _saveBtn.Text = "Save settings";
-            _saveBtn.SetBounds(16, y, 110, 28);
+            _saveBtn.AutoSize = true;
             _saveBtn.Click += delegate { SaveConfig(); };
-            Controls.Add(_saveBtn);
-
+            saveRow.Controls.Add(_saveBtn);
             _cfgNote = new Label();
-            _cfgNote.SetBounds(136, y + 5, 280, 20);
+            _cfgNote.AutoSize = true;
+            _cfgNote.MaximumSize = new Size(280, 0);
             _cfgNote.ForeColor = SystemColors.GrayText;
-            Controls.Add(_cfgNote);
+            _cfgNote.Margin = new Padding(10, 8, 0, 0);
+            saveRow.Controls.Add(_cfgNote);
+            _root.Controls.Add(saveRow);
 
             LoadConfig();
             UpdateStatus();
@@ -117,50 +138,77 @@ namespace TbhPresence
 
         // ---- layout helpers ----
 
-        void AddHeader(string text, ref int y)
+        void AddHeader(string text)
         {
             var l = new Label();
             l.Text = text;
+            l.AutoSize = true;
             l.Font = new Font("Segoe UI Semibold", 9.5f, FontStyle.Bold);
-            l.SetBounds(12, y, 396, 20);
-            Controls.Add(l);
-            y += 24;
+            l.Margin = new Padding(0, 0, 0, 4);
+            _root.Controls.Add(l);
         }
 
-        Label AddDot(ref int y)
+        void AddSpacer(int h)
+        {
+            var p = new Panel();
+            p.Height = h;
+            p.Width = 1;
+            p.Margin = new Padding(0);
+            _root.Controls.Add(p);
+        }
+
+        static Label MakeDot()
         {
             var dot = new Label();
             dot.Text = "●";
             dot.ForeColor = Color.Gray;
-            dot.SetBounds(14, y, 16, 18);
-            Controls.Add(dot);
+            dot.AutoSize = true;
+            dot.Margin = new Padding(3, 0, 0, 0);
             return dot;
         }
 
-        Label AddText(string text, Label dot)
+        static Label MakeText(string text)
         {
             var l = new Label();
             l.Text = text;
-            l.SetBounds(30, dot.Top, 380, 18);
-            Controls.Add(l);
+            l.AutoSize = true;
+            l.MaximumSize = new Size(380, 0);   // wrap long status lines
+            l.Margin = new Padding(3, 0, 3, 0);
             return l;
         }
 
-        void AddLabel(string text, int x, int y)
+        void AddDotRow(Label dot, Label text)
         {
-            var l = new Label();
-            l.Text = text;
-            l.SetBounds(x, y, 200, 20);
-            Controls.Add(l);
+            var flow = new FlowLayoutPanel();
+            flow.AutoSize = true;
+            flow.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            flow.WrapContents = false;
+            flow.Margin = new Padding(0);
+            flow.Controls.Add(dot);
+            flow.Controls.Add(text);
+            _root.Controls.Add(flow);
         }
 
-        NumericUpDown MakeNum(decimal min, decimal max, int decimals, int x, int y)
+        static void AddSettingRow(TableLayoutPanel grid, string label, Control control)
+        {
+            var l = new Label();
+            l.Text = label;
+            l.AutoSize = true;
+            l.Anchor = AnchorStyles.Left;
+            l.Margin = new Padding(3, 6, 12, 6);
+            int row = grid.RowCount++;
+            grid.Controls.Add(l, 0, row);
+            control.Anchor = AnchorStyles.Left;
+            control.Margin = new Padding(3, 3, 3, 3);
+            grid.Controls.Add(control, 1, row);
+        }
+
+        static NumericUpDown MakeNum(decimal min, decimal max, int decimals)
         {
             var n = new NumericUpDown();
             n.Minimum = min; n.Maximum = max; n.DecimalPlaces = decimals;
             n.Increment = decimals > 0 ? 0.5m : 5m;
-            n.SetBounds(x, y - 3, 130, 24);
-            Controls.Add(n);
+            n.Width = 140;
             return n;
         }
 
