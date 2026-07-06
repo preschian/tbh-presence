@@ -416,30 +416,7 @@ namespace TbhCompanion
 
         static string FindBepInExCfgPath()
         {
-            string gameDir = AutoSynthDeploy.FindGameDir();
-            if (gameDir == null) return null;
-            return Path.Combine(gameDir, "BepInEx", "config", "BepInEx.cfg");
-        }
-
-        // BepInEx.cfg has an "Enabled" key in several sections, so read/write the
-        // one under [Logging.Console] specifically.
-        static bool GetConsoleEnabled(string text)
-        {
-            var m = Regex.Match(text,
-                @"(?ms)^\[Logging\.Console\].*?^\s*Enabled\s*=\s*(\w+)",
-                RegexOptions.Multiline);
-            return m.Success && m.Groups[1].Value.Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
-        }
-
-        static string SetConsoleEnabled(string text, bool on)
-        {
-            var re = new Regex(@"(?ms)(^\[Logging\.Console\].*?^\s*Enabled\s*=\s*)\w+",
-                RegexOptions.Multiline);
-            if (re.IsMatch(text)) return re.Replace(text, "${1}" + (on ? "true" : "false"), 1);
-            // section or key missing: append a minimal section
-            return text.TrimEnd() + Environment.NewLine + Environment.NewLine +
-                "[Logging.Console]" + Environment.NewLine +
-                "Enabled = " + (on ? "true" : "false") + Environment.NewLine;
+            return BepInExCfg.Path(AutoSynthDeploy.FindGameDir());
         }
 
         void LoadConfig()
@@ -472,7 +449,7 @@ namespace TbhCompanion
                 _bepinexCfgPath = FindBepInExCfgPath();
                 if (_bepinexCfgPath != null && File.Exists(_bepinexCfgPath))
                 {
-                    _showConsole.Checked = GetConsoleEnabled(File.ReadAllText(_bepinexCfgPath));
+                    _showConsole.Checked = BepInExCfg.GetConsoleEnabled(File.ReadAllText(_bepinexCfgPath));
                     _showConsole.Enabled = true;
                 }
                 else { _showConsole.Enabled = false; }
@@ -514,9 +491,9 @@ namespace TbhCompanion
                 if (_bepinexCfgPath != null && File.Exists(_bepinexCfgPath))
                 {
                     string bx = File.ReadAllText(_bepinexCfgPath);
-                    if (GetConsoleEnabled(bx) != _showConsole.Checked)
+                    if (BepInExCfg.GetConsoleEnabled(bx) != _showConsole.Checked)
                     {
-                        File.WriteAllText(_bepinexCfgPath, SetConsoleEnabled(bx, _showConsole.Checked));
+                        File.WriteAllText(_bepinexCfgPath, BepInExCfg.SetConsoleEnabled(bx, _showConsole.Checked));
                         consoleNeedsRestart = true;
                     }
                 }

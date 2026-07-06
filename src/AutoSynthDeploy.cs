@@ -35,6 +35,9 @@ namespace TbhCompanion
                     return;
                 }
 
+                // hide the BepInEx console by default the first time we see a cfg
+                BepInExCfg.ApplyHiddenDefaultOnce(gameDir, log);
+
                 byte[] src = LoadPluginBytes();
                 if (src == null) { log("autosynth: plugin dll not bundled, skipped"); return; }
 

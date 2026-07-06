@@ -68,6 +68,9 @@ namespace TbhCompanion
                 ExtractOver(tmpZip, gameDir);
                 try { File.Delete(tmpZip); } catch { }
 
+                // hide the BepInEx console by default (before its first run)
+                BepInExCfg.SeedConsoleHidden(gameDir);
+
                 if (!IsInstalledAt(gameDir))
                 {
                     log("Install finished but files look incomplete - please try again.");
