@@ -24,7 +24,9 @@ namespace TbhCompanion
 
         const int W = 560, TitleH = 72;
 
-        readonly Func<string> _presenceStatus;
+        readonly Func<string> _stageLabel;
+        readonly Func<bool> _discordConnected;
+        readonly Func<string> _diag;
         readonly Timer _timer;
         string _cfgPath, _bepinexCfgPath;
         bool _setupRunning;
@@ -46,9 +48,11 @@ namespace TbhCompanion
         Label _cfgNote, _setupNote;
         Card _settingsCard;
 
-        public StatusForm(Func<string> presenceStatus)
+        public StatusForm(Func<string> stageLabel, Func<bool> discordConnected, Func<string> diag)
         {
-            _presenceStatus = presenceStatus;
+            _stageLabel = stageLabel;
+            _discordConnected = discordConnected;
+            _diag = diag;
 
             Text = "TBH Companion";
             FormBorderStyle = FormBorderStyle.None;
@@ -366,16 +370,20 @@ namespace TbhCompanion
 
         void UpdateStatus()
         {
-            string p = _presenceStatus != null ? _presenceStatus() : null;
-            if (p == null) p = "starting...";
-            bool waiting = p.IndexOf("waiting", StringComparison.OrdinalIgnoreCase) >= 0;
-            Color pc = waiting ? Color.Goldenrod : Theme.Green;
-            // When connected, the status line is the stage label:
-            // "Act 3 - Stage 5  (HELL, Lv 74)  |  party"
-            var m = Regex.Match(p, @"(Act\s*\d+\s*-\s*Stage\s*\d+)\s*\(([^)]*)\)");
+            // Three independent channels: the current stage, the Discord connection
+            // indicator, and a diagnostic line — so a transient message never hides
+            // the stage.
+            string stage = _stageLabel != null ? _stageLabel() : null;
+            bool connected = _discordConnected != null && _discordConnected();
+            string diag = _diag != null ? _diag() : null;
+
+            _presencePill.Set(connected ? "Presence" : "Offline", connected ? Theme.Green : Theme.TextMuted);
+
+            var m = stage != null
+                ? Regex.Match(stage, @"(Act\s*\d+\s*-\s*Stage\s*\d+)\s*\(([^)]*)\)")
+                : Match.Empty;
             if (m.Success)
             {
-                _presencePill.Set("Presence", Theme.Green);
                 _cardStage.Value = m.Groups[1].Value.Replace("-", "–");
                 _cardStage.ValueColor = Theme.TextDark;
                 _cardStage.Sub = m.Groups[2].Value.Replace(", ", " · ");
@@ -383,11 +391,11 @@ namespace TbhCompanion
             }
             else
             {
-                _presencePill.Set(waiting ? "Waiting" : "Presence", pc);
-                _cardStage.Value = waiting ? "Waiting" : "Connecting";
+                bool waiting = diag != null && diag.IndexOf("waiting", StringComparison.OrdinalIgnoreCase) >= 0;
+                _cardStage.Value = waiting ? "Waiting for game" : "—";
                 _cardStage.ValueColor = Theme.TextDark;
-                _cardStage.Sub = ShortStatus(p);
-                _cardStage.SubColor = pc;
+                _cardStage.Sub = ShortStatus(diag);
+                _cardStage.SubColor = Theme.TextMuted;
             }
 
             bool installed = BepInExSetup.IsInstalled();

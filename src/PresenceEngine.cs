@@ -20,6 +20,12 @@ namespace TbhCompanion
 
         public event Action<string> OnStatus;
 
+        // Structured live state for the UI (separate channels so a transient
+        // diagnostic never clobbers the stage or the connection indicator).
+        public volatile string LastStatus = "starting...";
+        public volatile string LastStageLabel = null;   // null = no stage read
+        public volatile bool DiscordConnected = false;
+
         public PresenceEngine(bool noCache, int interval, string clientId, string cachePath)
         {
             _noCache = noCache;
@@ -32,6 +38,7 @@ namespace TbhCompanion
 
         void Status(string s)
         {
+            LastStatus = s;
             var h = OnStatus;
             if (h != null) { try { h(s); } catch { } }
         }
@@ -62,6 +69,9 @@ namespace TbhCompanion
                             try { discord.ClearActivity(); } catch { discord.Dispose(); }
                             lastSent = "";
                         }
+                        LastStageLabel = null;
+                        lastStageSig = null;
+                        DiscordConnected = discord.Connected;
                         // game closed = plugin dll unlocked; good moment to (re)deploy
                         AutoSynthDeploy.TryDeployThrottled(Status);
                         Status("waiting for TaskBarHero...");
@@ -101,9 +111,8 @@ namespace TbhCompanion
                             try { st = reader.Read(); } catch { }
                             if (st != null && st.StageKey > 0)
                             {
+                                LastStageLabel = st.Label();   // structured channel for the UI
                                 string sig = st.Details() + "|" + st.PartyLine();
-                                // Surface the current stage to the UI/tooltip whenever it
-                                // changes, independent of whether Discord is connected.
                                 if (sig != lastStageSig) { Status(st.Label()); lastStageSig = sig; }
                                 if (discord.Connected && sig != lastSent)
                                 {
@@ -116,10 +125,10 @@ namespace TbhCompanion
                                     {
                                         Status("Discord lost (" + ex.Message + ") - reconnecting");
                                         discord.Dispose();
-                                        lastStageSig = null;   // re-surface the stage next poll
                                     }
                                 }
                             }
+                            DiscordConnected = discord.Connected;
                             Sleep(_interval);
                         }
                     }

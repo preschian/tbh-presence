@@ -72,7 +72,10 @@ namespace TbhCompanion
         {
             if (_form == null || _form.IsDisposed)
             {
-                _form = new StatusForm(delegate { return _lastStatus; });
+                _form = new StatusForm(
+                    delegate { return _engine.LastStageLabel; },
+                    delegate { return _engine.DiscordConnected; },
+                    delegate { return _lastStatus; });
                 _form.Show();
             }
             else

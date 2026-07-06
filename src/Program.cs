@@ -41,7 +41,10 @@ namespace TbhCompanion
                         try { SetProcessDPIAware(); } catch { }
                         Application.EnableVisualStyles();
                         string shotPath = argv[++i];
-                        var form = new StatusForm(delegate { return "Act 3 - Stage 5  (HELL, Lv 74)  |  Ranger Lv80"; });
+                        var form = new StatusForm(
+                            delegate { return "Act 3 - Stage 5  (HELL, Lv 74)  |  Ranger Lv80"; },
+                            delegate { return true; },
+                            delegate { return "Connected"; });
                         form.ShowInTaskbar = false;
                         form.StartPosition = FormStartPosition.Manual;
                         form.Location = new System.Drawing.Point(-3000, -3000);
