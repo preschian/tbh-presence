@@ -2,7 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 
-namespace TbhPresence
+namespace TbhCompanion
 {
     // The presence loop, independent of any UI. Reports human-readable status
     // via OnStatus (for the tray tooltip / console). Call Run() on a thread and

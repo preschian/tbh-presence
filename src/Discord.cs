@@ -4,7 +4,7 @@ using System.IO.Pipes;
 using System.Text;
 using System.Web.Script.Serialization;
 
-namespace TbhPresence
+namespace TbhCompanion
 {
     // Minimal Discord Rich Presence over the desktop client's IPC named pipe.
     public class DiscordRpc : IDisposable

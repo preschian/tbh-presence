@@ -96,7 +96,7 @@ keys living in compressed Addressables bundles, which this tool does not read, s
 
 ## Address cache
 
-The exe caches resolved addresses in `%LOCALAPPDATA%\tbh-presence\cache.txt`
+The exe caches resolved addresses in `%LOCALAPPDATA%\tbh-companion\cache.txt`
 (the PowerShell reader uses `cache.json` next to the script):
 
 - **Same game process** — cached addresses are validated (PID + process start
@@ -155,7 +155,7 @@ the scripts. Bump `CACHE_VERSION` so stale caches are discarded.
 Uses the C# compiler that ships with Windows (.NET Framework 4.x) — no SDK:
 
 ```powershell
-.\build.ps1     # -> TbhPresence.exe (single self-contained file)
+.\build.ps1     # -> TbhCompanion.exe (single self-contained file)
 ```
 
 Compiled as `/target:winexe` so there's no console window in tray mode; console
@@ -190,7 +190,7 @@ by committing the binary.
 **PowerShell version** (for development/inspection; same logic):
 
 - `Get-TbhStage.ps1` — the reader (resolve + poll + report/JSON).
-- `Start-TbhPresence.ps1` — the presence loop.
+- `Start-TbhCompanion.ps1` — the presence loop.
 - `TbhMemory.cs` — reader compiled at runtime via `Add-Type`.
 - Requires Windows PowerShell 5.1+.
 

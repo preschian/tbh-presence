@@ -1,4 +1,4 @@
-# Builds TbhPresence.exe from src\*.cs using the C# compiler that ships with
+# Builds TbhCompanion.exe from src\*.cs using the C# compiler that ships with
 # Windows (.NET Framework 4.x) - no SDK install needed.
 #   .\build.ps1                 # version 1.0.0 (dev default)
 #   .\build.ps1 -Version 1.2.3  # stamp a specific version into the exe
@@ -26,7 +26,7 @@ using System.Reflection;
 "@ | Set-Content -Path $verFile -Encoding utf8
 
 try {
-    $out = Join-Path $here 'TbhPresence.exe'
+    $out = Join-Path $here 'TbhCompanion.exe'
     # embed the auto-synthesis BepInEx plugin when it has been built, so the exe
     # can deploy it into the game's BepInEx\plugins folder on startup
     $synthDll = Join-Path $here 'autosynth\bin\Release\TbhAutoSynth.dll'

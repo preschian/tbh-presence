@@ -6,7 +6,7 @@ using System.Runtime.InteropServices;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
-namespace TbhPresence
+namespace TbhCompanion
 {
     static class Program
     {
@@ -23,7 +23,7 @@ namespace TbhPresence
         {
             return Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "tbh-presence", "cache.txt");
+                "tbh-companion", "cache.txt");
         }
 
         [STAThread]
@@ -57,12 +57,12 @@ namespace TbhPresence
 
             // One presence at a time: two would fight over Discord.
             bool createdNew;
-            using (var mutex = new System.Threading.Mutex(true, "TbhPresence.SingleInstance", out createdNew))
+            using (var mutex = new System.Threading.Mutex(true, "TbhCompanion.SingleInstance", out createdNew))
             {
                 if (!createdNew)
                 {
                     EnsureConsole();
-                    Console.Error.WriteLine("TbhPresence is already running (see the system tray).");
+                    Console.Error.WriteLine("TbhCompanion is already running (see the system tray).");
                     return 1;
                 }
                 if (console) return RunConsole(noCache, interval, clientId);
@@ -80,11 +80,11 @@ namespace TbhPresence
         static int ShowHelp()
         {
             EnsureConsole();
-            Console.WriteLine("TbhPresence - TaskBarHero Discord Rich Presence (read-only memory reader)");
+            Console.WriteLine("TbhCompanion - TaskBarHero Discord Rich Presence (read-only memory reader)");
             Console.WriteLine();
-            Console.WriteLine("  TbhPresence.exe                 run in the system tray (no window)");
-            Console.WriteLine("  TbhPresence.exe --console       run in the console with live logging");
-            Console.WriteLine("  TbhPresence.exe --once          print one state reading as JSON and exit");
+            Console.WriteLine("  TbhCompanion.exe                 run in the system tray (no window)");
+            Console.WriteLine("  TbhCompanion.exe --console       run in the console with live logging");
+            Console.WriteLine("  TbhCompanion.exe --once          print one state reading as JSON and exit");
             Console.WriteLine();
             Console.WriteLine("  --interval <sec>                poll interval (default 5)");
             Console.WriteLine("  --client-id <id>                Discord application id");

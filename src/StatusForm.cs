@@ -7,7 +7,7 @@ using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
-namespace TbhPresence
+namespace TbhCompanion
 {
     // Status & settings window: live indicators for the presence loop and the
     // in-game auto-synthesis plugin, plus editable plugin settings. Settings are
@@ -20,7 +20,7 @@ namespace TbhPresence
 
         static readonly string StatusPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "tbh-presence", "autosynth-status.json");
+            "tbh-companion", "autosynth-status.json");
 
         readonly Func<string> _presenceStatus;
         readonly Timer _timer;
@@ -40,7 +40,7 @@ namespace TbhPresence
         {
             _presenceStatus = presenceStatus;
 
-            Text = "TBH Tools - Status & Settings";
+            Text = "TBH Companion - Status & Settings";
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;

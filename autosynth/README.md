@@ -25,7 +25,7 @@ auto-fill the cube, run the synthesis, empty the cube, wait, repeat.
 
 4. Copy `autosynth\bin\Release\TbhAutoSynth.dll` into
    `<game>\BepInEx\plugins\` and restart the game — or skip this step entirely:
-   `TbhPresence.exe` bundles the plugin and deploys/updates it automatically
+   `TbhCompanion.exe` bundles the plugin and deploys/updates it automatically
    whenever BepInEx is present (retrying while the game is closed).
 
 ## Use
@@ -57,9 +57,9 @@ The Cube panel must stay open while the loop runs.
 
 The plugin re-reads the config every ~10 seconds while the game runs, so edits
 apply without a restart. The easiest way to edit it is the **Status & Settings**
-window in `TbhPresence.exe` (double-click the tray icon). The plugin also
+window in `TbhCompanion.exe` (double-click the tray icon). The plugin also
 reports its live status (on/off, cycles, last synthesis) to
-`%LOCALAPPDATA%\tbh-presence\autosynth-status.json`, which that window displays.
+`%LOCALAPPDATA%\tbh-companion\autosynth-status.json`, which that window displays.
 
 ## How it works / maintenance
 

@@ -3,10 +3,10 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.RegularExpressions;
 
-namespace TbhPresence
+namespace TbhCompanion
 {
     // Keeps the TbhAutoSynth BepInEx plugin installed in the game folder, so
-    // launching TbhPresence.exe is enough to have both features active.
+    // launching TbhCompanion.exe is enough to have both features active.
     // Requires BepInEx to already be installed in the game folder; if it is
     // not, this does nothing (the presence app itself stays read-only).
     static class AutoSynthDeploy

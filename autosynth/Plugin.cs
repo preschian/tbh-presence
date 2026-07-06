@@ -17,7 +17,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.19.0";
+    internal const string Version = "0.20.0";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -92,7 +92,7 @@ public class AutoSynthBehaviour : MonoBehaviour
 
     private static readonly string StatusPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "tbh-presence", "autosynth-status.json");
+        "tbh-companion", "autosynth-status.json");
 
     private void WriteStatus()
     {

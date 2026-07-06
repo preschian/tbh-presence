@@ -1,7 +1,7 @@
 using System.Reflection;
 
-[assembly: AssemblyTitle("TbhPresence")]
-[assembly: AssemblyProduct("TaskBarHero Discord Presence")]
+[assembly: AssemblyTitle("TbhCompanion")]
+[assembly: AssemblyProduct("TBH Companion")]
 [assembly: AssemblyDescription("Shows your TaskBarHero stage and party on Discord (read-only memory reader).")]
 [assembly: AssemblyCompany("preschian")]
 [assembly: AssemblyCopyright("MIT")]

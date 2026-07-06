@@ -2,7 +2,7 @@ using System;
 using System.Drawing;
 using System.Windows.Forms;
 
-namespace TbhPresence
+namespace TbhCompanion
 {
     // System-tray host: runs the presence loop on a background thread and shows
     // a tray icon with the current status and a Quit option. No console window.
@@ -31,7 +31,7 @@ namespace TbhPresence
 
             _icon = new NotifyIcon();
             _icon.Icon = LoadIcon();
-            _icon.Text = "TaskBarHero Presence";   // tooltip (<= 63 chars)
+            _icon.Text = "TBH Companion";   // tooltip (<= 63 chars)
             _icon.Visible = true;
             _icon.ContextMenuStrip = menu;
             _icon.DoubleClick += delegate { OpenForm(); };

@@ -1,7 +1,11 @@
-# TaskBarHero Discord Presence
+# TBH Companion
 
-Shows what you're doing in **TaskBarHero** on your Discord profile, live — the
-stage you're on and the heroes you've deployed, updating as you play.
+A companion app for **TaskBarHero** — two features in one tray exe:
+
+1. **Discord presence** — shows what you're doing in the game on your Discord
+   profile, live: the stage you're on and the heroes you've deployed.
+2. **Auto-synthesis** — an optional in-game mod that runs the Cube synthesis
+   loop for you (see [autosynth/README.md](autosynth/README.md)).
 
 ```
 Playing TaskBarHero
@@ -10,12 +14,13 @@ Ranger Lv80, Sorcerer Lv23, Priest Lv35
 23:41 elapsed
 ```
 
-It only reads the game to see where you are; it never changes the game, your
-save, or any files.
+The presence feature only reads the game to see where you are. The
+auto-synthesis mod is opt-in: it is deployed only if BepInEx is installed in
+the game folder (details below).
 
 ## Getting started
 
-1. Download `TbhPresence.exe` from the [Releases page](../../releases).
+1. Download `TbhCompanion.exe` from the [Releases page](../../releases).
 2. Double-click it. A small helmet icon appears in your system tray (near the
    clock) — that's it running.
 3. Play the game with Discord open. Your profile shows your current stage and
@@ -42,7 +47,7 @@ game within ~10 seconds; no restart needed.
 So you never have to remember to launch it:
 
 - Press <kbd>Win</kbd>+<kbd>R</kbd>, type `shell:startup`, press Enter, and put a
-  shortcut to `TbhPresence.exe` in the folder that opens.
+  shortcut to `TbhCompanion.exe` in the folder that opens.
 
 It will sit quietly and wait for the game whenever you log in.
 
@@ -58,7 +63,7 @@ owner can configure. If you want your own name/logo:
 2. Open **Rich Presence → Art Assets**, add an image named exactly **`tbh`**
    (you can use `assets/tbh.jpg` from this project) for the large logo.
 3. Copy the application's **Application ID** and run the app with it:
-   `TbhPresence.exe --client-id <your id>`.
+   `TbhCompanion.exe --client-id <your id>`.
 
 Image and name changes can take a few minutes — and a Discord restart — to show
 up.
@@ -68,9 +73,9 @@ up.
 Double-clicking is all most people need. From a terminal you can also:
 
 ```
-TbhPresence.exe                 run in the system tray (default)
-TbhPresence.exe --console       run with a visible log window
-TbhPresence.exe --once          print the current game state once and exit
+TbhCompanion.exe                 run in the system tray (default)
+TbhCompanion.exe --console       run with a visible log window
+TbhCompanion.exe --once          print the current game state once and exit
   --interval <sec>              how often to update (default 5)
   --client-id <id>              use your own Discord application
 ```
@@ -111,7 +116,7 @@ the Cube synthesis loop in-game. **Unlike the presence feature, it is a game
 mod** (it clicks the game's UI for you). See
 [autosynth/README.md](autosynth/README.md).
 
-If BepInEx is installed in the game folder, `TbhPresence.exe` keeps the plugin
+If BepInEx is installed in the game folder, `TbhCompanion.exe` keeps the plugin
 deployed automatically: on startup (and whenever the game is closed) it copies
 the bundled `TbhAutoSynth.dll` into `BepInEx\plugins`, so launching the exe is
 enough to have both presence and auto-synthesis active. Without BepInEx, the

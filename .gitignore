@@ -4,7 +4,7 @@ cache.json
 *.log
 
 # build output
-TbhPresence.exe
+TbhCompanion.exe
 src/Version.g.cs
 autosynth/bin/
 autosynth/obj/

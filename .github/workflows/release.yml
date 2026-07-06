@@ -1,6 +1,6 @@
 name: Build and release
 
-# Builds TbhPresence.exe on a Windows runner and attaches it to a GitHub Release.
+# Builds TbhCompanion.exe on a Windows runner and attaches it to a GitHub Release.
 # Trigger by pushing a version tag, e.g.:
 #     git tag v1.0.0 && git push origin v1.0.0
 # Or run manually from the Actions tab (produces a build artifact, no release).
@@ -21,23 +21,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build TbhPresence.exe
+      - name: Build TbhCompanion.exe
         shell: pwsh
         run: |
           # version from the tag (refs/tags/v1.2.3 -> 1.2.3); dev fallback otherwise
           $ver = if ($env:GITHUB_REF -like 'refs/tags/*') { ($env:GITHUB_REF -replace '^refs/tags/v?', '') } else { '0.0.0' }
           .\build.ps1 -Version $ver
-          Get-Item TbhPresence.exe | Select-Object Name, Length, VersionInfo
+          Get-Item TbhCompanion.exe | Select-Object Name, Length, VersionInfo
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TbhPresence
-          path: TbhPresence.exe
+          name: TbhCompanion
+          path: TbhCompanion.exe
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: TbhPresence.exe
+          files: TbhCompanion.exe
           generate_release_notes: true

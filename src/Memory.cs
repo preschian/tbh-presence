@@ -5,7 +5,7 @@ using System.Text;
 
 // Read-only external-process memory reader + IL2CPP class/object locator.
 // Opens the game with PROCESS_VM_READ only; never writes.
-namespace TbhPresence
+namespace TbhCompanion
 {
     internal static class Native
     {
