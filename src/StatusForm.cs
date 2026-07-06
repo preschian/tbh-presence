@@ -108,14 +108,12 @@ namespace TbhCompanion
             _autoStart = new CheckBox();
             _autoStart.Text = "Start automatically when the game launches (no F8 needed)";
             _autoStart.AutoSize = true;
-            _autoStart.MaximumSize = new Size(400, 0);
             _autoStart.Margin = new Padding(3, 4, 3, 2);
             _root.Controls.Add(_autoStart);
 
             _showConsole = new CheckBox();
-            _showConsole.Text = "Show the BepInEx log console window (needs game restart)";
+            _showConsole.Text = "Show the BepInEx log console (needs game restart)";
             _showConsole.AutoSize = true;
-            _showConsole.MaximumSize = new Size(400, 0);
             _showConsole.Margin = new Padding(3, 2, 3, 6);
             _root.Controls.Add(_showConsole);
 
