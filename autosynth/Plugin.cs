@@ -17,7 +17,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.16.0";
+    internal const string Version = "0.17.0";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -79,6 +79,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     private int _cycles;
     private bool _recipeSelected;
     private int _recipeAttempts;
+    private bool _recipeListDumped;
     private float _nextTick;
     private UI_Cube _cube;
     private bool _legacyInputBroken;
@@ -296,6 +297,18 @@ public class AutoSynthBehaviour : MonoBehaviour
             // Pick the unlocked bracket with the highest lower level bound, so a
             // specific "Lv.65-80" beats the catch-all "Lv.1~ Lv.99". Fall back to
             // list position when a label has no parsable numbers.
+            if (!_recipeListDumped)
+            {
+                _recipeListDumped = true;
+                for (int i = 0; i < buttons.Count; i++)
+                {
+                    var b = buttons[i];
+                    if (b == null) { AutoSynthPlugin.Logger.LogInfo($"recipe list: #{i} null"); continue; }
+                    var t = b.m_text != null ? b.m_text.text : "(no text)";
+                    AutoSynthPlugin.Logger.LogInfo(
+                        $"recipe list: #{i} '{t}' locked={b.m_isLocked} selected={b.m_isSelected}");
+                }
+            }
             RecipeSlotButton best = null;
             string bestLabel = null;
             int bestLo = -1, bestHi = -1, bestIdx = -1;
