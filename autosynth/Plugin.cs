@@ -17,7 +17,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.17.0";
+    internal const string Version = "0.18.0";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -297,6 +297,34 @@ public class AutoSynthBehaviour : MonoBehaviour
             // Pick the unlocked bracket with the highest lower level bound, so a
             // specific "Lv.65-80" beats the catch-all "Lv.1~ Lv.99". Fall back to
             // list position when a label has no parsable numbers.
+            // The slot buttons carry prefab defaults until the dropdown has been
+            // opened once (all same label, nothing selected). Open it ourselves and
+            // retry; once populated, pick and close.
+            bool initialized = false;
+            string firstLabel = null;
+            for (int i = 0; i < buttons.Count; i++)
+            {
+                var b = buttons[i];
+                if (b == null) continue;
+                if (b.m_isSelected) { initialized = true; break; }
+                var t = b.m_text != null ? b.m_text.text : null;
+                if (firstLabel == null) firstLabel = t;
+                else if (t != firstLabel) { initialized = true; break; }
+            }
+            if (!initialized)
+            {
+                var dropdown = synth.m_comboBoxObject;
+                if (dropdown != null && !dropdown.activeInHierarchy)
+                {
+                    Click(synth, "sub-recipe dropdown (open to populate)", loud);
+                }
+                else if (loud)
+                {
+                    AutoSynthPlugin.Logger.LogInfo("recipe select: waiting for dropdown entries to populate");
+                }
+                return false;
+            }
+
             if (!_recipeListDumped)
             {
                 _recipeListDumped = true;
@@ -335,6 +363,7 @@ public class AutoSynthBehaviour : MonoBehaviour
             if (best.m_isSelected)
             {
                 AutoSynthPlugin.Logger.LogInfo($"recipe select: highest unlocked '{bestLabel}' already selected");
+                CloseDropdown(synth);
                 return true;
             }
             var btn = best.m_clickButton;
@@ -342,6 +371,7 @@ public class AutoSynthBehaviour : MonoBehaviour
             {
                 btn.onClick.Invoke();
                 AutoSynthPlugin.Logger.LogInfo($"recipe select: picked highest unlocked '{bestLabel}'");
+                CloseDropdown(synth);
                 return true;
             }
             if (loud) AutoSynthPlugin.Logger.LogWarning($"recipe select: '{bestLabel}' has no click button, will retry");
@@ -352,6 +382,17 @@ public class AutoSynthBehaviour : MonoBehaviour
             AutoSynthPlugin.Logger.LogError($"recipe select failed: {e}");
             return false;
         }
+    }
+
+    private static void CloseDropdown(SubRecipeComboBoxButton combo)
+    {
+        try
+        {
+            var dropdown = combo != null ? combo.m_comboBoxObject : null;
+            if (dropdown != null && dropdown.activeInHierarchy)
+                Click(combo, "sub-recipe dropdown (close)", false);
+        }
+        catch { }
     }
 
     private static readonly string[] GradeNames =
