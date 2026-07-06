@@ -17,7 +17,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.18.0";
+    internal const string Version = "0.19.0";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -80,6 +80,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     private bool _recipeSelected;
     private int _recipeAttempts;
     private bool _recipeListDumped;
+    private int _populateStep;
     private float _nextTick;
     private UI_Cube _cube;
     private bool _legacyInputBroken;
@@ -178,13 +179,13 @@ public class AutoSynthBehaviour : MonoBehaviour
                         // that is currently selected.
                         _recipeAttempts++;
                         _recipeSelected = SelectHighestUnlockedRecipe(_recipeAttempts <= 3);
-                        if (_recipeSelected || _recipeAttempts < 5)
+                        if (_recipeSelected || _recipeAttempts < 10)
                         {
                             // give the UI a tick to apply the recipe before filling
                             _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
                             break;
                         }
-                        if (_recipeAttempts == 5)
+                        if (_recipeAttempts == 10)
                             AutoSynthPlugin.Logger.LogWarning(
                                 "recipe select: UI not available; continuing with the currently selected recipe " +
                                 "(will keep checking each cycle - opening the recipe dropdown once in-game also fixes it)");
@@ -314,13 +315,28 @@ public class AutoSynthBehaviour : MonoBehaviour
             if (!initialized)
             {
                 var dropdown = synth.m_comboBoxObject;
-                if (dropdown != null && !dropdown.activeInHierarchy)
+                bool open = dropdown != null && dropdown.activeInHierarchy;
+                // Clicking the combo does not populate the list, so try the combo's
+                // own methods, one per attempt, until the entries appear.
+                _populateStep++;
+                switch (_populateStep)
                 {
-                    Click(synth, "sub-recipe dropdown (open to populate)", loud);
-                }
-                else if (loud)
-                {
-                    AutoSynthPlugin.Logger.LogInfo("recipe select: waiting for dropdown entries to populate");
+                    case 1:
+                        try { synth.kyf(); AutoSynthPlugin.Logger.LogInfo($"recipe select: called kyf() (dropdown open={open})"); }
+                        catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"kyf() failed: {e.Message}"); }
+                        break;
+                    case 2:
+                        try { synth.lbd(); AutoSynthPlugin.Logger.LogInfo($"recipe select: called lbd() (dropdown open={open})"); }
+                        catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"lbd() failed: {e.Message}"); }
+                        break;
+                    case 3:
+                        try { synth.kyh(); AutoSynthPlugin.Logger.LogInfo($"recipe select: called kyh() (dropdown open={open})"); }
+                        catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"kyh() failed: {e.Message}"); }
+                        break;
+                    default:
+                        if (!open) Click(synth, "sub-recipe dropdown (open to populate)", loud);
+                        else if (loud) AutoSynthPlugin.Logger.LogInfo("recipe select: dropdown open, waiting for entries");
+                        break;
                 }
                 return false;
             }
@@ -389,7 +405,9 @@ public class AutoSynthBehaviour : MonoBehaviour
         try
         {
             var dropdown = combo != null ? combo.m_comboBoxObject : null;
-            if (dropdown != null && dropdown.activeInHierarchy)
+            if (dropdown == null || !dropdown.activeInHierarchy) return;
+            try { combo.kyh(); } catch { }
+            if (dropdown.activeInHierarchy)
                 Click(combo, "sub-recipe dropdown (close)", false);
         }
         catch { }
