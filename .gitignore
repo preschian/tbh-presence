@@ -6,3 +6,5 @@ cache.json
 # build output
 TbhPresence.exe
 src/Version.g.cs
+autosynth/bin/
+autosynth/obj/

@@ -97,3 +97,10 @@ Details of how it all works are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Read-only and non-invasive — it never modifies the game. This is a single-player
 idle game; still, mind the game's terms if any online leaderboard exists.
+
+## Bonus: auto-synthesis mod
+
+This repo also carries an optional, separate tool: a BepInEx plugin that
+automates the Cube synthesis loop in-game. **Unlike the presence app, it is a
+game mod** (it clicks the game's UI for you and requires installing BepInEx
+into the game folder). See [autosynth/README.md](autosynth/README.md).
