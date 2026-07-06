@@ -17,7 +17,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.21.0";
+    internal const string Version = "0.22.0";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -110,6 +110,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     private bool _recipeListDumped;
     private int _populateStep;
     private bool _typeSelected;
+    private int _currentType;
     private float _nextTick;
     private UI_Cube _cube;
     private bool _legacyInputBroken;
@@ -206,8 +207,8 @@ public class AutoSynthBehaviour : MonoBehaviour
                         // Rotate through the enabled synthesis types across cycles
                         // (Equipment/Materials/Accessories), select this cycle's type,
                         // then re-pick the recipe since the bracket list can differ.
-                        var type = AutoSynthPlugin.TypeForCycle(_cycles);
-                        if (SelectSynthesisType(cube, type, loud))
+                        _currentType = AutoSynthPlugin.TypeForCycle(_cycles);
+                        if (SelectSynthesisType(cube, _currentType, loud))
                         {
                             _typeSelected = true;
                             _recipeSelected = false;
@@ -256,7 +257,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                         _lastSynthGrade = maxGrade;
                         _nextStatusWrite = 0f;
                         AutoSynthPlugin.Logger.LogInfo(
-                            $"synthesis started: {itemCount} item(s), rarity {GradeName(maxGrade)}");
+                            $"synthesis started: {TypeName(_currentType)}, {itemCount} item(s), rarity {GradeName(maxGrade)}");
                     }
                     _phase = Phase.Clear;
                     _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterSynthDelay;

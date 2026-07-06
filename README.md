@@ -91,7 +91,8 @@ memory.
     (tick any combination; the loop rotates through them),
   - **max rarity to synthesize** (default: Legendary),
   - how often a round runs (minutes),
-  - small timing tweaks.
+  - small timing tweaks,
+  - show/hide the BepInEx log console window (applies on next game start).
 
 Press **Save settings** — changes reach the running game within ~10 seconds,
 no restart needed.

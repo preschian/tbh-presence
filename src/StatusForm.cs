@@ -33,7 +33,9 @@ namespace TbhCompanion
         Label _setupNote;
         bool _setupRunning;
         CheckBox _autoStart;
+        CheckBox _showConsole;
         CheckBox _tEquip, _tMaterials, _tAccessories;
+        string _bepinexCfgPath;
         ComboBox _maxGrade;
         NumericUpDown _cycleMin, _fillSec, _synthSec;
         Button _saveBtn;
@@ -107,8 +109,15 @@ namespace TbhCompanion
             _autoStart.Text = "Start automatically when the game launches (no F8 needed)";
             _autoStart.AutoSize = true;
             _autoStart.MaximumSize = new Size(400, 0);
-            _autoStart.Margin = new Padding(3, 4, 3, 6);
+            _autoStart.Margin = new Padding(3, 4, 3, 2);
             _root.Controls.Add(_autoStart);
+
+            _showConsole = new CheckBox();
+            _showConsole.Text = "Show the BepInEx log console window (needs game restart)";
+            _showConsole.AutoSize = true;
+            _showConsole.MaximumSize = new Size(400, 0);
+            _showConsole.Margin = new Padding(3, 2, 3, 6);
+            _root.Controls.Add(_showConsole);
 
             var typeLabel = new Label();
             typeLabel.Text = "Synthesize which types (rotates each round):";
@@ -407,6 +416,34 @@ namespace TbhCompanion
             return Path.Combine(gameDir, "BepInEx", "config", "com.pres.tbh.autosynth.cfg");
         }
 
+        static string FindBepInExCfgPath()
+        {
+            string gameDir = AutoSynthDeploy.FindGameDir();
+            if (gameDir == null) return null;
+            return Path.Combine(gameDir, "BepInEx", "config", "BepInEx.cfg");
+        }
+
+        // BepInEx.cfg has an "Enabled" key in several sections, so read/write the
+        // one under [Logging.Console] specifically.
+        static bool GetConsoleEnabled(string text)
+        {
+            var m = Regex.Match(text,
+                @"(?ms)^\[Logging\.Console\].*?^\s*Enabled\s*=\s*(\w+)",
+                RegexOptions.Multiline);
+            return m.Success && m.Groups[1].Value.Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        static string SetConsoleEnabled(string text, bool on)
+        {
+            var re = new Regex(@"(?ms)(^\[Logging\.Console\].*?^\s*Enabled\s*=\s*)\w+",
+                RegexOptions.Multiline);
+            if (re.IsMatch(text)) return re.Replace(text, "${1}" + (on ? "true" : "false"), 1);
+            // section or key missing: append a minimal section
+            return text.TrimEnd() + Environment.NewLine + Environment.NewLine +
+                "[Logging.Console]" + Environment.NewLine +
+                "Enabled = " + (on ? "true" : "false") + Environment.NewLine;
+        }
+
         void LoadConfig()
         {
             _cfgPath = FindCfgPath();
@@ -433,6 +470,15 @@ namespace TbhCompanion
                 _tAccessories.Checked = types.Contains("accessor");
                 if (!_tEquip.Checked && !_tMaterials.Checked && !_tAccessories.Checked)
                 { _tEquip.Checked = _tMaterials.Checked = _tAccessories.Checked = true; }
+
+                _bepinexCfgPath = FindBepInExCfgPath();
+                if (_bepinexCfgPath != null && File.Exists(_bepinexCfgPath))
+                {
+                    _showConsole.Checked = GetConsoleEnabled(File.ReadAllText(_bepinexCfgPath));
+                    _showConsole.Enabled = true;
+                }
+                else { _showConsole.Enabled = false; }
+
                 SetConfigEnabled(true);
                 _cfgNote.Text = "";
             }
@@ -465,7 +511,20 @@ namespace TbhCompanion
                 if (types.Count == 0) { types.Add("Equipment"); types.Add("Materials"); types.Add("Accessories"); }
                 text = SetVal(text, "SynthesisTypes", string.Join(",", types.ToArray()));
                 File.WriteAllText(_cfgPath, text);
-                _cfgNote.Text = "saved - applies in-game within ~10s";
+
+                bool consoleNeedsRestart = false;
+                if (_bepinexCfgPath != null && File.Exists(_bepinexCfgPath))
+                {
+                    string bx = File.ReadAllText(_bepinexCfgPath);
+                    if (GetConsoleEnabled(bx) != _showConsole.Checked)
+                    {
+                        File.WriteAllText(_bepinexCfgPath, SetConsoleEnabled(bx, _showConsole.Checked));
+                        consoleNeedsRestart = true;
+                    }
+                }
+                _cfgNote.Text = consoleNeedsRestart
+                    ? "saved - console change needs a game restart"
+                    : "saved - applies in-game within ~10s";
             }
             catch (Exception ex)
             {
@@ -476,6 +535,7 @@ namespace TbhCompanion
         void SetConfigEnabled(bool on)
         {
             _autoStart.Enabled = on;
+            // _showConsole enabled state is managed in LoadConfig (separate cfg file)
             _maxGrade.Enabled = on;
             _cycleMin.Enabled = on;
             _fillSec.Enabled = on;
