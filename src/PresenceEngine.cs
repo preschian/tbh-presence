@@ -46,7 +46,8 @@ namespace TbhCompanion
         {
             Status("client id " + _clientId + " - waiting for game");
             var discord = new DiscordRpc(_clientId);
-            string lastSent = null;                 // null = none, "" = cleared
+            string lastSent = null;                 // null = none, "" = cleared (Discord)
+            string lastStageSig = null;             // last stage surfaced to the UI/status
             DateTime lastDiscordTry = DateTime.MinValue;
 
             try
@@ -98,21 +99,24 @@ namespace TbhCompanion
 
                             GameState st = null;
                             try { st = reader.Read(); } catch { }
-                            if (st != null && st.StageKey > 0 && discord.Connected)
+                            if (st != null && st.StageKey > 0)
                             {
                                 string sig = st.Details() + "|" + st.PartyLine();
-                                if (sig != lastSent)
+                                // Surface the current stage to the UI/tooltip whenever it
+                                // changes, independent of whether Discord is connected.
+                                if (sig != lastStageSig) { Status(st.Label()); lastStageSig = sig; }
+                                if (discord.Connected && sig != lastSent)
                                 {
                                     try
                                     {
                                         discord.SetActivity(st.Details(), st.PartyLine(), startEpoch);
-                                        Status(st.Label());
                                         lastSent = sig;
                                     }
                                     catch (Exception ex)
                                     {
                                         Status("Discord lost (" + ex.Message + ") - reconnecting");
                                         discord.Dispose();
+                                        lastStageSig = null;   // re-surface the stage next poll
                                     }
                                 }
                             }
