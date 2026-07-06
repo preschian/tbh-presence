@@ -1,5 +1,7 @@
 using System;
+using System.IO;
 using BepInEx;
+using BepInEx.Configuration;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using Il2CppInterop.Runtime.Injection;
@@ -15,32 +17,54 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", "0.12.0")]
 public class AutoSynthPlugin : BasePlugin
 {
+    internal const string Version = "0.13.0";
+
     internal static ManualLogSource Logger;
-    internal static float AfterFillDelay = 1.0f;
-    internal static float AfterSynthDelay = 4.0f;
-    internal static float AfterClearDelay = 1.0f;
-    internal static int MaxGrade = 2;
-    internal static bool AutoStart = true;
+    private static ConfigFile _conf;
+    private static ConfigEntry<float> _afterFillE, _afterSynthE, _cycleE;
+    private static ConfigEntry<int> _maxGradeE;
+    private static ConfigEntry<bool> _autoStartE;
+
+    internal static float AfterFillDelay => _afterFillE != null ? _afterFillE.Value : 1.0f;
+    internal static float AfterSynthDelay => _afterSynthE != null ? _afterSynthE.Value : 4.0f;
+    internal static float AfterClearDelay => _cycleE != null ? _cycleE.Value : 300.0f;
+    internal static int MaxGrade => _maxGradeE != null ? _maxGradeE.Value : 2;
+    internal static bool AutoStart => _autoStartE == null || _autoStartE.Value;
+
+    // The tray exe edits the cfg file; picking the change up live means no game restart.
+    internal static void ReloadConfig()
+    {
+        if (_conf == null) return;
+        try
+        {
+            int mg = MaxGrade; float ci = AfterClearDelay; bool auto = AutoStart;
+            _conf.Reload();
+            if (mg != MaxGrade || ci != AfterClearDelay || auto != AutoStart)
+                Logger.LogInfo($"config reloaded: MaxGrade={MaxGrade}, CycleIntervalSeconds={AfterClearDelay}, AutoStart={AutoStart}");
+        }
+        catch (Exception e) { Logger.LogWarning("config reload failed: " + e.Message); }
+    }
 
     public override void Load()
     {
         Logger = Log;
-        AfterFillDelay = Config.Bind("Timing", "AfterFillSeconds", 1.0f,
-            "Delay after clicking auto-fill before starting synthesis").Value;
-        AfterSynthDelay = Config.Bind("Timing", "AfterSynthesisSeconds", 4.0f,
-            "Delay after clicking the trigger, so the synthesis can finish").Value;
-        AfterClearDelay = Config.Bind("Timing", "CycleIntervalSeconds", 300.0f,
-            "Delay after emptying the cube before the next cycle starts (default: 5 minutes)").Value;
-        AutoStart = Config.Bind("General", "AutoStart", true,
+        _conf = Config;
+        _afterFillE = Config.Bind("Timing", "AfterFillSeconds", 1.0f,
+            "Delay after clicking auto-fill before starting synthesis");
+        _afterSynthE = Config.Bind("Timing", "AfterSynthesisSeconds", 4.0f,
+            "Delay after clicking the trigger, so the synthesis can finish");
+        _cycleE = Config.Bind("Timing", "CycleIntervalSeconds", 300.0f,
+            "Delay after emptying the cube before the next cycle starts (default: 5 minutes)");
+        _autoStartE = Config.Bind("General", "AutoStart", true,
             "Arm the auto loop as soon as the game starts (no F8 needed). " +
-            "It only acts while the Cube panel is open; F8 still toggles it.").Value;
-        MaxGrade = Config.Bind("Safety", "MaxGrade", 2,
+            "It only acts while the Cube panel is open; F8 still toggles it.");
+        _maxGradeE = Config.Bind("Safety", "MaxGrade", 2,
             "Highest item grade the auto loop may synthesize: 0=COMMON 1=UNCOMMON 2=RARE 3=LEGENDARY 4=IMMORTAL ... " +
-            "If any cube slot holds an item above this grade, synthesis is skipped and the cube is cleared.").Value;
+            "If any cube slot holds an item above this grade, synthesis is skipped and the cube is cleared.");
         if (!ClassInjector.IsTypeRegisteredInIl2Cpp<AutoSynthBehaviour>())
             ClassInjector.RegisterTypeInIl2Cpp<AutoSynthBehaviour>();
         AddComponent<AutoSynthBehaviour>();
-        Logger.LogInfo("TBH Auto Synthesis 0.12.0: F8 = toggle auto (select recipe -> fill -> synth -> clear loop), F9 = click trigger once, F10 = dump cube state.");
+        Logger.LogInfo($"TBH Auto Synthesis {Version}: F8 = toggle auto (select recipe -> fill -> synth -> clear loop), F9 = click trigger once, F10 = dump cube state.");
     }
 }
 
@@ -59,9 +83,47 @@ public class AutoSynthBehaviour : MonoBehaviour
     private UI_Cube _cube;
     private bool _legacyInputBroken;
     private bool _autoStartApplied;
+    private float _nextConfigReload;
+    private float _nextStatusWrite;
+    private int _lastSynthCount = -1;
+    private int _lastSynthGrade = -1;
+
+    private static readonly string StatusPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "tbh-presence", "autosynth-status.json");
+
+    private void WriteStatus()
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(StatusPath));
+            var json =
+                "{\"version\":\"" + AutoSynthPlugin.Version + "\"" +
+                ",\"auto\":" + (_auto ? "true" : "false") +
+                ",\"phase\":\"" + _phase + "\"" +
+                ",\"cycles\":" + _cycles +
+                ",\"lastCount\":" + _lastSynthCount +
+                ",\"lastGrade\":" + _lastSynthGrade +
+                ",\"maxGrade\":" + AutoSynthPlugin.MaxGrade +
+                ",\"cycleIntervalSeconds\":" + (int)AutoSynthPlugin.AfterClearDelay +
+                ",\"updatedUtc\":\"" + DateTime.UtcNow.ToString("o") + "\"}";
+            File.WriteAllText(StatusPath, json);
+        }
+        catch { }
+    }
 
     private void Update()
     {
+        if (Time.unscaledTime >= _nextConfigReload)
+        {
+            _nextConfigReload = Time.unscaledTime + 10f;
+            AutoSynthPlugin.ReloadConfig();
+        }
+        if (Time.unscaledTime >= _nextStatusWrite)
+        {
+            _nextStatusWrite = Time.unscaledTime + 3f;
+            WriteStatus();
+        }
         if (!_autoStartApplied)
         {
             _autoStartApplied = true;
@@ -80,6 +142,7 @@ public class AutoSynthBehaviour : MonoBehaviour
             _recipeSelected = false;
             _recipeAttempts = 0;
             _nextTick = 0f;
+            _nextStatusWrite = 0f;
             AutoSynthPlugin.Logger.LogInfo($"Auto-synthesis: {(_auto ? "ON" : "OFF")}");
         }
         if (KeyDown(KeyCode.F9))
@@ -132,8 +195,13 @@ public class AutoSynthBehaviour : MonoBehaviour
                     }
                     Click(cube.toggleButton_Trigger, "synthesis trigger", false);
                     if (itemCount > 0)
+                    {
+                        _lastSynthCount = itemCount;
+                        _lastSynthGrade = maxGrade;
+                        _nextStatusWrite = 0f;
                         AutoSynthPlugin.Logger.LogInfo(
                             $"synthesis started: {itemCount} item(s), rarity {GradeName(maxGrade)}");
+                    }
                     _phase = Phase.Clear;
                     _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterSynthDelay;
                     break;

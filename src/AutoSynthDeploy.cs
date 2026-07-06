@@ -56,7 +56,7 @@ namespace TbhPresence
             }
         }
 
-        static string FindGameDir()
+        internal static string FindGameDir()
         {
             // 1) a running game tells us exactly where it lives
             try

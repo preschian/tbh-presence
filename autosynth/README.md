@@ -55,7 +55,11 @@ The Cube panel must stay open while the loop runs.
 | `AfterFillSeconds` | 1 | Delay between auto-fill and synthesis |
 | `AfterSynthesisSeconds` | 4 | Delay for the synthesis animation to finish |
 
-Config is read at game start — restart the game after editing.
+The plugin re-reads the config every ~10 seconds while the game runs, so edits
+apply without a restart. The easiest way to edit it is the **Status & Settings**
+window in `TbhPresence.exe` (double-click the tray icon). The plugin also
+reports its live status (on/off, cycles, last synthesis) to
+`%LOCALAPPDATA%\tbh-presence\autosynth-status.json`, which that window displays.
 
 ## How it works / maintenance
 

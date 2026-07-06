@@ -26,6 +26,12 @@ minute reading the game; after that it starts instantly.
 
 To stop it, right-click the tray icon and choose **Quit**.
 
+**Double-click the tray icon** (or right-click → *Status & Settings...*) to open
+a small window showing live indicators for both features — the Discord presence
+connection and the in-game auto-synthesis loop — plus the auto-synthesis
+settings (max rarity, cycle interval, delays). Saved settings reach the running
+game within ~10 seconds; no restart needed.
+
 > **First-run warning:** Windows SmartScreen may show "Windows protected your
 > PC" because the app isn't code-signed. Click **More info → Run anyway**. Some
 > antivirus tools may also flag it, because it reads another program's memory to

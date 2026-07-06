@@ -11,6 +11,8 @@ namespace TbhPresence
         readonly NotifyIcon _icon;
         readonly PresenceEngine _engine;
         readonly System.Threading.Thread _worker;
+        string _lastStatus = "starting...";
+        StatusForm _form;
 
         public TrayApp(PresenceEngine engine)
         {
@@ -20,6 +22,9 @@ namespace TbhPresence
             var status = new ToolStripMenuItem("Starting...") { Enabled = false };
             menu.Items.Add(status);
             menu.Items.Add(new ToolStripSeparator());
+            var open = new ToolStripMenuItem("Status && Settings...");
+            open.Click += delegate { OpenForm(); };
+            menu.Items.Add(open);
             var quit = new ToolStripMenuItem("Quit");
             quit.Click += delegate { ExitThread(); };
             menu.Items.Add(quit);
@@ -29,6 +34,7 @@ namespace TbhPresence
             _icon.Text = "TaskBarHero Presence";   // tooltip (<= 63 chars)
             _icon.Visible = true;
             _icon.ContextMenuStrip = menu;
+            _icon.DoubleClick += delegate { OpenForm(); };
 
             // engine reports status text -> reflect in tooltip + menu (marshal to UI thread)
             _engine.OnStatus += delegate(string s)
@@ -38,6 +44,7 @@ namespace TbhPresence
                     if (menu.IsDisposed) return;
                     menu.BeginInvoke((Action)delegate
                     {
+                        _lastStatus = s;
                         status.Text = s;
                         _icon.Text = Truncate("TBH: " + s, 63);
                     });
@@ -50,6 +57,21 @@ namespace TbhPresence
             _worker.Start();
 
             ThreadExit += delegate { Shutdown(); };
+        }
+
+        void OpenForm()
+        {
+            if (_form == null || _form.IsDisposed)
+            {
+                _form = new StatusForm(delegate { return _lastStatus; });
+                _form.Show();
+            }
+            else
+            {
+                if (_form.WindowState == FormWindowState.Minimized)
+                    _form.WindowState = FormWindowState.Normal;
+                _form.Activate();
+            }
         }
 
         void Shutdown()
