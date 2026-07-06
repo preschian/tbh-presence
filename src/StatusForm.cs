@@ -33,6 +33,7 @@ namespace TbhCompanion
         Label _setupNote;
         bool _setupRunning;
         CheckBox _autoStart;
+        CheckBox _tEquip, _tMaterials, _tAccessories;
         ComboBox _maxGrade;
         NumericUpDown _cycleMin, _fillSec, _synthSec;
         Button _saveBtn;
@@ -108,6 +109,25 @@ namespace TbhCompanion
             _autoStart.MaximumSize = new Size(400, 0);
             _autoStart.Margin = new Padding(3, 4, 3, 6);
             _root.Controls.Add(_autoStart);
+
+            var typeLabel = new Label();
+            typeLabel.Text = "Synthesize which types (rotates each round):";
+            typeLabel.AutoSize = true;
+            typeLabel.Margin = new Padding(3, 2, 3, 2);
+            _root.Controls.Add(typeLabel);
+
+            var typeRow = new FlowLayoutPanel();
+            typeRow.AutoSize = true;
+            typeRow.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            typeRow.WrapContents = false;
+            typeRow.Margin = new Padding(12, 0, 3, 6);
+            _tEquip = MakeTypeCheck("Equipment");
+            _tMaterials = MakeTypeCheck("Materials");
+            _tAccessories = MakeTypeCheck("Accessories");
+            typeRow.Controls.Add(_tEquip);
+            typeRow.Controls.Add(_tMaterials);
+            typeRow.Controls.Add(_tAccessories);
+            _root.Controls.Add(typeRow);
 
             var grid = new TableLayoutPanel();
             grid.ColumnCount = 2;
@@ -225,6 +245,15 @@ namespace TbhCompanion
             control.Anchor = AnchorStyles.Left;
             control.Margin = new Padding(3, 3, 3, 3);
             grid.Controls.Add(control, 1, row);
+        }
+
+        static CheckBox MakeTypeCheck(string text)
+        {
+            var c = new CheckBox();
+            c.Text = text;
+            c.AutoSize = true;
+            c.Margin = new Padding(3, 3, 12, 3);
+            return c;
         }
 
         static NumericUpDown MakeNum(decimal min, decimal max, int decimals)
@@ -398,6 +427,12 @@ namespace TbhCompanion
                 _cycleMin.Value = Clamp(Math.Round(cycleSec / 60m), _cycleMin);
                 _fillSec.Value = Clamp(ParseF(GetVal(text, "AfterFillSeconds", "1")), _fillSec);
                 _synthSec.Value = Clamp(ParseF(GetVal(text, "AfterSynthesisSeconds", "4")), _synthSec);
+                string types = GetVal(text, "SynthesisTypes", "Equipment,Materials,Accessories").ToLowerInvariant();
+                _tEquip.Checked = types.Contains("equipment") || types.Contains("gear");
+                _tMaterials.Checked = types.Contains("material");
+                _tAccessories.Checked = types.Contains("accessor");
+                if (!_tEquip.Checked && !_tMaterials.Checked && !_tAccessories.Checked)
+                { _tEquip.Checked = _tMaterials.Checked = _tAccessories.Checked = true; }
                 SetConfigEnabled(true);
                 _cfgNote.Text = "";
             }
@@ -423,6 +458,12 @@ namespace TbhCompanion
                 text = SetVal(text, "CycleIntervalSeconds", (_cycleMin.Value * 60).ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "AfterFillSeconds", _fillSec.Value.ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "AfterSynthesisSeconds", _synthSec.Value.ToString(CultureInfo.InvariantCulture));
+                var types = new List<string>();
+                if (_tEquip.Checked) types.Add("Equipment");
+                if (_tMaterials.Checked) types.Add("Materials");
+                if (_tAccessories.Checked) types.Add("Accessories");
+                if (types.Count == 0) { types.Add("Equipment"); types.Add("Materials"); types.Add("Accessories"); }
+                text = SetVal(text, "SynthesisTypes", string.Join(",", types.ToArray()));
                 File.WriteAllText(_cfgPath, text);
                 _cfgNote.Text = "saved - applies in-game within ~10s";
             }
@@ -439,6 +480,9 @@ namespace TbhCompanion
             _cycleMin.Enabled = on;
             _fillSec.Enabled = on;
             _synthSec.Enabled = on;
+            _tEquip.Enabled = on;
+            _tMaterials.Enabled = on;
+            _tAccessories.Enabled = on;
             _saveBtn.Enabled = on;
         }
 

@@ -87,6 +87,8 @@ memory.
   how many rounds so far, and what was synthesized last?
 - Auto-synthesis settings you can change anytime:
   - start automatically when the game launches (on by default),
+  - **which item types to synthesize** — Equipment, Materials, Accessories
+    (tick any combination; the loop rotates through them),
   - **max rarity to synthesize** (default: Legendary),
   - how often a round runs (minutes),
   - small timing tweaks.

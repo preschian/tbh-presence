@@ -17,7 +17,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.20.0";
+    internal const string Version = "0.21.0";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -30,6 +30,31 @@ public class AutoSynthPlugin : BasePlugin
     internal static float AfterClearDelay => _cycleE != null ? _cycleE.Value : 300.0f;
     internal static int MaxGrade => _maxGradeE != null ? _maxGradeE.Value : 2;
     internal static bool AutoStart => _autoStartE == null || _autoStartE.Value;
+
+    private static ConfigEntry<string> _typesE;
+
+    // Which synthesis types the loop rotates through, as EItemSynthesisType
+    // values (0=Gear/Equipment, 1=Accessory, 2=Material). Empty/invalid => all.
+    internal static System.Collections.Generic.List<int> EnabledTypes()
+    {
+        var list = new System.Collections.Generic.List<int>();
+        var raw = _typesE != null ? _typesE.Value : "Equipment,Materials,Accessories";
+        foreach (var tok in raw.Split(','))
+        {
+            var t = tok.Trim().ToLowerInvariant();
+            if (t == "equipment" || t == "gear") { if (!list.Contains(0)) list.Add(0); }
+            else if (t == "accessory" || t == "accessories") { if (!list.Contains(1)) list.Add(1); }
+            else if (t == "material" || t == "materials") { if (!list.Contains(2)) list.Add(2); }
+        }
+        if (list.Count == 0) { list.Add(0); list.Add(2); list.Add(1); }
+        return list;
+    }
+
+    internal static int TypeForCycle(int cycle)
+    {
+        var types = EnabledTypes();
+        return types[cycle % types.Count];
+    }
 
     // The tray exe edits the cfg file; picking the change up live means no game restart.
     internal static void ReloadConfig()
@@ -58,6 +83,9 @@ public class AutoSynthPlugin : BasePlugin
         _autoStartE = Config.Bind("General", "AutoStart", true,
             "Arm the auto loop as soon as the game starts (no F8 needed). " +
             "It only acts while the Cube panel is open; F8 still toggles it.");
+        _typesE = Config.Bind("General", "SynthesisTypes", "Equipment,Materials,Accessories",
+            "Which synthesis item types the loop rotates through, comma-separated: " +
+            "Equipment, Materials, Accessories. e.g. 'Equipment,Materials' to skip accessories.");
         _maxGradeE = Config.Bind("Safety", "MaxGrade", 2,
             "Highest item grade the auto loop may synthesize: 0=COMMON 1=UNCOMMON 2=RARE 3=LEGENDARY 4=IMMORTAL ... " +
             "If any cube slot holds an item above this grade, synthesis is skipped and the cube is cleared.");
@@ -81,6 +109,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     private int _recipeAttempts;
     private bool _recipeListDumped;
     private int _populateStep;
+    private bool _typeSelected;
     private float _nextTick;
     private UI_Cube _cube;
     private bool _legacyInputBroken;
@@ -143,6 +172,7 @@ public class AutoSynthBehaviour : MonoBehaviour
             _cycles = 0;
             _recipeSelected = false;
             _recipeAttempts = 0;
+            _typeSelected = false;
             _nextTick = 0f;
             _nextStatusWrite = 0f;
             AutoSynthPlugin.Logger.LogInfo($"Auto-synthesis: {(_auto ? "ON" : "OFF")}");
@@ -171,6 +201,23 @@ public class AutoSynthBehaviour : MonoBehaviour
             switch (_phase)
             {
                 case Phase.Fill:
+                    if (!_typeSelected)
+                    {
+                        // Rotate through the enabled synthesis types across cycles
+                        // (Equipment/Materials/Accessories), select this cycle's type,
+                        // then re-pick the recipe since the bracket list can differ.
+                        var type = AutoSynthPlugin.TypeForCycle(_cycles);
+                        if (SelectSynthesisType(cube, type, loud))
+                        {
+                            _typeSelected = true;
+                            _recipeSelected = false;
+                            _recipeAttempts = 0;
+                            _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
+                            break;
+                        }
+                        // couldn't select (type combo not ready) — proceed anyway
+                        _typeSelected = true;
+                    }
                     if (!_recipeSelected)
                     {
                         // The sub-recipe UI is built lazily (often only after the recipe
@@ -218,6 +265,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                     ClickTrash(cube.m_trashToggleBtn, loud);
                     _phase = Phase.Fill;
                     _cycles++;
+                    _typeSelected = false;
                     if (loud) AutoSynthPlugin.Logger.LogInfo($"cycle {_cycles} done");
                     _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterClearDelay;
                     break;
@@ -247,6 +295,44 @@ public class AutoSynthBehaviour : MonoBehaviour
             if (info != null) _gradeByItemKey[info.ItemKey] = (int)info.GRADE;
         }
         AutoSynthPlugin.Logger.LogInfo($"item grade map built: {_gradeByItemKey.Count} items");
+    }
+
+    private static readonly string[] TypeNames = { "Equipment", "Accessory", "Material" };
+
+    private static string TypeName(int t) => t >= 0 && t < TypeNames.Length ? TypeNames[t] : "?";
+
+    // Select the synthesis item type (Equipment/Accessory/Material) on the cube's
+    // type combo. Returns true once done; false if the combo isn't ready yet.
+    private bool SelectSynthesisType(UI_Cube cube, int type, bool loud)
+    {
+        try
+        {
+            var combo = cube.m_synthesisItemTypeButton;
+            if (combo == null) return false;
+            var buttons = combo.m_buttons;
+            if (buttons == null || buttons.Count == 0) return false;
+            for (int i = 0; i < buttons.Count; i++)
+            {
+                var b = buttons[i];
+                if (b == null || (int)b.m_synthesisItemType != type) continue;
+                var btn = b.m_button;
+                if (btn != null && btn.onClick != null)
+                {
+                    btn.onClick.Invoke();
+                    if (loud) AutoSynthPlugin.Logger.LogInfo($"type select: {TypeName(type)}");
+                    return true;
+                }
+                return false;
+            }
+            // type not offered by this cube (e.g. accessories locked) — treat as done
+            if (loud) AutoSynthPlugin.Logger.LogWarning($"type select: {TypeName(type)} not available, skipping");
+            return true;
+        }
+        catch (Exception e)
+        {
+            AutoSynthPlugin.Logger.LogError($"type select failed: {e}");
+            return true;
+        }
     }
 
     private bool SelectHighestUnlockedRecipe(bool loud)

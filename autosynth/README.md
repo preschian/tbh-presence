@@ -38,6 +38,7 @@ The Cube panel must stay open while the loop runs.
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `AutoStart` | true | Arm the auto loop at game start, no F8 needed |
+| `SynthesisTypes` | Equipment,Materials,Accessories | Which item types to synthesize; the loop rotates through them each round. e.g. `Equipment,Materials` to skip accessories. |
 | `MaxGrade` | 3 | Highest rarity the loop may synthesize (0=Common, 1=Uncommon, 2=Rare, 3=Legendary, 4=Immortal, …). Cycles holding anything above this are skipped. |
 | `CycleIntervalSeconds` | 300 | Pause between cycles |
 | `AfterFillSeconds` | 1 | Delay between auto-fill and synthesis |
