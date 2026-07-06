@@ -254,7 +254,7 @@ namespace TbhCompanion
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
             int th = Sc(TitleH);
             var full = new Rectangle(0, 0, Width, Height);
             Theme.FillRound(g, full, Sc(14), Theme.FormBg);
@@ -574,7 +574,7 @@ namespace TbhCompanion
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
-            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
             float s = Theme.Scale(g);
             using (var f = Theme.F(8f, FontStyle.Regular)) using (var b = new SolidBrush(Theme.TextMuted))
                 g.DrawString(_title, f, b, new PointF(11 * s, 8 * s));

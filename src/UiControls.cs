@@ -91,10 +91,26 @@ namespace TbhCompanion
             using (var p = Round(r, radius)) using (var b = new SolidBrush(fill)) g.FillPath(b, p);
         }
 
+        // Border stroked inside the fill edge (PenAlignment.Inset) using the SAME
+        // rectangle as the fill, so no 1px seam shows between fill and border.
         public static void DrawRoundBorder(Graphics g, Rectangle r, int radius, Color border, float width)
         {
-            var rr = new Rectangle(r.X, r.Y, r.Width - 1, r.Height - 1);
-            using (var p = Round(rr, radius)) using (var pen = new Pen(border, width)) g.DrawPath(pen, p);
+            using (var p = Round(r, radius))
+            using (var pen = new Pen(border, width) { Alignment = PenAlignment.Inset })
+                g.DrawPath(pen, p);
+        }
+
+        // Fill a rectangle rounding only the requested (left / right) corners.
+        public static GraphicsPath SidePath(Rectangle r, int rad, bool left, bool right)
+        {
+            var p = new GraphicsPath();
+            int d = rad * 2;
+            if (left) p.AddArc(r.X, r.Y, d, d, 180, 90); else p.AddLine(r.X, r.Y, r.X, r.Y);
+            if (right) p.AddArc(r.Right - d, r.Y, d, d, 270, 90); else p.AddLine(r.Right, r.Y, r.Right, r.Y);
+            if (right) p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90); else p.AddLine(r.Right, r.Bottom, r.Right, r.Bottom);
+            if (left) p.AddArc(r.X, r.Bottom - d, d, d, 90, 90); else p.AddLine(r.X, r.Bottom, r.X, r.Bottom);
+            p.CloseFigure();
+            return p;
         }
     }
 
@@ -113,7 +129,7 @@ namespace TbhCompanion
         protected override void OnPaintBackground(PaintEventArgs e) { /* painted in OnPaint */ }
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
             float s = Theme.Scale(g);
             var r = ClientRectangle;
             using (var b = new SolidBrush(Parent != null ? Parent.BackColor : Theme.FormBg)) g.FillRectangle(b, r);
@@ -139,7 +155,7 @@ namespace TbhCompanion
         protected override void OnPaintBackground(PaintEventArgs e) { }
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
             float s = Theme.Scale(g);
             if (Parent != null) using (var b = new SolidBrush(Parent.BackColor)) g.FillRectangle(b, ClientRectangle);
             int h = Height, w = Width;
@@ -171,7 +187,7 @@ namespace TbhCompanion
         protected override void OnPaintBackground(PaintEventArgs e) { }
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
             float s = Theme.Scale(g);
             using (var b = new SolidBrush(Parent != null ? Parent.BackColor : Theme.CardBg)) g.FillRectangle(b, ClientRectangle);
             var r = new Rectangle(0, 0, Width, Height);
@@ -208,50 +224,22 @@ namespace TbhCompanion
         protected override void OnPaintBackground(PaintEventArgs e) { }
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
             float s = Theme.Scale(g);
             using (var b = new SolidBrush(Parent != null ? Parent.BackColor : Theme.CardBg)) g.FillRectangle(b, ClientRectangle);
-            int n = 10; float gap = 4 * s;
-            float segW = (Width - gap * (n - 1)) / (float)n;
+            int n = 10; float gap = 4 * s; int rad = (int)(5 * s);
+            float step = (Width + gap) / (float)n;      // segment pitch incl. gap
+            float segW = step - gap;
             for (int i = 0; i < n; i++)
             {
-                float x = i * (segW + gap);
-                var r = new Rectangle((int)x, 1, (int)Math.Ceiling(segW), Height - 2);
+                var r = new Rectangle((int)Math.Round(i * step), 0, (int)Math.Round(segW), Height);
                 Color c = i <= _value ? Theme.GradeColors[i] : Theme.SegEmpty;
-                int rad = (i == 0 || i == n - 1) ? (int)(5 * s) : 0;
-                // rounded only on the outer ends
-                if (i == 0) FillLeftRound(g, r, rad, c);
-                else if (i == n - 1) FillRightRound(g, r, rad, c);
-                else using (var b = new SolidBrush(c)) g.FillRectangle(b, r);
+                bool left = i == 0, right = i == n - 1;
+                using (var p = Theme.SidePath(r, rad, left, right)) using (var b = new SolidBrush(c)) g.FillPath(b, p);
                 if (i == _value)
-                {
-                    using (var pen = new Pen(Theme.TextDark, 2f * s))
-                        g.DrawRectangle(pen, r.X, r.Y - 1, r.Width - 1, r.Height + 1);
-                }
-            }
-        }
-        static void FillLeftRound(Graphics g, Rectangle r, int rad, Color c)
-        {
-            using (var p = new GraphicsPath())
-            {
-                int d = rad * 2;
-                p.AddArc(r.X, r.Y, d, d, 180, 90);
-                p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
-                p.AddLine(r.Right, r.Bottom, r.Right, r.Y);
-                p.CloseFigure();
-                using (var b = new SolidBrush(c)) g.FillPath(b, p);
-            }
-        }
-        static void FillRightRound(Graphics g, Rectangle r, int rad, Color c)
-        {
-            using (var p = new GraphicsPath())
-            {
-                int d = rad * 2;
-                p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
-                p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
-                p.AddLine(r.X, r.Bottom, r.X, r.Y);
-                p.CloseFigure();
-                using (var b = new SolidBrush(c)) g.FillPath(b, p);
+                    using (var p = Theme.SidePath(r, rad, left, right)) using (var pen = new Pen(Theme.TextDark, 2f * s))
+                        g.DrawPath(pen, p);
             }
         }
     }
@@ -280,7 +268,7 @@ namespace TbhCompanion
         protected override void OnPaintBackground(PaintEventArgs e) { }
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
             float s = Theme.Scale(g);
             using (var b = new SolidBrush(Parent != null ? Parent.BackColor : Theme.CardBg)) g.FillRectangle(b, ClientRectangle);
             var box = new Rectangle(0, 0, Width, Height);
@@ -320,7 +308,7 @@ namespace TbhCompanion
         protected override void OnPaintBackground(PaintEventArgs e) { }
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
             float s = Theme.Scale(g);
             using (var b = new SolidBrush(Parent != null ? Parent.BackColor : Theme.TitleBottom)) g.FillRectangle(b, ClientRectangle);
             var r = new Rectangle(0, 0, Width, Height);
@@ -347,7 +335,7 @@ namespace TbhCompanion
         protected override void OnPaintBackground(PaintEventArgs e) { }
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
+            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
             float s = Theme.Scale(g);
             using (var b = new SolidBrush(Parent != null ? Parent.BackColor : Theme.FormBg)) g.FillRectangle(b, ClientRectangle);
             var r = new Rectangle(0, 0, Width, Height);
