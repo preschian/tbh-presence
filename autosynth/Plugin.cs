@@ -12,7 +12,7 @@ using UnityEngine.EventSystems;
 
 namespace TbhAutoSynth;
 
-[BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", "0.10.0")]
+[BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", "0.11.0")]
 public class AutoSynthPlugin : BasePlugin
 {
     internal static ManualLogSource Logger;
@@ -20,6 +20,7 @@ public class AutoSynthPlugin : BasePlugin
     internal static float AfterSynthDelay = 4.0f;
     internal static float AfterClearDelay = 1.0f;
     internal static int MaxGrade = 2;
+    internal static bool AutoStart = true;
 
     public override void Load()
     {
@@ -30,13 +31,16 @@ public class AutoSynthPlugin : BasePlugin
             "Delay after clicking the trigger, so the synthesis can finish").Value;
         AfterClearDelay = Config.Bind("Timing", "CycleIntervalSeconds", 300.0f,
             "Delay after emptying the cube before the next cycle starts (default: 5 minutes)").Value;
+        AutoStart = Config.Bind("General", "AutoStart", true,
+            "Arm the auto loop as soon as the game starts (no F8 needed). " +
+            "It only acts while the Cube panel is open; F8 still toggles it.").Value;
         MaxGrade = Config.Bind("Safety", "MaxGrade", 2,
             "Highest item grade the auto loop may synthesize: 0=COMMON 1=UNCOMMON 2=RARE 3=LEGENDARY 4=IMMORTAL ... " +
             "If any cube slot holds an item above this grade, synthesis is skipped and the cube is cleared.").Value;
         if (!ClassInjector.IsTypeRegisteredInIl2Cpp<AutoSynthBehaviour>())
             ClassInjector.RegisterTypeInIl2Cpp<AutoSynthBehaviour>();
         AddComponent<AutoSynthBehaviour>();
-        Logger.LogInfo("TBH Auto Synthesis 0.10.0: F8 = toggle auto (select recipe -> fill -> synth -> clear loop), F9 = click trigger once, F10 = dump cube state.");
+        Logger.LogInfo("TBH Auto Synthesis 0.11.0: F8 = toggle auto (select recipe -> fill -> synth -> clear loop), F9 = click trigger once, F10 = dump cube state.");
     }
 }
 
@@ -53,9 +57,20 @@ public class AutoSynthBehaviour : MonoBehaviour
     private float _nextTick;
     private UI_Cube _cube;
     private bool _legacyInputBroken;
+    private bool _autoStartApplied;
 
     private void Update()
     {
+        if (!_autoStartApplied)
+        {
+            _autoStartApplied = true;
+            if (AutoSynthPlugin.AutoStart)
+            {
+                _auto = true;
+                AutoSynthPlugin.Logger.LogInfo(
+                    "Auto-synthesis armed on launch (AutoStart=true) - open the Cube panel to run it. F8 toggles.");
+            }
+        }
         if (KeyDown(KeyCode.F8))
         {
             _auto = !_auto;

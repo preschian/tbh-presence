@@ -27,6 +27,12 @@ using System.Reflection;
 
 try {
     $out = Join-Path $here 'TbhPresence.exe'
+    # embed the auto-synthesis BepInEx plugin when it has been built, so the exe
+    # can deploy it into the game's BepInEx\plugins folder on startup
+    $synthDll = Join-Path $here 'autosynth\bin\Release\TbhAutoSynth.dll'
+    $resArgs = @()
+    if (Test-Path $synthDll) { $resArgs += "/res:$synthDll,TbhAutoSynth.dll" }
+    else { Write-Host "note: $synthDll not found - building without the embedded autosynth plugin" -ForegroundColor Yellow }
     # /target:winexe -> no console window in tray mode (console modes attach on demand)
     & $csc /nologo /optimize+ /target:winexe /platform:anycpu `
         /out:$out `
@@ -34,6 +40,7 @@ try {
         /r:System.Web.Extensions.dll `
         /r:System.Windows.Forms.dll `
         /r:System.Drawing.dll `
+        @resArgs `
         (Join-Path $here 'src\*.cs')
     if ($LASTEXITCODE -ne 0) { throw "build failed" }
 }

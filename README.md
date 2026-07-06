@@ -100,7 +100,13 @@ idle game; still, mind the game's terms if any online leaderboard exists.
 
 ## Bonus: auto-synthesis mod
 
-This repo also carries an optional, separate tool: a BepInEx plugin that
-automates the Cube synthesis loop in-game. **Unlike the presence app, it is a
-game mod** (it clicks the game's UI for you and requires installing BepInEx
-into the game folder). See [autosynth/README.md](autosynth/README.md).
+This repo also carries an optional companion: a BepInEx plugin that automates
+the Cube synthesis loop in-game. **Unlike the presence feature, it is a game
+mod** (it clicks the game's UI for you). See
+[autosynth/README.md](autosynth/README.md).
+
+If BepInEx is installed in the game folder, `TbhPresence.exe` keeps the plugin
+deployed automatically: on startup (and whenever the game is closed) it copies
+the bundled `TbhAutoSynth.dll` into `BepInEx\plugins`, so launching the exe is
+enough to have both presence and auto-synthesis active. Without BepInEx, the
+exe touches nothing in the game folder and stays fully read-only.

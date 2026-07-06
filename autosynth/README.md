@@ -24,11 +24,16 @@ auto-fill the cube, run the synthesis, empty the cube, wait, repeat.
    ```
 
 4. Copy `autosynth\bin\Release\TbhAutoSynth.dll` into
-   `<game>\BepInEx\plugins\` and restart the game.
+   `<game>\BepInEx\plugins\` and restart the game — or skip this step entirely:
+   `TbhPresence.exe` bundles the plugin and deploys/updates it automatically
+   whenever BepInEx is present (retrying while the game is closed).
 
 ## Use
 
 Open the **Cube** panel, then:
+
+With `AutoStart` on (the default) the loop is already armed when the game
+starts — just open the Cube panel and it runs. Hotkeys:
 
 | Key | Action |
 |-----|--------|
@@ -44,6 +49,7 @@ The Cube panel must stay open while the loop runs.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
+| `AutoStart` | true | Arm the auto loop at game start, no F8 needed |
 | `MaxGrade` | 3 | Highest rarity the loop may synthesize (0=Common, 1=Uncommon, 2=Rare, 3=Legendary, 4=Immortal, …). Cycles holding anything above this are skipped. |
 | `CycleIntervalSeconds` | 300 | Pause between cycles |
 | `AfterFillSeconds` | 1 | Delay between auto-fill and synthesis |

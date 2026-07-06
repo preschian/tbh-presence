@@ -61,6 +61,8 @@ namespace TbhPresence
                             try { discord.ClearActivity(); } catch { discord.Dispose(); }
                             lastSent = "";
                         }
+                        // game closed = plugin dll unlocked; good moment to (re)deploy
+                        AutoSynthDeploy.TryDeployThrottled(Status);
                         Status("waiting for TaskBarHero...");
                         Sleep(5);
                         continue;
