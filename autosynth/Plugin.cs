@@ -17,7 +17,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.14.0";
+    internal const string Version = "0.15.0";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -266,11 +266,25 @@ public class AutoSynthBehaviour : MonoBehaviour
                 }
                 if (synth == null)
                 {
-                    if (loud)
-                        AutoSynthPlugin.Logger.LogWarning(
-                            $"recipe select: SYNTHESIS sub-recipe combo not found yet " +
-                            $"(sub combos: {combos.Length}, main combos: {mains.Length}), will retry");
-                    return false;
+                    // bfyp is set lazily; with a single sub combo in the scene and the
+                    // cube showing its synthesis UI, that one combo must be ours
+                    var cube = FindCube();
+                    bool synthUiActive = cube != null && cube.m_synthesisToggleButtonParent != null
+                        && cube.m_synthesisToggleButtonParent.activeInHierarchy;
+                    if (combos.Length == 1 && combos[0] != null && synthUiActive)
+                    {
+                        synth = combos[0];
+                        AutoSynthPlugin.Logger.LogInfo(
+                            "recipe select: single sub-recipe combo present while synthesis UI is active, using it");
+                    }
+                    else
+                    {
+                        if (loud)
+                            AutoSynthPlugin.Logger.LogWarning(
+                                $"recipe select: SYNTHESIS sub-recipe combo not found yet " +
+                                $"(sub combos: {combos.Length}, main combos: {mains.Length}, synthUi: {synthUiActive}), will retry");
+                        return false;
+                    }
                 }
             }
             var buttons = synth.m_subRecipeSlotButton;
