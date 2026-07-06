@@ -39,15 +39,24 @@ namespace TbhCompanion
             // engine reports status text -> reflect in tooltip + menu (marshal to UI thread)
             _engine.OnStatus += delegate(string s)
             {
+                // Update the shared status unconditionally (the settings window polls
+                // it on its own UI thread). The tray menu/tooltip is only refreshed
+                // once its handle exists, to avoid a cross-thread handle exception.
+                _lastStatus = s;
                 try
                 {
                     if (menu.IsDisposed) return;
-                    menu.BeginInvoke((Action)delegate
+                    if (menu.IsHandleCreated)
+                        menu.BeginInvoke((Action)delegate
+                        {
+                            status.Text = s;
+                            _icon.Text = Truncate("TBH: " + s, 63);
+                        });
+                    else
                     {
-                        _lastStatus = s;
                         status.Text = s;
                         _icon.Text = Truncate("TBH: " + s, 63);
-                    });
+                    }
                 }
                 catch { }
             };
