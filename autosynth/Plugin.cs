@@ -17,7 +17,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.15.0";
+    internal const string Version = "0.16.0";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -293,28 +293,46 @@ public class AutoSynthBehaviour : MonoBehaviour
                 if (loud) AutoSynthPlugin.Logger.LogWarning("recipe select: no sub-recipe buttons yet, will retry");
                 return false;
             }
-            for (int i = buttons.Count - 1; i >= 0; i--)
+            // Pick the unlocked bracket with the highest lower level bound, so a
+            // specific "Lv.65-80" beats the catch-all "Lv.1~ Lv.99". Fall back to
+            // list position when a label has no parsable numbers.
+            RecipeSlotButton best = null;
+            string bestLabel = null;
+            int bestLo = -1, bestHi = -1, bestIdx = -1;
+            for (int i = 0; i < buttons.Count; i++)
             {
                 var b = buttons[i];
                 if (b == null || b.m_isLocked) continue;
                 var label = b.m_text != null ? b.m_text.text : $"#{i}";
-                if (b.m_isSelected)
-                {
-                    AutoSynthPlugin.Logger.LogInfo($"recipe select: highest unlocked '{label}' already selected");
-                    return true;
-                }
-                var btn = b.m_clickButton;
-                if (btn != null && btn.onClick != null)
-                {
-                    btn.onClick.Invoke();
-                    AutoSynthPlugin.Logger.LogInfo($"recipe select: picked highest unlocked '{label}'");
-                    return true;
-                }
-                if (loud) AutoSynthPlugin.Logger.LogWarning($"recipe select: '{label}' has no click button, will retry");
-                return false;
+                int lo = -1, hi = -1;
+                var nums = System.Text.RegularExpressions.Regex.Matches(label, @"\d+");
+                if (nums.Count >= 1) lo = int.Parse(nums[0].Value);
+                if (nums.Count >= 2) hi = int.Parse(nums[1].Value);
+                bool better = best == null
+                    || lo > bestLo
+                    || (lo == bestLo && hi > bestHi)
+                    || (lo == bestLo && hi == bestHi && i > bestIdx);
+                if (better) { best = b; bestLabel = label; bestLo = lo; bestHi = hi; bestIdx = i; }
             }
-            AutoSynthPlugin.Logger.LogWarning("recipe select: every sub-recipe is locked");
-            return true; // nothing selectable; don't keep retrying
+            if (best == null)
+            {
+                AutoSynthPlugin.Logger.LogWarning("recipe select: every sub-recipe is locked");
+                return true; // nothing selectable; don't keep retrying
+            }
+            if (best.m_isSelected)
+            {
+                AutoSynthPlugin.Logger.LogInfo($"recipe select: highest unlocked '{bestLabel}' already selected");
+                return true;
+            }
+            var btn = best.m_clickButton;
+            if (btn != null && btn.onClick != null)
+            {
+                btn.onClick.Invoke();
+                AutoSynthPlugin.Logger.LogInfo($"recipe select: picked highest unlocked '{bestLabel}'");
+                return true;
+            }
+            if (loud) AutoSynthPlugin.Logger.LogWarning($"recipe select: '{bestLabel}' has no click button, will retry");
+            return false;
         }
         catch (Exception e)
         {
