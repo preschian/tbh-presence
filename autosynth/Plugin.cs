@@ -14,10 +14,10 @@ using UnityEngine.EventSystems;
 
 namespace TbhAutoSynth;
 
-[BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", "0.12.0")]
+[BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.13.0";
+    internal const string Version = "0.14.0";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -169,17 +169,24 @@ public class AutoSynthBehaviour : MonoBehaviour
             switch (_phase)
             {
                 case Phase.Fill:
-                    if (!_recipeSelected && _recipeAttempts < 5)
+                    if (!_recipeSelected)
                     {
-                        // the sub-recipe UI is built lazily, so retry until it exists
+                        // The sub-recipe UI is built lazily (often only after the recipe
+                        // dropdown has been opened once), so retry: quickly for the first
+                        // few ticks, then once per cycle while running with the recipe
+                        // that is currently selected.
                         _recipeAttempts++;
-                        _recipeSelected = SelectHighestUnlockedRecipe();
-                        if (!_recipeSelected && _recipeAttempts >= 5)
+                        _recipeSelected = SelectHighestUnlockedRecipe(_recipeAttempts <= 3);
+                        if (_recipeSelected || _recipeAttempts < 5)
+                        {
+                            // give the UI a tick to apply the recipe before filling
+                            _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
+                            break;
+                        }
+                        if (_recipeAttempts == 5)
                             AutoSynthPlugin.Logger.LogWarning(
-                                "recipe select: giving up after 5 attempts; using whatever recipe is currently selected");
-                        // give the UI a tick to apply the recipe before filling
-                        _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
-                        break;
+                                "recipe select: UI not available; continuing with the currently selected recipe " +
+                                "(will keep checking each cycle - opening the recipe dropdown once in-game also fixes it)");
                     }
                     Click(cube.m_synthesisAutoFillButton, "auto-fill", loud);
                     _phase = Phase.Synth;
@@ -240,7 +247,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         AutoSynthPlugin.Logger.LogInfo($"item grade map built: {_gradeByItemKey.Count} items");
     }
 
-    private bool SelectHighestUnlockedRecipe()
+    private bool SelectHighestUnlockedRecipe(bool loud)
     {
         try
         {
@@ -250,13 +257,26 @@ public class AutoSynthBehaviour : MonoBehaviour
                 if (c != null && c.bfyp == ERecipeType.SYNTHESIS) { synth = c; break; }
             if (synth == null)
             {
-                AutoSynthPlugin.Logger.LogWarning("recipe select: SYNTHESIS sub-recipe combo box not found yet, will retry");
-                return false;
+                // second path: the main recipe button holds a reference to its sub combo
+                var mains = UnityEngine.Object.FindObjectsOfType<MainRecipeComboBoxButton>(true);
+                foreach (var m in mains)
+                {
+                    var sc = m != null ? m.m_subRecipeComboBoxButton : null;
+                    if (sc != null && sc.bfyp == ERecipeType.SYNTHESIS) { synth = sc; break; }
+                }
+                if (synth == null)
+                {
+                    if (loud)
+                        AutoSynthPlugin.Logger.LogWarning(
+                            $"recipe select: SYNTHESIS sub-recipe combo not found yet " +
+                            $"(sub combos: {combos.Length}, main combos: {mains.Length}), will retry");
+                    return false;
+                }
             }
             var buttons = synth.m_subRecipeSlotButton;
             if (buttons == null || buttons.Count == 0)
             {
-                AutoSynthPlugin.Logger.LogWarning("recipe select: no sub-recipe buttons yet, will retry");
+                if (loud) AutoSynthPlugin.Logger.LogWarning("recipe select: no sub-recipe buttons yet, will retry");
                 return false;
             }
             for (int i = buttons.Count - 1; i >= 0; i--)
@@ -276,7 +296,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                     AutoSynthPlugin.Logger.LogInfo($"recipe select: picked highest unlocked '{label}'");
                     return true;
                 }
-                AutoSynthPlugin.Logger.LogWarning($"recipe select: '{label}' has no click button, will retry");
+                if (loud) AutoSynthPlugin.Logger.LogWarning($"recipe select: '{label}' has no click button, will retry");
                 return false;
             }
             AutoSynthPlugin.Logger.LogWarning("recipe select: every sub-recipe is locked");
