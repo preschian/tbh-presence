@@ -61,7 +61,8 @@ namespace TbhCompanion
             Font = Theme.F(9f, FontStyle.Regular);
             BackColor = Theme.FormBg;
             try { using (var g = Graphics.FromHwnd(IntPtr.Zero)) _s = g.DpiX / 96f; } catch { _s = 1f; }
-            ClientSize = new Size(Sc(W), Sc(604));
+            int height = Build.Synth ? 604 : (TitleH + 16 + 64 + 20);
+            ClientSize = new Size(Sc(W), Sc(height));
             DoubleBuffered = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
@@ -69,8 +70,11 @@ namespace TbhCompanion
 
             BuildTitleBar();
             BuildStatusStrip();
-            BuildSettingsCard();
-            BuildSaveRow();
+            if (Build.Synth)
+            {
+                BuildSettingsCard();
+                BuildSaveRow();
+            }
 
             LoadConfig();
             UpdateStatus();
@@ -94,14 +98,22 @@ namespace TbhCompanion
         void BuildTitleBar()
         {
             _presencePill = new PillBadge();
-            _synthPill = new PillBadge();
-            foreach (var pill in new[] { _presencePill, _synthPill }) Controls.Add(pill);
             _presencePill.SetBounds(0, 0, Sc(96), Sc(26));
-            _synthPill.SetBounds(0, 0, Sc(92), Sc(26));
-            _synthPill.Location = new Point(Sc(W - 20) - _synthPill.Width, Sc(36));
-            _presencePill.Location = new Point(_synthPill.Left - Sc(6) - _presencePill.Width, Sc(36));
+            Controls.Add(_presencePill);
+            if (Build.Synth)
+            {
+                _synthPill = new PillBadge();
+                _synthPill.SetBounds(0, 0, Sc(92), Sc(26));
+                _synthPill.Location = new Point(Sc(W - 20) - _synthPill.Width, Sc(36));
+                _presencePill.Location = new Point(_synthPill.Left - Sc(6) - _presencePill.Width, Sc(36));
+                Controls.Add(_synthPill);
+                _synthPill.Set("Synth", Theme.TextMuted);
+            }
+            else
+            {
+                _presencePill.Location = new Point(Sc(W - 20) - _presencePill.Width, Sc(36));
+            }
             _presencePill.Set("Presence", Theme.TextMuted);
-            _synthPill.Set("Synth", Theme.TextMuted);
         }
 
         // ---- status strip ----
@@ -109,16 +121,21 @@ namespace TbhCompanion
         void BuildStatusStrip()
         {
             int y = Sc(TitleH + 16), h = Sc(64);
+            _cardStage = new StatusCard { Title = "CURRENT STAGE", Radius = 10 };
+            if (!Build.Synth)
+            {
+                _cardStage.SetBounds(Sc(20), y, Sc(520), h);
+                Controls.Add(_cardStage);
+                return;
+            }
             int[] xs = { 20, 197, 373 };
             int[] ws = { 167, 166, 167 };
-            _cardStage = new StatusCard { Title = "CURRENT STAGE" };
-            _cardCycles = new StatusCard { Title = "CYCLES" };
-            _cardLast = new StatusCard { Title = "LAST SYNTHESIS" };
+            _cardCycles = new StatusCard { Title = "CYCLES", Radius = 10 };
+            _cardLast = new StatusCard { Title = "LAST SYNTHESIS", Radius = 10 };
             var cards = new[] { _cardStage, _cardCycles, _cardLast };
             for (int i = 0; i < 3; i++)
             {
                 cards[i].SetBounds(Sc(xs[i]), y, Sc(ws[i]), h);
-                cards[i].Radius = 10;
                 Controls.Add(cards[i]);
             }
         }
@@ -282,7 +299,7 @@ namespace TbhCompanion
             using (var f = Theme.FSerif(15f, FontStyle.Bold)) using (var b = new SolidBrush(Theme.TextDark))
                 g.DrawString("TBH Companion", f, b, new PointF(Sc(64), Sc(15)));
             using (var f = Theme.F(8.5f, FontStyle.Regular)) using (var b = new SolidBrush(Theme.TextMuted))
-                g.DrawString("STATUS  ·  SETTINGS", f, b, new PointF(Sc(66), Sc(43)));
+                g.DrawString(Build.Synth ? "STATUS  ·  SETTINGS" : "STATUS", f, b, new PointF(Sc(66), Sc(43)));
 
             // outer border + close
             Theme.DrawRoundBorder(g, full, Sc(14), Theme.CardBorder, 1f);
@@ -398,6 +415,8 @@ namespace TbhCompanion
                 _cardStage.SubColor = Theme.TextMuted;
             }
 
+            if (!Build.Synth) return;   // presence-only edition: no auto-synthesis UI
+
             bool installed = BepInExSetup.IsInstalled();
             if (!_setupRunning)
             {
@@ -466,6 +485,7 @@ namespace TbhCompanion
 
         void LoadConfig()
         {
+            if (!Build.Synth) return;
             _cfgPath = FindCfgPath();
             if (_cfgPath == null || !File.Exists(_cfgPath))
             {

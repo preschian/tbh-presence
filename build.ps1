@@ -25,17 +25,22 @@ using System.Reflection;
 [assembly: AssemblyInformationalVersion("$Version")]
 "@ | Set-Content -Path $verFile -Encoding utf8
 
-try {
-    $out = Join-Path $here 'TbhCompanion.exe'
-    # Embed the auto-synthesis BepInEx plugin so the exe can deploy it into the
-    # game's BepInEx\plugins folder at runtime. Prefer a fresh local build;
-    # fall back to the committed prebuilt copy (the plugin can't be built in CI,
-    # since it references interop assemblies the game generates on first run).
-    $synthDll = Join-Path $here 'autosynth\bin\Release\TbhAutoSynth.dll'
-    if (-not (Test-Path $synthDll)) { $synthDll = Join-Path $here 'autosynth\prebuilt\TbhAutoSynth.dll' }
-    $resArgs = @()
-    if (Test-Path $synthDll) { $resArgs += "/res:$synthDll,TbhAutoSynth.dll" }
-    else { Write-Host "note: TbhAutoSynth.dll not found - building without the embedded autosynth plugin" -ForegroundColor Yellow }
+# The auto-synthesis BepInEx plugin is embedded (as a resource) into the full
+# edition only, so the exe can deploy it into BepInEx\plugins at runtime. Prefer
+# a fresh local build; fall back to the committed prebuilt copy (the plugin can't
+# be built in CI, which lacks the game-generated interop assemblies).
+$synthDll = Join-Path $here 'autosynth\bin\Release\TbhAutoSynth.dll'
+if (-not (Test-Path $synthDll)) { $synthDll = Join-Path $here 'autosynth\prebuilt\TbhAutoSynth.dll' }
+
+function Build-Edition([string]$outName, [bool]$full) {
+    $out = Join-Path $here $outName
+    $extra = @()
+    if ($full) {
+        if (Test-Path $synthDll) { $extra += "/res:$synthDll,TbhAutoSynth.dll" }
+        else { Write-Host "note: TbhAutoSynth.dll not found - full build without the embedded plugin" -ForegroundColor Yellow }
+    } else {
+        $extra += "/define:PRESENCE_ONLY"
+    }
     # /target:winexe -> no console window in tray mode (console modes attach on demand)
     & $csc /nologo /optimize+ /target:winexe /platform:anycpu `
         /out:$out `
@@ -45,11 +50,16 @@ try {
         /r:System.Drawing.dll `
         /r:System.IO.Compression.dll `
         /r:System.IO.Compression.FileSystem.dll `
-        @resArgs `
+        @extra `
         (Join-Path $here 'src\*.cs')
-    if ($LASTEXITCODE -ne 0) { throw "build failed" }
+    if ($LASTEXITCODE -ne 0) { throw "build failed: $outName" }
+    Write-Host "Built $out (version $numeric)" -ForegroundColor Green
+}
+
+try {
+    Build-Edition 'TbhCompanion.exe' $true            # presence + auto-synthesis
+    Build-Edition 'TbhCompanion-Presence.exe' $false  # presence only
 }
 finally {
     Remove-Item $verFile -ErrorAction SilentlyContinue
 }
-Write-Host "Built $out (version $numeric)" -ForegroundColor Green

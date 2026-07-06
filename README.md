@@ -22,9 +22,26 @@ Ranger Lv80, Sorcerer Lv23, Priest Lv35
 | Discord presence | The [Discord desktop app](https://discord.com/download), logged in | The browser version doesn't support presence. |
 | Auto-synthesis | **BepInEx** installed in the game folder (one-time, steps below) | Optional. Without it, only presence runs and the game is never touched. |
 
+## Which download?
+
+The [Releases page](../../releases) has two editions — same presence feature,
+your choice on auto-synthesis:
+
+| Download | What it does |
+|----------|--------------|
+| **`TbhCompanion-Presence.exe`** | Discord presence only. Read-only, never touches the game. The safe choice. |
+| **`TbhCompanion.exe`** | Presence **plus** the auto-synthesis mod. |
+
+> **Heads-up on auto-synthesis:** automating item generation is against the
+> game's Terms of Service (which prohibit "macros or auto programs" during item
+> generation) and could, in principle, lead to item removal or an account ban —
+> especially for items tradable on the Marketplace. Use the presence-only build
+> if you'd rather not take that risk. The presence feature itself only reads the
+> game and is not a game modification.
+
 ## Getting started
 
-1. Download `TbhCompanion.exe` from the [Releases page](../../releases).
+1. Download the edition you want from the [Releases page](../../releases).
 2. Double-click it. A small helmet icon appears in your system tray (near the
    clock) — that's it running.
 3. Play TaskBarHero with Discord open. Your profile shows your current stage

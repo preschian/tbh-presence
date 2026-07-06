@@ -73,7 +73,7 @@ namespace TbhCompanion
                         lastStageSig = null;
                         DiscordConnected = discord.Connected;
                         // game closed = plugin dll unlocked; good moment to (re)deploy
-                        AutoSynthDeploy.TryDeployThrottled(Status);
+                        if (Build.Synth) AutoSynthDeploy.TryDeployThrottled(Status);
                         Status("waiting for TaskBarHero...");
                         Sleep(5);
                         continue;

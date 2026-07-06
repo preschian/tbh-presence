@@ -149,10 +149,11 @@ namespace TbhCompanion
         static int RunConsole(bool noCache, int interval, string clientId)
         {
             EnsureConsole();
-            AutoSynthDeploy.TryDeploy(delegate(string s)
-            {
-                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss") + "] " + s);
-            });
+            if (Build.Synth)
+                AutoSynthDeploy.TryDeploy(delegate(string s)
+                {
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss") + "] " + s);
+                });
             var engine = new PresenceEngine(noCache, interval, clientId, CachePath());
             engine.OnStatus += delegate(string s)
             {
@@ -171,7 +172,8 @@ namespace TbhCompanion
         {
             try { SetProcessDPIAware(); } catch { }
             Application.EnableVisualStyles();
-            AutoSynthDeploy.TryDeploy(delegate(string s) { Debug.WriteLine(s); });
+            if (Build.Synth)
+                AutoSynthDeploy.TryDeploy(delegate(string s) { Debug.WriteLine(s); });
             var engine = new PresenceEngine(noCache, interval, clientId, CachePath());
             Application.Run(new TrayApp(engine));
             return 0;
