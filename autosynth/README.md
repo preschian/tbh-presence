@@ -11,22 +11,10 @@ auto-fill the cube, run the synthesis, empty the cube, wait, repeat.
 
 ## Install
 
-1. Download **BepInEx 6 bleeding-edge** (`BepInEx-Unity.IL2CPP-win-x64-*.zip`
-   from [builds.bepinex.dev](https://builds.bepinex.dev/projects/bepinex_be))
-   and extract it into the game folder
-   (`...\Steam\steamapps\common\TaskbarHero`).
-2. Launch the game once and wait ~1 minute — BepInEx generates its interop
-   assemblies into `BepInEx\interop` on first run.
-3. Build the plugin (needs the interop assemblies from step 2):
-
-   ```powershell
-   dotnet build autosynth/TbhAutoSynth.csproj -c Release
-   ```
-
-4. Copy `autosynth\bin\Release\TbhAutoSynth.dll` into
-   `<game>\BepInEx\plugins\` and restart the game — or skip this step entirely:
-   `TbhCompanion.exe` bundles the plugin and deploys/updates it automatically
-   whenever BepInEx is present (retrying while the game is closed).
+Follow **"Setting up auto-synthesis"** in the [main README](../README.md):
+install BepInEx into the game folder once, and `TbhCompanion.exe` installs and
+updates this plugin automatically. (Building it from source is covered in
+[CONTRIBUTING.md](../CONTRIBUTING.md).)
 
 ## Use
 
@@ -61,15 +49,5 @@ window in `TbhCompanion.exe` (double-click the tray icon). The plugin also
 reports its live status (on/off, cycles, last synthesis) to
 `%LOCALAPPDATA%\tbh-companion\autosynth-status.json`, which that window displays.
 
-## How it works / maintenance
-
-The game's class names survive IL2CPP (methods are obfuscated), so the plugin
-drives the real UI components (`UI_Cube`, `TS.ButtonBase`) and reads slot item
-grades from the game's own item table (`ItemKey → GRADE`). Two gotchas when a
-game update breaks things:
-
-- Obfuscated member names differ between Il2CppDumper output and BepInEx's
-  Cpp2IL interop (e.g. dump `bsfb` → interop `bsfm`). Always check the interop
-  assemblies (`BepInEx\interop\Assembly-CSharp.dll`) when renaming.
-- Clicking a `ButtonBase` needs both `OnPointerClick(...)` *and* the wrapped
-  `Button.onClick.Invoke()` — the former only plays hover/click effects.
+How the plugin works internally, and what to check when a game update breaks
+it, is documented in [CONTRIBUTING.md](../CONTRIBUTING.md).

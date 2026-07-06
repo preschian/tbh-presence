@@ -162,6 +162,42 @@ Compiled as `/target:winexe` so there's no console window in tray mode; console
 modes (`--console`, `--once`, `--help`) attach a console on demand. The TBH logo
 is embedded via `/win32icon:assets\app.ico`.
 
+Building the auto-synthesis plugin needs the .NET 8 SDK and a game folder with
+BepInEx already initialized (the interop assemblies it references are generated
+by BepInEx on first game launch):
+
+```powershell
+dotnet build autosynth/TbhAutoSynth.csproj -c Release
+```
+
+`build.ps1` embeds `autosynth\bin\Release\TbhAutoSynth.dll` into the exe when
+present (the exe deploys it to the game's `BepInEx\plugins` at runtime); without
+it the exe builds fine and simply skips deployment.
+
+## Command-line options
+
+```
+TbhCompanion.exe                 run in the system tray (default)
+TbhCompanion.exe --console       run in a console with live logging
+TbhCompanion.exe --once          print the current game state as JSON and exit
+  --interval <sec>              poll interval (default 5)
+  --client-id <id>              use your own Discord application
+  --no-cache                    ignore the address cache, full rescan
+```
+
+## Using your own Discord application
+
+The presence works out of the box with a shared app id, but the "Playing…"
+name and logo are owned by the Discord *application*:
+
+1. In the [Discord Developer Portal](https://discord.com/developers/applications),
+   create an application named **TaskBarHero** (that name shows after "Playing…").
+2. Under **Rich Presence → Art Assets**, add an image named exactly **`tbh`**
+   (`assets/tbh.jpg` works) for the large logo.
+3. Run the exe with the application's id: `TbhCompanion.exe --client-id <id>`.
+
+Changes can take minutes — and a Discord restart — to show up.
+
 ## Releasing
 
 Push a version tag; a Windows runner builds the exe and attaches it to a GitHub
@@ -189,7 +225,21 @@ by committing the binary.
 
 **Auto-synthesis plugin** (`autosynth/`, BepInEx, built with the .NET SDK):
 
-- `Plugin.cs` — the in-game synthesis loop; see `autosynth/README.md`.
+- `Plugin.cs` — the in-game synthesis loop; usage/config in `autosynth/README.md`.
+
+The plugin drives the game's real UI components (`UI_Cube`, `TS.ButtonBase`)
+and reads cube-slot item grades from the game's own item table
+(`ItemKey → GRADE` via the `bas` singleton). Gotchas when a game update breaks
+it:
+
+- Obfuscated member names differ between Il2CppDumper output and BepInEx's
+  Cpp2IL interop (e.g. dump `bsfb` → interop `bsfm`). Always verify names
+  against `BepInEx\interop\Assembly-CSharp.dll`.
+- Clicking a `ButtonBase` needs both `OnPointerClick(...)` *and* the wrapped
+  `Button.onClick.Invoke()` — the former only plays hover/click effects.
+- The sub-recipe (cube level) dropdown entries carry prefab-default labels
+  until populated; the plugin triggers population and picks the bracket with
+  the highest lower level bound.
 
 **Legacy PowerShell prototype** (`legacy/`, for development/inspection):
 

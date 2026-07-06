@@ -1,11 +1,11 @@
 # TBH Companion
 
-A companion app for **TaskBarHero** — two features in one tray exe:
+A companion app for **TaskBarHero**. One small tray program, two features:
 
-1. **Discord presence** — shows what you're doing in the game on your Discord
-   profile, live: the stage you're on and the heroes you've deployed.
-2. **Auto-synthesis** — an optional in-game mod that runs the Cube synthesis
-   loop for you (see [autosynth/README.md](autosynth/README.md)).
+1. **Discord presence** — your Discord profile shows what you're doing in the
+   game, live: the stage you're on and the heroes you've deployed.
+2. **Auto-synthesis** — the game's Cube synthesis runs by itself: pick
+   materials, synthesize, empty the cube, repeat — hands-free.
 
 ```
 Playing TaskBarHero
@@ -14,110 +14,119 @@ Ranger Lv80, Sorcerer Lv23, Priest Lv35
 23:41 elapsed
 ```
 
-The presence feature only reads the game to see where you are. The
-auto-synthesis mod is opt-in: it is deployed only if BepInEx is installed in
-the game folder (details below).
+## What you need
+
+| For | You need | Notes |
+|-----|----------|-------|
+| The app itself | Windows 10/11 | Nothing to install — it's a single exe. |
+| Discord presence | The [Discord desktop app](https://discord.com/download), logged in | The browser version doesn't support presence. |
+| Auto-synthesis | **BepInEx** installed in the game folder (one-time, steps below) | Optional. Without it, only presence runs and the game is never touched. |
 
 ## Getting started
 
 1. Download `TbhCompanion.exe` from the [Releases page](../../releases).
 2. Double-click it. A small helmet icon appears in your system tray (near the
    clock) — that's it running.
-3. Play the game with Discord open. Your profile shows your current stage and
-   party within a few seconds, and keeps up as you move between stages.
+3. Play TaskBarHero with Discord open. Your profile shows your current stage
+   and party within a few seconds.
 
-That's all. The first time you run it after a game update it spends about a
-minute reading the game; after that it starts instantly.
+That's all for presence. The first run after a game update takes about a
+minute to read the game; after that it starts instantly.
 
-To stop it, right-click the tray icon and choose **Quit**.
-
-**Double-click the tray icon** (or right-click → *Status & Settings...*) to open
-a small window showing live indicators for both features — the Discord presence
-connection and the in-game auto-synthesis loop — plus the auto-synthesis
-settings (max rarity, cycle interval, delays). Saved settings reach the running
-game within ~10 seconds; no restart needed.
+To stop the app, right-click the tray icon and choose **Quit**.
 
 > **First-run warning:** Windows SmartScreen may show "Windows protected your
 > PC" because the app isn't code-signed. Click **More info → Run anyway**. Some
 > antivirus tools may also flag it, because it reads another program's memory to
 > see your progress — that's expected for this kind of tool.
 
-## Start it automatically with Windows
+## Setting up auto-synthesis (one time)
 
-So you never have to remember to launch it:
+The auto-synthesis feature is a small mod that runs inside the game, which
+needs the free mod loader **BepInEx** installed once:
 
-- Press <kbd>Win</kbd>+<kbd>R</kbd>, type `shell:startup`, press Enter, and put a
-  shortcut to `TbhCompanion.exe` in the folder that opens.
+1. **Back up your save** (copy this file somewhere safe):
+   `%USERPROFILE%\AppData\LocalLow\TesseractStudio\TaskbarHero\SaveFile_Live.es3`
+2. Download BepInEx: get the newest
+   `BepInEx-Unity.IL2CPP-win-x64-*.zip` from
+   [builds.bepinex.dev/projects/bepinex_be](https://builds.bepinex.dev/projects/bepinex_be).
+3. Extract the zip **into the game folder**
+   (`...\Steam\steamapps\common\TaskbarHero`), so `winhttp.dll` and the
+   `BepInEx` folder sit next to `TaskBarHero.exe`.
+4. Start the game once and wait about a minute (BepInEx sets itself up), then
+   close it.
+5. Make sure `TbhCompanion.exe` is running — it installs and updates the mod
+   into the game automatically from now on.
+6. Start the game again. Done.
 
-It will sit quietly and wait for the game whenever you log in.
+## Using auto-synthesis
 
-## One-time Discord setup
+Open the **Cube** panel in the game — that's it. The loop starts on its own:
+it picks the highest cube level you've unlocked, fills the cube with
+materials, runs the synthesis, empties the cube, then waits for the next
+round (every 5 minutes by default). The Cube panel must stay open while it
+works.
 
-The presence works out of the box using a shared app, but the "Playing…" name
-and the logo image are controlled by a Discord *application*, which only its
-owner can configure. If you want your own name/logo:
+In-game keys:
 
-1. Go to the [Discord Developer Portal](https://discord.com/developers/applications)
-   and create an application named **TaskBarHero** (this name is what shows after
-   "Playing…").
-2. Open **Rich Presence → Art Assets**, add an image named exactly **`tbh`**
-   (you can use `assets/tbh.jpg` from this project) for the large logo.
-3. Copy the application's **Application ID** and run the app with it:
-   `TbhCompanion.exe --client-id <your id>`.
+| Key | Action |
+|-----|--------|
+| **F8** | Turn the auto loop on/off |
+| **F9** | Run the synthesis once, manually |
+| **F10** | Write a status report to the log (for troubleshooting) |
 
-Image and name changes can take a few minutes — and a Discord restart — to show
-up.
+**Safety:** items above your chosen rarity limit are never synthesized — if
+one ends up in the cube, that round is skipped and the cube is emptied. The
+mod only presses the game's own buttons; it never edits your items, save, or
+memory.
 
-## Options
+## The Status & Settings window
 
-Double-clicking is all most people need. From a terminal you can also:
+**Double-click the tray icon** (or right-click → *Status & Settings...*):
 
-```
-TbhCompanion.exe                 run in the system tray (default)
-TbhCompanion.exe --console       run with a visible log window
-TbhCompanion.exe --once          print the current game state once and exit
-  --interval <sec>              how often to update (default 5)
-  --client-id <id>              use your own Discord application
-```
+- Live indicators: is presence connected? is the auto-synthesis loop running?
+  how many rounds so far, and what was synthesized last?
+- Auto-synthesis settings you can change anytime:
+  - start automatically when the game launches (on by default),
+  - **max rarity to synthesize** (default: Legendary),
+  - how often a round runs (minutes),
+  - small timing tweaks.
+
+Press **Save settings** — changes reach the running game within ~10 seconds,
+no restart needed.
+
+## Start it with Windows
+
+Press <kbd>Win</kbd>+<kbd>R</kbd>, type `shell:startup`, press Enter, and put a
+shortcut to `TbhCompanion.exe` in the folder that opens. It will sit quietly
+and wait for the game whenever you log in.
 
 ## Troubleshooting
 
-- **Nothing shows on my profile.** In Discord: **Settings → Activity Privacy →
-  "Display current activity as a status message"** must be on. Also make sure
-  Streamer Mode isn't hiding it.
-- **The logo image is missing.** The `tbh` art asset hasn't been uploaded to the
-  Discord application yet (see *One-time Discord setup*), or it's still
-  propagating — give it a few minutes and restart Discord.
-- **It says the wrong stage after a game update.** The app re-reads the game
-  automatically after an update; give the first run a minute. If it's still
-  wrong, the game's internals changed — see [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Building it yourself
-
-You don't need this to use the app — grab the exe from Releases. But if you'd
-rather build from source, it's one command and needs nothing installed beyond
-what ships with Windows:
-
-```powershell
-.\build.ps1
-```
-
-Details of how it all works are in [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Nothing shows on my Discord profile.** In Discord: **Settings → Activity
+  Privacy → "Display current activity as a status message"** must be on, and
+  Streamer Mode must not be hiding it. Use the desktop app, not the browser.
+- **Auto-synthesis says "game is not running" / "plugin has not reported".**
+  The mod isn't loaded yet: check BepInEx is installed (step above), then
+  restart the game while `TbhCompanion.exe` is running.
+- **Auto-synthesis is ON but nothing happens.** The Cube panel must be open
+  in the game — the loop pauses while it's closed.
+- **Rounds keep getting skipped.** An item above your rarity limit keeps
+  landing in the cube. Raise *Max rarity to synthesize* in Status & Settings,
+  or move that item out of reach.
+- **Wrong stage shown after a game update.** Give the first run a minute to
+  re-read the game. If it stays wrong, the game's internals changed — see
+  [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Privacy & fair use
 
-Read-only and non-invasive — it never modifies the game. This is a single-player
-idle game; still, mind the game's terms if any online leaderboard exists.
+The presence feature only ever *reads* the game. The auto-synthesis mod
+presses the game's own UI buttons and changes nothing else; it's opt-in and
+only installed when BepInEx is present. TaskBarHero is a single-player game —
+still, mind the game's terms if any online leaderboard exists.
 
-## Bonus: auto-synthesis mod
+---
 
-This repo also carries an optional companion: a BepInEx plugin that automates
-the Cube synthesis loop in-game. **Unlike the presence feature, it is a game
-mod** (it clicks the game's UI for you). See
-[autosynth/README.md](autosynth/README.md).
-
-If BepInEx is installed in the game folder, `TbhCompanion.exe` keeps the plugin
-deployed automatically: on startup (and whenever the game is closed) it copies
-the bundled `TbhAutoSynth.dll` into `BepInEx\plugins`, so launching the exe is
-enough to have both presence and auto-synthesis active. Without BepInEx, the
-exe touches nothing in the game folder and stays fully read-only.
+Everything technical — building from source, how the memory reading works,
+the mod's internals, using your own Discord application, command-line options
+— lives in [CONTRIBUTING.md](CONTRIBUTING.md).
