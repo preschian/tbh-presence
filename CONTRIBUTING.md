@@ -147,7 +147,7 @@ Il2CppDumper.exe GameAssembly.dll TaskBarHero_Data/il2cpp_data/Metadata/global-m
 ```
 
 Check the relevant classes in `out/dump.cs` and update the offsets — in
-`src/Game.cs` (`GameReader`) for the exe, and in `Get-TbhStage.ps1` (`$OFF`) for
+`src/Game.cs` (`GameReader`) for the exe, and in `legacy/Get-TbhStage.ps1` (`$OFF`) for
 the scripts. Bump `CACHE_VERSION` so stale caches are discarded.
 
 ## Building
@@ -187,10 +187,14 @@ by committing the binary.
 - `Tray.cs` — system-tray host (icon, status menu, quit).
 - `Program.cs` — CLI parsing and run modes.
 
-**PowerShell version** (for development/inspection; same logic):
+**Auto-synthesis plugin** (`autosynth/`, BepInEx, built with the .NET SDK):
+
+- `Plugin.cs` — the in-game synthesis loop; see `autosynth/README.md`.
+
+**Legacy PowerShell prototype** (`legacy/`, for development/inspection):
 
 - `Get-TbhStage.ps1` — the reader (resolve + poll + report/JSON).
-- `Start-TbhCompanion.ps1` — the presence loop.
+- `Start-TbhPresence.ps1` — the original presence loop.
 - `TbhMemory.cs` — reader compiled at runtime via `Add-Type`.
 - Requires Windows PowerShell 5.1+.
 
