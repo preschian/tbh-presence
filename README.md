@@ -100,6 +100,8 @@ memory.
 
 **Double-click the tray icon** (or right-click → *Status & Settings...*):
 
+![The Status & Settings window](docs/settings-window.png)
+
 - Live indicators: is presence connected? is the auto-synthesis loop running?
   how many rounds so far, and what was synthesized last?
 - Auto-synthesis settings you can change anytime:
