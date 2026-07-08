@@ -22,6 +22,11 @@ namespace TbhCompanion
             var status = new ToolStripMenuItem("Starting...") { Enabled = false };
             menu.Items.Add(status);
             menu.Items.Add(new ToolStripSeparator());
+            var presence = new ToolStripMenuItem("Enable presence") { Checked = _engine.PresenceEnabled, CheckOnClick = true };
+            presence.Click += delegate { _engine.SetPresenceEnabled(presence.Checked); };
+            menu.Items.Add(presence);
+            // keep the check in sync if it was toggled from the settings window
+            menu.Opening += delegate { presence.Checked = _engine.PresenceEnabled; };
             var open = new ToolStripMenuItem("Status && Settings...");
             open.Click += delegate { OpenForm(); };
             menu.Items.Add(open);
@@ -75,7 +80,9 @@ namespace TbhCompanion
                 _form = new StatusForm(
                     delegate { return _engine.LastStageLabel; },
                     delegate { return _engine.DiscordConnected; },
-                    delegate { return _lastStatus; });
+                    delegate { return _lastStatus; },
+                    delegate { return _engine.PresenceEnabled; },
+                    delegate(bool on) { _engine.SetPresenceEnabled(on); });
                 _form.Show();
             }
             else

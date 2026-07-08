@@ -23,10 +23,14 @@ namespace TbhCompanion
             "tbh-companion", "autosynth-status.json");
 
         const int W = 560, TitleH = 72;
+        const int PresY = TitleH + 16 + 64 + 16;   // presence card top (below status strip)
+        const int PresH = 80;                       // presence card height
 
         readonly Func<string> _stageLabel;
         readonly Func<bool> _discordConnected;
         readonly Func<string> _diag;
+        readonly Func<bool> _presenceEnabled;
+        readonly Action<bool> _setPresenceEnabled;
         readonly Timer _timer;
         string _cfgPath, _bepinexCfgPath;
         bool _setupRunning;
@@ -39,6 +43,8 @@ namespace TbhCompanion
 
         PillBadge _presencePill, _synthPill;
         StatusCard _cardStage, _cardCycles, _cardLast;
+        Card _presenceCard;
+        Toggle _presenceToggle;
         Toggle _autoStart, _showConsole;
         TypeTile _tEquip, _tMaterials, _tAccessories;
         SegmentBar _seg;
@@ -48,11 +54,14 @@ namespace TbhCompanion
         Label _cfgNote, _setupNote;
         Card _settingsCard;
 
-        public StatusForm(Func<string> stageLabel, Func<bool> discordConnected, Func<string> diag)
+        public StatusForm(Func<string> stageLabel, Func<bool> discordConnected, Func<string> diag,
+            Func<bool> presenceEnabled, Action<bool> setPresenceEnabled)
         {
             _stageLabel = stageLabel;
             _discordConnected = discordConnected;
             _diag = diag;
+            _presenceEnabled = presenceEnabled;
+            _setPresenceEnabled = setPresenceEnabled;
 
             Text = "TBH Companion";
             FormBorderStyle = FormBorderStyle.None;
@@ -61,7 +70,9 @@ namespace TbhCompanion
             Font = Theme.F(9f, FontStyle.Regular);
             BackColor = Theme.FormBg;
             try { using (var g = Graphics.FromHwnd(IntPtr.Zero)) _s = g.DpiX / 96f; } catch { _s = 1f; }
-            int height = Build.Synth ? 604 : (TitleH + 16 + 64 + 20);
+            // presence card sits below the status strip in both editions; the full
+            // edition stacks the auto-synthesis card + save row beneath it.
+            int height = Build.Synth ? 604 + PresH + 16 : (PresY + PresH + 20);
             ClientSize = new Size(Sc(W), Sc(height));
             DoubleBuffered = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
@@ -70,6 +81,7 @@ namespace TbhCompanion
 
             BuildTitleBar();
             BuildStatusStrip();
+            BuildPresenceCard();
             if (Build.Synth)
             {
                 BuildSettingsCard();
@@ -140,11 +152,34 @@ namespace TbhCompanion
             }
         }
 
+        // ---- presence card (both editions) ----
+
+        void BuildPresenceCard()
+        {
+            _presenceCard = new Card { Radius = 12 };
+            _presenceCard.SetBounds(Sc(20), Sc(PresY), Sc(520), Sc(PresH));
+            Controls.Add(_presenceCard);
+            var c = _presenceCard;
+
+            AddLabel(c, "DISCORD PRESENCE", 16, 14, Theme.Brown, Theme.FSerif(10.5f, FontStyle.Bold));
+            AddLabel(c, "Show your current stage in Discord", 16, 40, Theme.TextDark, Theme.F(10f, FontStyle.Regular));
+            AddLabel(c, "off clears your activity in Discord", 16, 60, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+
+            _presenceToggle = new Toggle();
+            _presenceToggle.SetBounds(Sc(520 - 16 - 44), Sc(44), Sc(44), Sc(24));
+            _presenceToggle.Checked = _presenceEnabled == null || _presenceEnabled();
+            _presenceToggle.CheckedChanged += delegate
+            {
+                if (_setPresenceEnabled != null) _setPresenceEnabled(_presenceToggle.Checked);
+            };
+            c.Controls.Add(_presenceToggle);
+        }
+
         // ---- settings card ----
 
         void BuildSettingsCard()
         {
-            int cardY = TitleH + 16 + 64 + 16; // below strip (logical)
+            int cardY = PresY + PresH + 16; // below the presence card (logical)
             _settingsCard = new Card { Radius = 12 };
             _settingsCard.SetBounds(Sc(20), Sc(cardY), Sc(520), Sc(372));
             Controls.Add(_settingsCard);
@@ -393,8 +428,16 @@ namespace TbhCompanion
             string stage = _stageLabel != null ? _stageLabel() : null;
             bool connected = _discordConnected != null && _discordConnected();
             string diag = _diag != null ? _diag() : null;
+            bool presenceOn = _presenceEnabled == null || _presenceEnabled();
 
-            _presencePill.Set(connected ? "Presence" : "Offline", connected ? Theme.Green : Theme.TextMuted);
+            // reflect an out-of-band change (e.g. toggled from the tray menu)
+            if (_presenceToggle != null && _presenceToggle.Checked != presenceOn)
+                _presenceToggle.Checked = presenceOn;
+
+            if (!presenceOn)
+                _presencePill.Set("Off", Theme.TextMuted);
+            else
+                _presencePill.Set(connected ? "Presence" : "Offline", connected ? Theme.Green : Theme.TextMuted);
 
             var m = stage != null
                 ? Regex.Match(stage, @"(Act\s*\d+\s*-\s*Stage\s*\d+)\s*\(([^)]*)\)")

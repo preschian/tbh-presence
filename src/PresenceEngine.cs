@@ -26,15 +26,27 @@ namespace TbhCompanion
         public volatile string LastStageLabel = null;   // null = no stage read
         public volatile bool DiscordConnected = false;
 
+        // Master switch: when off, the loop still reads the stage for the window
+        // but never connects to Discord / clears any activity it had set.
+        public volatile bool PresenceEnabled;
+
         public PresenceEngine(bool noCache, int interval, string clientId, string cachePath)
         {
             _noCache = noCache;
             _interval = interval < 1 ? 1 : interval;
             _clientId = clientId;
             _cachePath = cachePath;
+            PresenceEnabled = AppSettings.PresenceEnabled;
         }
 
         public void Stop() { _running = false; }
+
+        // Flip presence on/off and persist the choice for next launch.
+        public void SetPresenceEnabled(bool on)
+        {
+            PresenceEnabled = on;
+            AppSettings.PresenceEnabled = on;
+        }
 
         void Status(string s)
         {
@@ -100,11 +112,19 @@ namespace TbhCompanion
 
                         while (_running && !proc.HasExited)
                         {
-                            if (!discord.Connected && (DateTime.Now - lastDiscordTry).TotalSeconds >= 30)
+                            if (PresenceEnabled)
                             {
-                                lastDiscordTry = DateTime.Now;
-                                if (discord.Connect()) lastSent = null;
-                                else Status("Discord not running - will retry");
+                                if (!discord.Connected && (DateTime.Now - lastDiscordTry).TotalSeconds >= 30)
+                                {
+                                    lastDiscordTry = DateTime.Now;
+                                    if (discord.Connect()) lastSent = null;
+                                    else Status("Discord not running - will retry");
+                                }
+                            }
+                            else if (discord.Connected && lastSent != "")
+                            {
+                                // turned off while running: clear what we last showed
+                                try { discord.ClearActivity(); lastSent = ""; } catch { discord.Dispose(); }
                             }
 
                             GameState st = null;
@@ -114,7 +134,7 @@ namespace TbhCompanion
                                 LastStageLabel = st.Label();   // structured channel for the UI
                                 string sig = st.Details() + "|" + st.PartyLine();
                                 if (sig != lastStageSig) { Status(st.Label()); lastStageSig = sig; }
-                                if (discord.Connected && sig != lastSent)
+                                if (PresenceEnabled && discord.Connected && sig != lastSent)
                                 {
                                     try
                                     {

@@ -104,6 +104,9 @@ memory.
 
 - Live indicators: is presence connected? is the auto-synthesis loop running?
   how many rounds so far, and what was synthesized last?
+- **Discord presence on/off** — a single switch (also on the tray menu). Turn it
+  off to stop sharing your stage and clear the activity; it applies instantly and
+  is remembered next launch.
 - Auto-synthesis settings you can change anytime:
   - start automatically when the game launches (on by default),
   - **which item types to synthesize** — Equipment, Materials, Accessories
