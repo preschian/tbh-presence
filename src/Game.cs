@@ -55,7 +55,7 @@ namespace TbhCompanion
     {
         // object fields start at +0x10 (klass +0x0, monitor +0x8)
         const long PSD_common    = 0x10;   // PlayerSaveData.commonSaveData
-        const long PSD_heroSaves = 0x58;   // PlayerSaveData.heroSaveDatas (List<HeroSaveData>)
+        const long PSD_heroSaves = 0x60;   // PlayerSaveData.heroSaveDatas (List<HeroSaveData>)
         const long CSD_playTime  = 0x20;
         const long CSD_petKey    = 0x40;   // CommonSaveData.ArrangedPetKey
         const long CSD_heroKeys  = 0x48;   // CommonSaveData.arrangedHeroKey (int[])
@@ -75,14 +75,14 @@ namespace TbhCompanion
         const long HID_ClassType = 0x48;
         const long HSD_heroKey   = 0x10;   // HeroSaveData
         const long HSD_level     = 0x14;
-        const long UU_currentCache = 0x88; // vb.uu statics: StageCache bezt
-        const long SC_infoData   = 0x10;   // vb.StageCache.bezx (StageInfoData)
+        const long UU_currentCache = 0x88; // uw.up statics: current StageCache (beyk)
+        const long SC_infoData   = 0x10;   // uw.StageCache.beyo (StageInfoData)
         const long KLASS_staticFields = 0xB8; // Il2CppClass.static_fields
 
         static readonly string[] DIFFS = { "NORMAL", "NIGHTMARE", "HELL", "TORMENT" };
         static readonly string[] STYPES = { "NORMAL", "ACTBOSS" };
         static readonly string[] HCLASS = { "All", "Knight", "Ranger", "Sorcerer", "Priest", "Hunter", "Slayer" };
-        const int CACHE_VERSION = 5;
+        const int CACHE_VERSION = 6;
 
         readonly Mem _mem;
         readonly Process _proc;
@@ -272,12 +272,15 @@ namespace TbhCompanion
 
         void FindLiveStageStatics()
         {
-            // vb.uu holds the live stage system. Self-validated: the static block
-            // is only accepted if its +0x88 slot points at a StageCache instance.
+            // The static class 'up' holds the live stage system. Self-validated: the
+            // static block is only accepted if its +0x88 slot points at a StageCache
+            // instance. NOTE: 'up' is an obfuscated class name that the game's obfuscator
+            // re-randomizes on updates (was 'uu' pre-1.00.27); re-dump and update the
+            // scan bytes below if the live stage source stops resolving after a patch.
             _uuStatics = 0; _scKlass = 0;
             long scKlass = _mem.FindClass("StageCache", "");
             if (scKlass == 0) return;
-            var strHits = _mem.FindBytes(new byte[] { 0x00, 0x75, 0x75, 0x00 }, 256); // "\0uu\0"
+            var strHits = _mem.FindBytes(new byte[] { 0x00, 0x75, 0x70, 0x00 }, 256); // "\0up\0"
             if (strHits.Count == 0) return;
             var targets = new HashSet<long>();
             foreach (long s in strHits) targets.Add(s + 1);

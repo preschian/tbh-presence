@@ -66,15 +66,15 @@ $OFF = @{
     HID_HeroNameKey = 0x38
     HID_ClassType   = 0x48   # EEquipClassType
     # PlayerSaveData
-    PSD_heroSaves   = 0x58   # List<HeroSaveData>
+    PSD_heroSaves   = 0x60   # List<HeroSaveData>
     # HeroSaveData
     HSD_heroKey     = 0x10
     HSD_level       = 0x14
     HSD_unlocked    = 0x18
-    HSD_exp         = 0x1C
-    # vb.uu static fields (live stage system)
-    UU_currentCache = 0x88   # vb.StageCache bezt: the stage currently loaded
-    # vb.StageCache
+    HSD_exp         = 0x20
+    # uw.up static fields (live stage system)
+    UU_currentCache = 0x88   # uw.StageCache beyk: the stage currently loaded
+    # uw.StageCache
     SC_infoData     = 0x10   # StageInfoData
     # Il2CppClass
     KLASS_staticFields = 0xB8
@@ -92,7 +92,7 @@ $DIFF = @('NORMAL','NIGHTMARE','HELL','TORMENT')
 $STYPE = @('NORMAL','ACTBOSS')
 # EEquipClassType: each hero maps 1:1 to a class, which doubles as its name
 $HCLASS = @('All','Knight','Ranger','Sorcerer','Priest','Hunter','Slayer')
-$CACHE_VERSION = 4
+$CACHE_VERSION = 5
 
 function Get-GameStamp($proc) {
     # Identifies the game build; invalidates the cached stage table on updates.
@@ -155,13 +155,15 @@ function Build-HeroTable($mem) {
 }
 
 function Find-LiveStageStatics($mem) {
-    # Locates the static-field block of vb.uu (the live stage system) and the
+    # Locates the static-field block of uw.up (the live stage system) and the
     # StageCache class pointer. Self-validating: the block is only accepted if
     # its +0x88 slot points at a StageCache instance.
     # Returns @{ Statics; ScKlass } or $null (non-fatal; save data is the fallback).
+    # NOTE: 'up' is an obfuscated class name (was 'uu' pre-1.00.27); it can change
+    # on game updates - re-dump and update the scan bytes if the live source breaks.
     $scKlass = $mem.FindClass('StageCache', '')
     if ($scKlass -eq 0) { return $null }
-    $pat = [byte[]](0x00, 0x75, 0x75, 0x00)   # "\0uu\0"
+    $pat = [byte[]](0x00, 0x75, 0x70, 0x00)   # "\0up\0"
     $strHits = $mem.FindBytes($pat, 256)
     if ($strHits.Count -eq 0) { return $null }
     $targets = New-Object 'System.Collections.Generic.HashSet[long]'
@@ -274,7 +276,7 @@ function Resolve-Targets($mem, $proc) {
 }
 
 function Read-Stage($mem, $ctx) {
-    # stage identity: prefer the live loaded stage (vb.uu.bezt -> StageInfoData),
+    # stage identity: prefer the live loaded stage (uw.up.beyk -> StageInfoData),
     # which flips the moment a new stage loads; save data lags until autosave.
     $key = 0
     $source = 'save'
