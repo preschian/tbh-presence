@@ -283,10 +283,10 @@ public class AutoSynthBehaviour : MonoBehaviour
     private void EnsureGradeMap()
     {
         if (_gradeByItemKey != null) return;
-        bas db = null;
-        try { db = nq<bas>.bsfs; } catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"nq<bas>.bsfs failed: {e.Message}"); }
-        if (db == null) db = UnityEngine.Object.FindObjectOfType<bas>(true);
-        if (db == null) { AutoSynthPlugin.Logger.LogWarning("item db (bas) not found"); return; }
+        bam db = null;
+        try { db = nq<bam>.bsee; } catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"nq<bam>.bsee failed: {e.Message}"); }
+        if (db == null) db = UnityEngine.Object.FindObjectOfType<bam>(true);
+        if (db == null) { AutoSynthPlugin.Logger.LogWarning("item db (bam) not found"); return; }
         var list = db.itemInfoData;
         if (list == null || list.Count == 0) { AutoSynthPlugin.Logger.LogWarning("item db found but itemInfoData empty"); return; }
         _gradeByItemKey = new System.Collections.Generic.Dictionary<int, int>();
@@ -343,7 +343,7 @@ public class AutoSynthBehaviour : MonoBehaviour
             var combos = UnityEngine.Object.FindObjectsOfType<SubRecipeComboBoxButton>(true);
             SubRecipeComboBoxButton synth = null;
             foreach (var c in combos)
-                if (c != null && c.bfyp == ERecipeType.SYNTHESIS) { synth = c; break; }
+                if (c != null && c.bfxa == ERecipeType.SYNTHESIS) { synth = c; break; }
             if (synth == null)
             {
                 // second path: the main recipe button holds a reference to its sub combo
@@ -351,7 +351,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                 foreach (var m in mains)
                 {
                     var sc = m != null ? m.m_subRecipeComboBoxButton : null;
-                    if (sc != null && sc.bfyp == ERecipeType.SYNTHESIS) { synth = sc; break; }
+                    if (sc != null && sc.bfxa == ERecipeType.SYNTHESIS) { synth = sc; break; }
                 }
                 if (synth == null)
                 {
@@ -409,16 +409,16 @@ public class AutoSynthBehaviour : MonoBehaviour
                 switch (_populateStep)
                 {
                     case 1:
-                        try { synth.kyf(); AutoSynthPlugin.Logger.LogInfo($"recipe select: called kyf() (dropdown open={open})"); }
-                        catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"kyf() failed: {e.Message}"); }
+                        try { synth.kxi(); AutoSynthPlugin.Logger.LogInfo($"recipe select: called kxi() (dropdown open={open})"); }
+                        catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"kxi() failed: {e.Message}"); }
                         break;
                     case 2:
-                        try { synth.lbd(); AutoSynthPlugin.Logger.LogInfo($"recipe select: called lbd() (dropdown open={open})"); }
-                        catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"lbd() failed: {e.Message}"); }
+                        try { synth.lag(); AutoSynthPlugin.Logger.LogInfo($"recipe select: called lag() (dropdown open={open})"); }
+                        catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"lag() failed: {e.Message}"); }
                         break;
                     case 3:
-                        try { synth.kyh(); AutoSynthPlugin.Logger.LogInfo($"recipe select: called kyh() (dropdown open={open})"); }
-                        catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"kyh() failed: {e.Message}"); }
+                        try { synth.kxk(); AutoSynthPlugin.Logger.LogInfo($"recipe select: called kxk() (dropdown open={open})"); }
+                        catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"kxk() failed: {e.Message}"); }
                         break;
                     default:
                         if (!open) Click(synth, "sub-recipe dropdown (open to populate)", loud);
@@ -493,7 +493,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         {
             var dropdown = combo != null ? combo.m_comboBoxObject : null;
             if (dropdown == null || !dropdown.activeInHierarchy) return;
-            try { combo.kyh(); } catch { }
+            try { combo.kxk(); } catch { }
             if (dropdown.activeInHierarchy)
                 Click(combo, "sub-recipe dropdown (close)", false);
         }
@@ -540,8 +540,8 @@ public class AutoSynthBehaviour : MonoBehaviour
 
     private static int GetItemKey(CubeInData data)
     {
-        try { int key = data.bfda.ItemKey; return key; }
-        catch { return data.bstu; }
+        try { int key = data.bfbk.ItemKey; return key; }
+        catch { return data.bssj; }
     }
 
     private UI_Cube FindCube()
@@ -586,7 +586,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         button.OnPointerClick(ped);
         // ButtonBase.OnPointerClick only handles hover/click effects; game logic is
         // wired to the wrapped UnityEngine.UI.Button, so fire its onClick too.
-        var inner = button.bsfh;
+        var inner = button.bsdt;
         if (inner != null && inner.onClick != null)
         {
             inner.onClick.Invoke();
@@ -619,7 +619,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                 var key = GetItemKey(data);
                 if (key <= 0) continue;
                 var grade = _gradeByItemKey != null && _gradeByItemKey.TryGetValue(key, out var g) ? g.ToString() : "?";
-                AutoSynthPlugin.Logger.LogInfo($"dump: slot {i} itemKey={key} (bstu={data.bstu}) grade={grade}");
+                AutoSynthPlugin.Logger.LogInfo($"dump: slot {i} itemKey={key} (bssj={data.bssj}) grade={grade}");
             }
         }
         catch (Exception e)
@@ -629,7 +629,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     }
 
     private static string Describe(ToggleButton b)
-        => b == null ? "null" : $"[active={b.gameObject.activeInHierarchy} on={b.bsfm}]";
+        => b == null ? "null" : $"[active={b.gameObject.activeInHierarchy} on={b.bsdy}]";
 
     private bool KeyDown(KeyCode key)
     {
