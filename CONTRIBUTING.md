@@ -29,7 +29,7 @@ On each launch the reader:
    object (fixed for the process lifetime → cheap to re-read each poll).
 4. Enumerates all `StageInfoData` and `HeroInfoData` instances once to build
    lookup tables (`stageKey -> {...}`, `heroKey -> class name`).
-5. For the **live** current stage it also resolves the `vb.uu` static-field
+5. For the **live** current stage it also resolves the `uw.up` static-field
    block and reads `StageCache -> StageInfoData` from it — see below.
 
 Because everything is resolved by class name, the tool keeps working across game
@@ -39,14 +39,15 @@ a patch, re-dump (below) and update the offsets.
 ### Live stage vs. saved stage
 
 `CommonSaveData.currentStageKey` only updates when the game autosaves, so it lags
-behind stage changes. The reader prefers the **live stage system**: the `vb.uu`
-class holds a static `StageCache` (`bezt`) for the currently loaded stage, and
+behind stage changes. The reader prefers the **live stage system**: the `uw.up`
+class holds a static `StageCache` (`beyk`) for the currently loaded stage, and
 that flips the instant a new stage loads.
 
-`vb.uu` has no unique class-name string to scan for (it's an obfuscated short
-name), so it's located by:
+`uw.up` has no unique class-name string to scan for (it's an obfuscated short
+name that the obfuscator re-randomizes on updates — it was `vb.uu` before the
+1.00.27 patch), so it's located by:
 
-1. scanning for the `"uu"` name string,
+1. scanning for the `"up"` name string,
 2. reading each referencing class's static-field block (`Il2CppClass.static_fields`
    at `+0xB8`),
 3. accepting the block only if its `+0x88` slot points at a valid `StageCache`
@@ -108,13 +109,13 @@ The exe caches resolved addresses in `%LOCALAPPDATA%\tbh-companion\cache.txt`
 
 Pass `--no-cache` (exe) / `-NoCache` (scripts) to force a full rescan.
 
-## Field offsets (Il2CppDumper, current game build)
+## Field offsets (Il2CppDumper, game build 1.00.27)
 
 Object instance fields begin at `+0x10` (klass ptr `+0x0`, monitor `+0x8`).
 
 ```
 PlayerSaveData.commonSaveData     +0x10
-PlayerSaveData.heroSaveDatas      +0x58   (List<HeroSaveData>: items +0x10, count +0x18; element ptrs from items+0x20)
+PlayerSaveData.heroSaveDatas      +0x60   (List<HeroSaveData>: items +0x10, count +0x18; element ptrs from items+0x20)
 CommonSaveData.ArrangedPetKey     +0x40   (int)
 CommonSaveData.arrangedHeroKey    +0x48   (int[]: length +0x18, elements +0x20)
 CommonSaveData.maxCompletedStage  +0x54   (int)
@@ -126,7 +127,7 @@ HeroInfoData.ClassType            +0x48   (EEquipClassType: 1 Knight, 2 Ranger, 
 HeroSaveData.heroKey              +0x10   (int)
 HeroSaveData.HeroLevel            +0x14   (int)
 HeroSaveData.IsUnLock             +0x18   (bool)
-HeroSaveData.HeroExp              +0x1C   (float)
+HeroSaveData.HeroExp              +0x20   (double)
 StageInfoData.StageKey            +0x30   (int)
 StageInfoData.StageNameKey        +0x38   (System.String)
 StageInfoData.STAGETYPE           +0x40   (EStageType:   0 NORMAL, 1 ACTBOSS)
@@ -135,9 +136,9 @@ StageInfoData.Act                 +0x48   (int)
 StageInfoData.StageNo             +0x4C   (int)
 StageInfoData.StageLevel          +0x50   (int)
 StageInfoData.WaveAmount          +0x54   (int)
-vb.StageCache.StageInfoData       +0x10
+uw.StageCache.StageInfoData       +0x10
 Il2CppClass.static_fields         +0xB8
-vb.uu static block -> StageCache  +0x88
+uw.up static block -> StageCache  +0x88
 ```
 
 ### Re-dumping after a game update
