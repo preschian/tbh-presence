@@ -17,19 +17,20 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.22.0";
+    internal const string Version = "0.23.0";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
     private static ConfigEntry<float> _afterFillE, _afterSynthE, _cycleE;
     private static ConfigEntry<int> _maxGradeE;
-    private static ConfigEntry<bool> _autoStartE;
+    private static ConfigEntry<bool> _autoStartE, _autoOpenE;
 
     internal static float AfterFillDelay => _afterFillE != null ? _afterFillE.Value : 1.0f;
     internal static float AfterSynthDelay => _afterSynthE != null ? _afterSynthE.Value : 4.0f;
     internal static float AfterClearDelay => _cycleE != null ? _cycleE.Value : 300.0f;
     internal static int MaxGrade => _maxGradeE != null ? _maxGradeE.Value : 2;
     internal static bool AutoStart => _autoStartE == null || _autoStartE.Value;
+    internal static bool AutoOpenCube => _autoOpenE == null || _autoOpenE.Value;
 
     private static ConfigEntry<string> _typesE;
 
@@ -62,10 +63,11 @@ public class AutoSynthPlugin : BasePlugin
         if (_conf == null) return;
         try
         {
-            int mg = MaxGrade; float ci = AfterClearDelay; bool auto = AutoStart;
+            int mg = MaxGrade; float ci = AfterClearDelay; bool auto = AutoStart; bool open = AutoOpenCube;
             _conf.Reload();
-            if (mg != MaxGrade || ci != AfterClearDelay || auto != AutoStart)
-                Logger.LogInfo($"config reloaded: MaxGrade={MaxGrade}, CycleIntervalSeconds={AfterClearDelay}, AutoStart={AutoStart}");
+            if (mg != MaxGrade || ci != AfterClearDelay || auto != AutoStart || open != AutoOpenCube)
+                Logger.LogInfo($"config reloaded: MaxGrade={MaxGrade}, CycleIntervalSeconds={AfterClearDelay}, " +
+                               $"AutoStart={AutoStart}, AutoOpenCube={AutoOpenCube}");
         }
         catch (Exception e) { Logger.LogWarning("config reload failed: " + e.Message); }
     }
@@ -81,8 +83,10 @@ public class AutoSynthPlugin : BasePlugin
         _cycleE = Config.Bind("Timing", "CycleIntervalSeconds", 300.0f,
             "Delay after emptying the cube before the next cycle starts (default: 5 minutes)");
         _autoStartE = Config.Bind("General", "AutoStart", true,
-            "Arm the auto loop as soon as the game starts (no F8 needed). " +
-            "It only acts while the Cube panel is open; F8 still toggles it.");
+            "Arm the auto loop as soon as the game starts (no F8 needed). F8 still toggles it.");
+        _autoOpenE = Config.Bind("General", "AutoOpenCube", true,
+            "While the loop is armed, click the Cube menu button to open the Cube panel when a " +
+            "cycle is due. Turn this off to only run while you have the Cube panel open yourself.");
         _typesE = Config.Bind("General", "SynthesisTypes", "Equipment,Materials,Accessories",
             "Which synthesis item types the loop rotates through, comma-separated: " +
             "Equipment, Materials, Accessories. e.g. 'Equipment,Materials' to skip accessories.");
@@ -112,7 +116,10 @@ public class AutoSynthBehaviour : MonoBehaviour
     private bool _typeSelected;
     private int _currentType;
     private float _nextTick;
+    private float _nextOpenAttempt;
+    private int _openFails;
     private UI_Cube _cube;
+    private UI_Main _main;
     private bool _legacyInputBroken;
     private bool _autoStartApplied;
     private float _nextConfigReload;
@@ -163,7 +170,11 @@ public class AutoSynthBehaviour : MonoBehaviour
             {
                 _auto = true;
                 AutoSynthPlugin.Logger.LogInfo(
-                    "Auto-synthesis armed on launch (AutoStart=true) - open the Cube panel to run it. F8 toggles.");
+                    "Auto-synthesis armed on launch (AutoStart=true). " +
+                    (AutoSynthPlugin.AutoOpenCube
+                        ? "The Cube panel is opened automatically when a cycle is due."
+                        : "AutoOpenCube=false - open the Cube panel yourself to run it.") +
+                    " F8 toggles.");
             }
         }
         if (KeyDown(KeyCode.F8))
@@ -175,6 +186,7 @@ public class AutoSynthBehaviour : MonoBehaviour
             _recipeAttempts = 0;
             _typeSelected = false;
             _nextTick = 0f;
+            _nextOpenAttempt = 0f;
             _nextStatusWrite = 0f;
             AutoSynthPlugin.Logger.LogInfo($"Auto-synthesis: {(_auto ? "ON" : "OFF")}");
         }
@@ -196,7 +208,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         try
         {
             var cube = FindCube();
-            if (!CubeOpen(cube)) return;
+            if (!CubeOpen(cube)) { TryOpenCube(); return; }
 
             var loud = _cycles < 2 || _cycles % 20 == 0;
             switch (_phase)
@@ -554,6 +566,41 @@ public class AutoSynthBehaviour : MonoBehaviour
     private static bool CubeOpen(UI_Cube cube)
         => cube != null && cube.gameObject.activeInHierarchy;
 
+    // The Cube menu button in the main window's content row (Stash/Stat/Cube/Rune/Portal).
+    private ToggleButton CubeMenuButton()
+    {
+        if (_main == null) _main = UnityEngine.Object.FindObjectOfType<UI_Main>(true);
+        var entry = _main != null ? _main.button_Cube : null;
+        return entry != null ? entry.toggleButton : null;
+    }
+
+    // The loop can only act with the Cube panel open, so open it ourselves when a cycle
+    // is due. Throttled: if the player is using another panel we take the tab back at
+    // most once every 10s instead of every tick, and the loop is idle between cycles
+    // anyway, so this only fires when there is actually work to do.
+    private void TryOpenCube()
+    {
+        if (!AutoSynthPlugin.AutoOpenCube) return;
+        if (Time.unscaledTime < _nextOpenAttempt) return;
+        _nextOpenAttempt = Time.unscaledTime + 10f;
+
+        var btn = CubeMenuButton();
+        if (btn == null || !btn.gameObject.activeInHierarchy)
+        {
+            // The main window is still being built for the first seconds after launch,
+            // so a few misses are normal; only speak up once it stays unavailable.
+            if (++_openFails == 3)
+                AutoSynthPlugin.Logger.LogWarning(
+                    "auto-open: Cube menu button not available " +
+                    $"(mainUi={(_main == null ? "null" : "found")}, button={(btn == null ? "null" : "inactive")}); " +
+                    "open the Cube panel yourself and the loop will run");
+            _main = null; // re-find next time; the main UI may not be built yet
+            return;
+        }
+        _openFails = 0;
+        Click(btn, "Cube menu button (auto-open)", true);
+    }
+
     private static void ClickTrash(CubeSlotResetButton trash, bool loud)
     {
         if (trash == null || !trash.gameObject.activeInHierarchy)
@@ -603,6 +650,7 @@ public class AutoSynthBehaviour : MonoBehaviour
             if (cube == null) { AutoSynthPlugin.Logger.LogInfo("dump: UI_Cube not found"); return; }
             AutoSynthPlugin.Logger.LogInfo(
                 $"dump: cubeOpen={cube.gameObject.activeInHierarchy} " +
+                $"cubeMenuBtn={Describe(CubeMenuButton())} " +
                 $"autoFillBtn={Describe(cube.m_synthesisAutoFillButton)} " +
                 $"autoFillToggle={Describe(cube.toggleButton_AutoFill)} " +
                 $"trigger={Describe(cube.toggleButton_Trigger)} " +
