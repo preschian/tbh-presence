@@ -18,18 +18,18 @@ updates this plugin automatically. (Building it from source is covered in
 
 ## Use
 
-Open the **Cube** panel, then:
-
-With `AutoStart` on (the default) the loop is already armed when the game
-starts — just open the Cube panel and it runs. Hotkeys:
+With `AutoStart` on (the default) the loop is already armed when the game starts,
+and with `AutoOpenCube` on it clicks the **Cube** menu button itself whenever a
+cycle is due — so nothing has to be open beforehand. Hotkeys:
 
 | Key | Action |
 |-----|--------|
-| **F8** | Toggle the auto loop: select highest unlocked recipe → auto-fill → grade check → synthesis → clear cube → wait → repeat |
+| **F8** | Toggle the auto loop: open Cube → select highest unlocked recipe → auto-fill → grade check → synthesis → clear cube → wait → repeat |
 | **F9** | Click the synthesis trigger once |
 | **F10** | Dump button states and cube-slot item grades to `BepInEx\LogOutput.log` |
 
-The Cube panel must stay open while the loop runs.
+The loop only acts while the Cube panel is open. With `AutoOpenCube` off it waits
+for you to open the panel yourself instead of opening it.
 
 ## Config
 
@@ -38,6 +38,7 @@ The Cube panel must stay open while the loop runs.
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `AutoStart` | true | Arm the auto loop at game start, no F8 needed |
+| `AutoOpenCube` | true | Click the Cube menu button to open the Cube panel when a cycle is due (at most once every 10s, so it doesn't fight you for the tab) |
 | `SynthesisTypes` | Equipment,Materials,Accessories | Which item types to synthesize; the loop rotates through them each round. e.g. `Equipment,Materials` to skip accessories. |
 | `MaxGrade` | 3 | Highest rarity the loop may synthesize (0=Common, 1=Uncommon, 2=Rare, 3=Legendary, 4=Immortal, …). Cycles holding anything above this are skipped. |
 | `CycleIntervalSeconds` | 300 | Pause between cycles |

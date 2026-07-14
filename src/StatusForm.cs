@@ -45,7 +45,7 @@ namespace TbhCompanion
         StatusCard _cardStage, _cardCycles, _cardLast;
         Card _presenceCard;
         Toggle _presenceToggle;
-        Toggle _autoStart, _showConsole;
+        Toggle _autoStart, _autoOpenCube, _showConsole;
         TypeTile _tEquip, _tMaterials, _tAccessories;
         SegmentBar _seg;
         Label _rarityValue;
@@ -72,7 +72,7 @@ namespace TbhCompanion
             try { using (var g = Graphics.FromHwnd(IntPtr.Zero)) _s = g.DpiX / 96f; } catch { _s = 1f; }
             // presence card sits below the status strip in both editions; the full
             // edition stacks the auto-synthesis card + save row beneath it.
-            int height = Build.Synth ? 604 + PresH + 16 : (PresY + PresH + 20);
+            int height = Build.Synth ? 648 + PresH + 16 : (PresY + PresH + 20);
             ClientSize = new Size(Sc(W), Sc(height));
             DoubleBuffered = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
@@ -181,7 +181,7 @@ namespace TbhCompanion
         {
             int cardY = PresY + PresH + 16; // below the presence card (logical)
             _settingsCard = new Card { Radius = 12 };
-            _settingsCard.SetBounds(Sc(20), Sc(cardY), Sc(520), Sc(372));
+            _settingsCard.SetBounds(Sc(20), Sc(cardY), Sc(520), Sc(416));
             Controls.Add(_settingsCard);
             var c = _settingsCard;
 
@@ -193,47 +193,52 @@ namespace TbhCompanion
             _autoStart = new Toggle(); _autoStart.SetBounds(Sc(504 - 44), Sc(44), Sc(44), Sc(24));
             c.Controls.Add(_autoStart);
 
-            AddLabel(c, "Show the BepInEx log console", 16, 84, Theme.TextDark, Theme.F(10f, FontStyle.Regular));
-            AddLabel(c, "applies on next game start", 16, 104, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
-            _showConsole = new Toggle(); _showConsole.SetBounds(Sc(504 - 44), Sc(88), Sc(44), Sc(24));
+            AddLabel(c, "Open the Cube panel automatically", 16, 84, Theme.TextDark, Theme.F(10f, FontStyle.Regular));
+            AddLabel(c, "off waits for you to open it yourself", 16, 104, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+            _autoOpenCube = new Toggle(); _autoOpenCube.SetBounds(Sc(504 - 44), Sc(88), Sc(44), Sc(24));
+            c.Controls.Add(_autoOpenCube);
+
+            AddLabel(c, "Show the BepInEx log console", 16, 128, Theme.TextDark, Theme.F(10f, FontStyle.Regular));
+            AddLabel(c, "applies on next game start", 16, 148, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+            _showConsole = new Toggle(); _showConsole.SetBounds(Sc(504 - 44), Sc(132), Sc(44), Sc(24));
             c.Controls.Add(_showConsole);
 
-            AddDivider(c, 128);
+            AddDivider(c, 172);
 
             // types
-            AddLabel(c, "Synthesize which types", 16, 140, Theme.TextDark, Theme.F(10f, FontStyle.Regular));
-            AddLabel(c, "rotates each round", 176, 142, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+            AddLabel(c, "Synthesize which types", 16, 184, Theme.TextDark, Theme.F(10f, FontStyle.Regular));
+            AddLabel(c, "rotates each round", 176, 186, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
             _tEquip = new TypeTile { Icon = "⚔", Caption = "Equipment" };
             _tMaterials = new TypeTile { Icon = "◆", Caption = "Materials" };
             _tAccessories = new TypeTile { Icon = "◎", Caption = "Accessories" };
             var tiles = new[] { _tEquip, _tMaterials, _tAccessories };
             int[] tx = { 16, 181, 346 };
             int[] tw = { 157, 157, 158 };
-            for (int i = 0; i < 3; i++) { tiles[i].SetBounds(Sc(tx[i]), Sc(164), Sc(tw[i]), Sc(52)); c.Controls.Add(tiles[i]); }
+            for (int i = 0; i < 3; i++) { tiles[i].SetBounds(Sc(tx[i]), Sc(208), Sc(tw[i]), Sc(52)); c.Controls.Add(tiles[i]); }
 
             // rarity
-            AddLabel(c, "Max rarity to synthesize", 16, 228, Theme.TextDark, Theme.F(10f, FontStyle.Regular));
-            _rarityValue = AddLabelBox(c, "★ Legendary", 300, 227, 188, 20, Theme.Amber, Theme.F(9.5f, FontStyle.Bold), ContentAlignment.MiddleRight);
+            AddLabel(c, "Max rarity to synthesize", 16, 272, Theme.TextDark, Theme.F(10f, FontStyle.Regular));
+            _rarityValue = AddLabelBox(c, "★ Legendary", 300, 271, 188, 20, Theme.Amber, Theme.F(9.5f, FontStyle.Bold), ContentAlignment.MiddleRight);
             _seg = new SegmentBar { Value = 3 };
-            _seg.SetBounds(Sc(16), Sc(250), Sc(488), Sc(12));
+            _seg.SetBounds(Sc(16), Sc(294), Sc(488), Sc(12));
             _seg.ValueChanged += delegate { UpdateRarityLabel(); };
             c.Controls.Add(_seg);
-            AddLabel(c, "Common", 16, 266, Theme.TextMuted, Theme.F(8f, FontStyle.Regular));
-            AddLabelBox(c, "Cosmic", 404, 266, 100, 16, Theme.TextMuted, Theme.F(8f, FontStyle.Regular), ContentAlignment.MiddleRight);
+            AddLabel(c, "Common", 16, 310, Theme.TextMuted, Theme.F(8f, FontStyle.Regular));
+            AddLabelBox(c, "Cosmic", 404, 310, 100, 16, Theme.TextMuted, Theme.F(8f, FontStyle.Regular), ContentAlignment.MiddleRight);
 
-            AddDivider(c, 288);
+            AddDivider(c, 332);
 
             // timings
             int[] colx = { 16, 182, 348 };
             int[] colw = { 156, 156, 156 };
-            AddLabel(c, "Cycle interval (min)", colx[0], 300, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
-            AddLabel(c, "After auto-fill (s)", colx[1], 300, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
-            AddLabel(c, "After synthesis (s)", colx[2], 300, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+            AddLabel(c, "Cycle interval (min)", colx[0], 344, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+            AddLabel(c, "After auto-fill (s)", colx[1], 344, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+            AddLabel(c, "After synthesis (s)", colx[2], 344, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
             _cycleMin = new Stepper { Min = 1, Max = 1440, Step = 1, Decimals = 0, Value = 5 };
             _fillSec = new Stepper { Min = 0.5m, Max = 60, Step = 0.5m, Decimals = 1, Value = 1 };
             _synthSec = new Stepper { Min = 0.5m, Max = 60, Step = 0.5m, Decimals = 1, Value = 4 };
             var steps = new[] { _cycleMin, _fillSec, _synthSec };
-            for (int i = 0; i < 3; i++) { steps[i].SetBounds(Sc(colx[i]), Sc(318), Sc(colw[i]), Sc(30)); c.Controls.Add(steps[i]); }
+            for (int i = 0; i < 3; i++) { steps[i].SetBounds(Sc(colx[i]), Sc(362), Sc(colw[i]), Sc(30)); c.Controls.Add(steps[i]); }
         }
 
         void BuildSaveRow()
@@ -520,7 +525,7 @@ namespace TbhCompanion
 
         void SetSettingsEnabled(bool on)
         {
-            _autoStart.Enabled = on; _seg.Enabled = on;
+            _autoStart.Enabled = on; _autoOpenCube.Enabled = on; _seg.Enabled = on;
             _tEquip.Enabled = on; _tMaterials.Enabled = on; _tAccessories.Enabled = on;
             _cycleMin.Enabled = on; _fillSec.Enabled = on; _synthSec.Enabled = on;
             _saveBtn.Enabled = on;
@@ -540,6 +545,7 @@ namespace TbhCompanion
             {
                 string text = File.ReadAllText(_cfgPath);
                 _autoStart.Checked = !string.Equals(GetVal(text, "AutoStart", "true"), "false", StringComparison.OrdinalIgnoreCase);
+                _autoOpenCube.Checked = !string.Equals(GetVal(text, "AutoOpenCube", "true"), "false", StringComparison.OrdinalIgnoreCase);
                 int mg;
                 if (!int.TryParse(GetVal(text, "MaxGrade", "2"), out mg) || mg < 0 || mg > 9) mg = 2;
                 _seg.Value = mg; UpdateRarityLabel();
@@ -579,6 +585,7 @@ namespace TbhCompanion
             {
                 string text = File.ReadAllText(_cfgPath);
                 text = SetVal(text, "AutoStart", _autoStart.Checked ? "true" : "false");
+                text = SetVal(text, "AutoOpenCube", _autoOpenCube.Checked ? "true" : "false");
                 text = SetVal(text, "MaxGrade", _seg.Value.ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "CycleIntervalSeconds", (_cycleMin.Value * 60).ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "AfterFillSeconds", _fillSec.Value.ToString(CultureInfo.InvariantCulture));
