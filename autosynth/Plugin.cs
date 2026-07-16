@@ -17,7 +17,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.23.0";
+    internal const string Version = "0.24.0";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -295,10 +295,10 @@ public class AutoSynthBehaviour : MonoBehaviour
     private void EnsureGradeMap()
     {
         if (_gradeByItemKey != null) return;
-        bam db = null;
-        try { db = nq<bam>.bsee; } catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"nq<bam>.bsee failed: {e.Message}"); }
-        if (db == null) db = UnityEngine.Object.FindObjectOfType<bam>(true);
-        if (db == null) { AutoSynthPlugin.Logger.LogWarning("item db (bam) not found"); return; }
+        bal db = null;
+        try { db = nq<bal>.bsen; } catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"nq<bal>.bsen failed: {e.Message}"); }
+        if (db == null) db = UnityEngine.Object.FindObjectOfType<bal>(true);
+        if (db == null) { AutoSynthPlugin.Logger.LogWarning("item db (bal) not found"); return; }
         var list = db.itemInfoData;
         if (list == null || list.Count == 0) { AutoSynthPlugin.Logger.LogWarning("item db found but itemInfoData empty"); return; }
         _gradeByItemKey = new System.Collections.Generic.Dictionary<int, int>();
@@ -355,7 +355,7 @@ public class AutoSynthBehaviour : MonoBehaviour
             var combos = UnityEngine.Object.FindObjectsOfType<SubRecipeComboBoxButton>(true);
             SubRecipeComboBoxButton synth = null;
             foreach (var c in combos)
-                if (c != null && c.bfxa == ERecipeType.SYNTHESIS) { synth = c; break; }
+                if (c != null && c.bfxh == ERecipeType.SYNTHESIS) { synth = c; break; }
             if (synth == null)
             {
                 // second path: the main recipe button holds a reference to its sub combo
@@ -363,7 +363,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                 foreach (var m in mains)
                 {
                     var sc = m != null ? m.m_subRecipeComboBoxButton : null;
-                    if (sc != null && sc.bfxa == ERecipeType.SYNTHESIS) { synth = sc; break; }
+                    if (sc != null && sc.bfxh == ERecipeType.SYNTHESIS) { synth = sc; break; }
                 }
                 if (synth == null)
                 {
@@ -552,8 +552,8 @@ public class AutoSynthBehaviour : MonoBehaviour
 
     private static int GetItemKey(CubeInData data)
     {
-        try { int key = data.bfbk.ItemKey; return key; }
-        catch { return data.bssj; }
+        try { int key = data.bfbr.ItemKey; return key; }
+        catch { return data.bssu; }
     }
 
     private UI_Cube FindCube()
@@ -633,7 +633,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         button.OnPointerClick(ped);
         // ButtonBase.OnPointerClick only handles hover/click effects; game logic is
         // wired to the wrapped UnityEngine.UI.Button, so fire its onClick too.
-        var inner = button.bsdt;
+        var inner = button.bsec;
         if (inner != null && inner.onClick != null)
         {
             inner.onClick.Invoke();
@@ -667,7 +667,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                 var key = GetItemKey(data);
                 if (key <= 0) continue;
                 var grade = _gradeByItemKey != null && _gradeByItemKey.TryGetValue(key, out var g) ? g.ToString() : "?";
-                AutoSynthPlugin.Logger.LogInfo($"dump: slot {i} itemKey={key} (bssj={data.bssj}) grade={grade}");
+                AutoSynthPlugin.Logger.LogInfo($"dump: slot {i} itemKey={key} (bssu={data.bssu}) grade={grade}");
             }
         }
         catch (Exception e)
@@ -677,7 +677,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     }
 
     private static string Describe(ToggleButton b)
-        => b == null ? "null" : $"[active={b.gameObject.activeInHierarchy} on={b.bsdy}]";
+        => b == null ? "null" : $"[active={b.gameObject.activeInHierarchy} on={b.bseh}]";
 
     private bool KeyDown(KeyCode key)
     {
