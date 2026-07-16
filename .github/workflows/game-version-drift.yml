@@ -1,0 +1,157 @@
+name: Watch game version drift
+
+# Opens an issue when TaskBarHero moves ahead of the release this repo targets.
+#
+# The check is a single invariant: this tool's version tracks the game's, offset
+# by a constant. v3.00.28 targets game 1.00.28, so
+#
+#     tool(30028) - game(10028) == DELTA(20000)
+#
+# Any other value means the two have drifted -- normally because the game shipped
+# a patch we have not caught up to yet. Releasing the matching tag restores the
+# invariant and the check goes quiet on its own, so there is no cutoff date or
+# state file to maintain.
+#
+# Versions come from:
+#   tool - the newest v* git tag
+#   game - the highest version number appearing in the Steam news feed titles
+#          ("Hotfix Update - ver 1.00.28", "[Ver 1.00.23]", "(Ver 1.00.12)")
+#
+# Reading the version out of the title deliberately ignores Steam's "patchnotes"
+# tag, which the publisher applies inconsistently (ver 1.00.26, 1.00.22, 1.00.21,
+# 1.00.20, 1.00.17 and 1.00.12 are all untagged patches).
+#
+# De-duplication: the issue body carries the game version in an HTML comment, so
+# a drift is filed once, not twice a day until it is fixed.
+
+on:
+  schedule:
+    - cron: '0 0,12 * * *'   # twice a day, 00:00 and 12:00 UTC (07:00 / 19:00 WIB)
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+env:
+  APPID: '3678970'
+  LABEL: steam-patch
+  MENTION: preschian
+  DELTA: '20000'   # tool 3.00.28 - game 1.00.28
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (tags needed for the tool version)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tool version from the newest tag
+        id: tool
+        run: |
+          set -euo pipefail
+          tag=$(git tag --list 'v*' --sort=-creatordate | head -1)
+          if [ -z "$tag" ]; then
+            echo "::error::no v* tag found; cannot determine the tool version"
+            exit 1
+          fi
+          ver=${tag#v}
+          num=$(awk -F. '{print $1*10000 + $2*100 + $3}' <<<"$ver")
+          echo "tag=$tag ver=$ver num=$num"
+          { echo "ver=$ver"; echo "num=$num"; } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve game version from the Steam news feed
+        id: game
+        run: |
+          set -euo pipefail
+          curl -sSf --retry 3 --retry-delay 5 \
+            "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid=${APPID}&count=30&maxlength=1&format=json" \
+            > news.json
+
+          # Highest version mentioned in any title, so an out-of-order or
+          # untagged announcement cannot make the game look older than it is.
+          ver=$(jq -r '
+            [ .appnews.newsitems[].title
+              | capture("(?<v>[0-9]+\\.[0-9]+\\.[0-9]+)") .v ]
+            | map({ s: ., n: (split(".") | (.[0]|tonumber)*10000 + (.[1]|tonumber)*100 + (.[2]|tonumber)) })
+            | max_by(.n) | .s // empty' news.json)
+
+          if [ -z "$ver" ]; then
+            echo "::error::no version number found in any feed title; the feed shape may have changed"
+            exit 1
+          fi
+          num=$(awk -F. '{print $1*10000 + $2*100 + $3}' <<<"$ver")
+          echo "ver=$ver num=$num"
+          { echo "ver=$ver"; echo "num=$num"; } >> "$GITHUB_OUTPUT"
+
+      - name: Compare and report drift
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOOL_VER: ${{ steps.tool.outputs.ver }}
+          TOOL_NUM: ${{ steps.tool.outputs.num }}
+          GAME_VER: ${{ steps.game.outputs.ver }}
+          GAME_NUM: ${{ steps.game.outputs.num }}
+        run: |
+          set -euo pipefail
+
+          drift=$((TOOL_NUM - GAME_NUM))
+          echo "tool ${TOOL_VER} (${TOOL_NUM}) - game ${GAME_VER} (${GAME_NUM}) = ${drift}, expected ${DELTA}"
+
+          if [ "$drift" -eq "$DELTA" ]; then
+            echo "In sync; nothing to do."
+            exit 0
+          fi
+
+          gh label create "$LABEL" --repo "$GITHUB_REPOSITORY" \
+            --color 5319e7 --description "TaskBarHero moved ahead of our release" || true
+
+          # Already filed for this game version? 'body // ""' guards against a
+          # labelled issue with an empty body, which would abort the extraction.
+          # No '|| true': if the lookup fails we must not proceed with an empty
+          # seen-set and re-file the same drift twice a day.
+          gh issue list --repo "$GITHUB_REPOSITORY" --label "$LABEL" \
+            --state all --limit 200 --json body \
+            --jq '.[].body // "" | capture("<!-- game-version: (?<v>[0-9.]+) -->") | .v' \
+            | sort -u > seen.txt
+
+          if grep -qxF "$GAME_VER" seen.txt; then
+            echo "Drift for game ${GAME_VER} already filed; nothing to do."
+            exit 0
+          fi
+
+          if [ "$drift" -lt "$DELTA" ]; then
+            headline="TaskBarHero **${GAME_VER}** is ahead of our **${TOOL_VER}**."
+          else
+            headline="Our **${TOOL_VER}** is ahead of TaskBarHero **${GAME_VER}** — released early, or the feed has not announced the patch yet."
+          fi
+
+          body=$(cat <<EOF
+          @${MENTION} — the tool and the game have drifted apart.
+
+          ${headline}
+
+          | | Version | Numeric |
+          |---|---|---|
+          | Tool | ${TOOL_VER} | ${TOOL_NUM} |
+          | Game | ${GAME_VER} | ${GAME_NUM} |
+          | | **Drift** | **${drift}** (expected ${DELTA}) |
+
+          A game patch may shift the IL2CPP memory offsets this app depends on.
+
+          - [ ] Check whether presence still reads the stage and party correctly
+          - [ ] Re-dump if it misreads, and update the offsets in \`src/Game.cs\` and \`legacy/Get-TbhStage.ps1\`, keeping the two aligned (see CONTRIBUTING.md)
+          - [ ] Bump \`CACHE_VERSION\` in \`src/Game.cs\` so stale address caches are discarded
+          - [ ] Check the autosynth interop names in \`autosynth/Plugin.cs\` still resolve
+          - [ ] Release \`v3.${GAME_VER#*.}\` to restore the invariant and close this check
+
+          <!-- game-version: ${GAME_VER} -->
+          EOF
+          )
+
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Game ${GAME_VER} is ahead of tool ${TOOL_VER}" \
+            --label "$LABEL" \
+            --assignee "$MENTION" \
+            --body "$body"
