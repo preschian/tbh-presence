@@ -4,6 +4,7 @@ using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
+using System.Reflection;
 using Il2CppInterop.Runtime.Injection;
 using TaskbarHero;
 using TaskbarHero.Data;
@@ -18,6 +19,14 @@ namespace TbhAutoSynth;
 public class AutoSynthPlugin : BasePlugin
 {
     internal const string Version = "0.24.0";
+#if RESILIENT
+    // Built with /define:RESILIENT for the "-next" edition: obfuscated members are
+    // resolved by signature at runtime instead of by hard-coded name, so a game
+    // patch that re-randomizes those names no longer needs a manual remap.
+    internal const string Variant = " [next/resilient]";
+#else
+    internal const string Variant = "";
+#endif
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -96,7 +105,7 @@ public class AutoSynthPlugin : BasePlugin
         if (!ClassInjector.IsTypeRegisteredInIl2Cpp<AutoSynthBehaviour>())
             ClassInjector.RegisterTypeInIl2Cpp<AutoSynthBehaviour>();
         AddComponent<AutoSynthBehaviour>();
-        Logger.LogInfo($"TBH Auto Synthesis {Version}: F8 = toggle auto (select recipe -> fill -> synth -> clear loop), F9 = click trigger once, F10 = dump cube state.");
+        Logger.LogInfo($"TBH Auto Synthesis {Version}{Variant}: F8 = toggle auto (select recipe -> fill -> synth -> clear loop), F9 = click trigger once, F10 = dump cube state.");
     }
 }
 
@@ -295,12 +304,10 @@ public class AutoSynthBehaviour : MonoBehaviour
     private void EnsureGradeMap()
     {
         if (_gradeByItemKey != null) return;
-        bal db = null;
-        try { db = nq<bal>.bsen; } catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"nq<bal>.bsen failed: {e.Message}"); }
-        if (db == null) db = UnityEngine.Object.FindObjectOfType<bal>(true);
-        if (db == null) { AutoSynthPlugin.Logger.LogWarning("item db (bal) not found"); return; }
-        var list = db.itemInfoData;
-        if (list == null || list.Count == 0) { AutoSynthPlugin.Logger.LogWarning("item db found but itemInfoData empty"); return; }
+        Il2CppSystem.Collections.Generic.List<ItemInfoData> list = null;
+        try { list = ItemInfoList(); }
+        catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"item db lookup failed: {e.Message}"); }
+        if (list == null || list.Count == 0) { AutoSynthPlugin.Logger.LogWarning("item db not found / itemInfoData empty"); return; }
         _gradeByItemKey = new System.Collections.Generic.Dictionary<int, int>();
         for (int i = 0; i < list.Count; i++)
         {
@@ -355,7 +362,7 @@ public class AutoSynthBehaviour : MonoBehaviour
             var combos = UnityEngine.Object.FindObjectsOfType<SubRecipeComboBoxButton>(true);
             SubRecipeComboBoxButton synth = null;
             foreach (var c in combos)
-                if (c != null && c.bfxh == ERecipeType.SYNTHESIS) { synth = c; break; }
+                if (c != null && RecipeTypeOf(c) == ERecipeType.SYNTHESIS) { synth = c; break; }
             if (synth == null)
             {
                 // second path: the main recipe button holds a reference to its sub combo
@@ -363,7 +370,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                 foreach (var m in mains)
                 {
                     var sc = m != null ? m.m_subRecipeComboBoxButton : null;
-                    if (sc != null && sc.bfxh == ERecipeType.SYNTHESIS) { synth = sc; break; }
+                    if (sc != null && RecipeTypeOf(sc) == ERecipeType.SYNTHESIS) { synth = sc; break; }
                 }
                 if (synth == null)
                 {
@@ -552,8 +559,10 @@ public class AutoSynthBehaviour : MonoBehaviour
 
     private static int GetItemKey(CubeInData data)
     {
-        try { int key = data.bfbr.ItemKey; return key; }
-        catch { return data.bssu; }
+        // Primary path uses the real (un-obfuscated) CubeItemData.ItemKey field via
+        // CubeItemKey; on the rare read failure report 0 (empty) rather than guess.
+        try { return CubeItemKey(data); }
+        catch { return 0; }
     }
 
     private UI_Cube FindCube()
@@ -633,7 +642,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         button.OnPointerClick(ped);
         // ButtonBase.OnPointerClick only handles hover/click effects; game logic is
         // wired to the wrapped UnityEngine.UI.Button, so fire its onClick too.
-        var inner = button.bsec;
+        var inner = InnerButton(button);
         if (inner != null && inner.onClick != null)
         {
             inner.onClick.Invoke();
@@ -667,7 +676,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                 var key = GetItemKey(data);
                 if (key <= 0) continue;
                 var grade = _gradeByItemKey != null && _gradeByItemKey.TryGetValue(key, out var g) ? g.ToString() : "?";
-                AutoSynthPlugin.Logger.LogInfo($"dump: slot {i} itemKey={key} (bssu={data.bssu}) grade={grade}");
+                AutoSynthPlugin.Logger.LogInfo($"dump: slot {i} itemKey={key} grade={grade}");
             }
         }
         catch (Exception e)
@@ -677,7 +686,145 @@ public class AutoSynthBehaviour : MonoBehaviour
     }
 
     private static string Describe(ToggleButton b)
-        => b == null ? "null" : $"[active={b.gameObject.activeInHierarchy} on={b.bseh}]";
+        => b == null ? "null" : $"[active={b.gameObject.activeInHierarchy} on={IsOn(b)}]";
+
+    // ---- obfuscated-member access -------------------------------------------
+    // The game's obfuscator re-randomizes short member names every patch. The
+    // default build binds them by name (fast, but breaks each update). The
+    // "-next" edition (built with /define:RESILIENT) instead resolves each one by
+    // signature at runtime, so those patches no longer need a manual remap. The
+    // real (un-obfuscated) names - class names, `m_` fields, ItemKey/GRADE,
+    // itemInfoData - are used directly in both builds.
+
+#if RESILIENT
+    private static bool _obfResolved;
+    private static PropertyInfo _pRecipeType, _pInnerButton, _pIsOn, _pCubeItemData, _pItemInfoData;
+    private static Type _dbType;
+
+    private const BindingFlags DeclInstance =
+        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+
+    // The single property of a given type declared on `declaring`. With readOnly,
+    // only get-only properties qualify (distinguishes a computed getter from the
+    // serialized get/set field of the same type).
+    private static PropertyInfo OnlyProp(Type declaring, Type propType, bool readOnly)
+    {
+        PropertyInfo found = null;
+        foreach (var p in declaring.GetProperties(DeclInstance))
+        {
+            if (p.PropertyType != propType) continue;
+            if (readOnly && p.CanWrite) continue;
+            if (found != null)
+            {
+                AutoSynthPlugin.Logger.LogWarning(
+                    $"interop resolve: {declaring.Name} has >1 {propType.Name}" +
+                    $"{(readOnly ? " read-only" : "")} property ({found.Name}, {p.Name}); using {found.Name}");
+                break;
+            }
+            found = p;
+        }
+        if (found == null)
+            AutoSynthPlugin.Logger.LogWarning(
+                $"interop resolve: no {propType.Name}{(readOnly ? " read-only" : "")} property on {declaring.Name}");
+        return found;
+    }
+
+    // The item DB is the singleton carrying every info-data list. Match on several
+    // real (un-obfuscated) list names so a coroutine state machine that merely
+    // mentions itemInfoData can't be mistaken for it.
+    private static Type FindDbType()
+    {
+        Type[] types;
+        try { types = typeof(UI_Cube).Assembly.GetTypes(); }
+        catch (ReflectionTypeLoadException e) { types = e.Types; }
+        foreach (var t in types)
+        {
+            if (t == null) continue;
+            if (t.GetProperty("itemInfoData", DeclInstance) != null
+                && t.GetProperty("heroInfoData", DeclInstance) != null
+                && t.GetProperty("stageInfoData", DeclInstance) != null)
+                return t;
+        }
+        return null;
+    }
+
+    private static void ResolveInterop()
+    {
+        if (_obfResolved) return;
+        _obfResolved = true;
+        _pRecipeType = OnlyProp(typeof(SubRecipeComboBoxButton), typeof(ERecipeType), false);
+        _pInnerButton = OnlyProp(typeof(ButtonBase), typeof(UnityEngine.UI.Button), true);
+        _pIsOn = OnlyProp(typeof(ToggleButton), typeof(bool), true);
+        _pCubeItemData = OnlyProp(typeof(CubeInData), typeof(CubeItemData), false);
+        _dbType = FindDbType();
+        _pItemInfoData = _dbType != null ? _dbType.GetProperty("itemInfoData", DeclInstance) : null;
+        AutoSynthPlugin.Logger.LogInfo(
+            "interop resolved (RESILIENT): " +
+            $"ERecipeType={PName(_pRecipeType)}, innerButton={PName(_pInnerButton)}, " +
+            $"isOn={PName(_pIsOn)}, cubeItemData={PName(_pCubeItemData)}, itemDb={(_dbType != null ? _dbType.Name : "null")}");
+    }
+
+    private static string PName(PropertyInfo p) => p != null ? p.Name : "null";
+#endif
+
+    private static ERecipeType RecipeTypeOf(SubRecipeComboBoxButton c)
+    {
+#if RESILIENT
+        ResolveInterop();
+        return (ERecipeType)_pRecipeType.GetValue(c);
+#else
+        return c.bfxh;
+#endif
+    }
+
+    private static UnityEngine.UI.Button InnerButton(ButtonBase b)
+    {
+#if RESILIENT
+        ResolveInterop();
+        return (UnityEngine.UI.Button)_pInnerButton.GetValue(b);
+#else
+        return b.bsec;
+#endif
+    }
+
+    private static bool IsOn(ToggleButton b)
+    {
+#if RESILIENT
+        ResolveInterop();
+        return (bool)_pIsOn.GetValue(b);
+#else
+        return b.bseh;
+#endif
+    }
+
+    private static int CubeItemKey(CubeInData data)
+    {
+#if RESILIENT
+        ResolveInterop();
+        var cid = (CubeItemData)_pCubeItemData.GetValue(data);
+        return cid.ItemKey;
+#else
+        return data.bfbr.ItemKey;
+#endif
+    }
+
+    private static Il2CppSystem.Collections.Generic.List<ItemInfoData> ItemInfoList()
+    {
+#if RESILIENT
+        ResolveInterop();
+        if (_dbType == null || _pItemInfoData == null) return null;
+        var t = Il2CppInterop.Runtime.Il2CppType.From(_dbType);
+        var all = UnityEngine.Resources.FindObjectsOfTypeAll(t);
+        if (all == null || all.Length == 0) return null;
+        var db = Activator.CreateInstance(_dbType, new object[] { all[0].Pointer });
+        return _pItemInfoData.GetValue(db) as Il2CppSystem.Collections.Generic.List<ItemInfoData>;
+#else
+        bal db = null;
+        try { db = nq<bal>.bsen; } catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"nq<bal>.bsen failed: {e.Message}"); }
+        if (db == null) db = UnityEngine.Object.FindObjectOfType<bal>(true);
+        return db != null ? db.itemInfoData : null;
+#endif
+    }
 
     private bool KeyDown(KeyCode key)
     {
