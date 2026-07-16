@@ -32,12 +32,19 @@ using System.Reflection;
 $synthDll = Join-Path $here 'autosynth\bin\Release\TbhAutoSynth.dll'
 if (-not (Test-Path $synthDll)) { $synthDll = Join-Path $here 'autosynth\prebuilt\TbhAutoSynth.dll' }
 
-function Build-Edition([string]$outName, [bool]$full) {
+# The "-next" edition embeds the patch-resistant plugin (built with /define:RESILIENT,
+# which resolves obfuscated members by signature at runtime). Same resource name and
+# BepInEx GUID as the stable plugin, so whichever edition runs deploys its own copy.
+$synthDllNext = Join-Path $here 'autosynth\bin\Release-next\TbhAutoSynth.dll'
+if (-not (Test-Path $synthDllNext)) { $synthDllNext = Join-Path $here 'autosynth\prebuilt\TbhAutoSynth-next.dll' }
+
+function Build-Edition([string]$outName, [bool]$full, [string]$pluginDll = $null) {
     $out = Join-Path $here $outName
     $extra = @()
     if ($full) {
-        if (Test-Path $synthDll) { $extra += "/res:$synthDll,TbhAutoSynth.dll" }
-        else { Write-Host "note: TbhAutoSynth.dll not found - full build without the embedded plugin" -ForegroundColor Yellow }
+        if (-not $pluginDll) { $pluginDll = $synthDll }
+        if (Test-Path $pluginDll) { $extra += "/res:$pluginDll,TbhAutoSynth.dll" }
+        else { Write-Host "note: $pluginDll not found - full build without the embedded plugin" -ForegroundColor Yellow }
     } else {
         $extra += "/define:PRESENCE_ONLY"
     }
@@ -57,8 +64,9 @@ function Build-Edition([string]$outName, [bool]$full) {
 }
 
 try {
-    Build-Edition 'TbhCompanion.exe' $true            # presence + auto-synthesis
-    Build-Edition 'TbhCompanion-Presence.exe' $false  # presence only
+    Build-Edition 'TbhCompanion.exe' $true                       # presence + auto-synthesis (stable)
+    Build-Edition 'TbhCompanion-Presence.exe' $false             # presence only
+    Build-Edition 'TbhCompanion-next.exe' $true $synthDllNext    # presence + patch-resistant auto-synthesis
 }
 finally {
     Remove-Item $verFile -ErrorAction SilentlyContinue
