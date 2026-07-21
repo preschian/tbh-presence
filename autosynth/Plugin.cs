@@ -38,8 +38,8 @@ public class AutoSynthPlugin : BasePlugin
     internal static float AfterSynthDelay => _afterSynthE != null ? _afterSynthE.Value : 4.0f;
     internal static float AfterClearDelay => _cycleE != null ? _cycleE.Value : 300.0f;
     internal static int MaxGrade => _maxGradeE != null ? _maxGradeE.Value : 2;
-    // 0 = highest unlocked recipe (default). >0 = the recipe whose lower bound
-    // matches this value (e.g. 15 → "Lv.15~30"), matching the in-game dropdown.
+    // 0 = highest unlocked recipe (default). >0 = exact lower-bound match, else
+    // the highest unlocked bracket with lo <= DesiredLevel.
     internal static int DesiredLevel => _desiredLevelE != null ? _desiredLevelE.Value : 0;
     internal static bool AutoStart => _autoStartE == null || _autoStartE.Value;
     internal static bool AutoOpenCube => _autoOpenE == null || _autoOpenE.Value;
@@ -125,9 +125,8 @@ public class AutoSynthPlugin : BasePlugin
         _desiredLevelE = Config.Bind("General", "DesiredLevel", 0,
             "Target synthesis recipe: 0 = highest unlocked (default). " +
             "Otherwise the lower bound of an in-game bracket " +
-            "(1=Lv.1~10, 10=Lv.10~20, 15=Lv.15~30, 20=Lv.20~40, 30=Lv.30~50, " +
-            "40=Lv.40~65, 50=Lv.50~65, 65=Lv.65~80). Falls back to the closest " +
-            "lower unlocked bracket if the chosen one is locked.");
+            "(see companion Target level dropdown). If that bracket is locked, " +
+            "uses the highest unlocked bracket with lo <= DesiredLevel.");
         if (!ClassInjector.IsTypeRegisteredInIl2Cpp<AutoSynthBehaviour>())
             ClassInjector.RegisterTypeInIl2Cpp<AutoSynthBehaviour>();
         AddComponent<AutoSynthBehaviour>();
@@ -179,7 +178,6 @@ public class AutoSynthBehaviour : MonoBehaviour
                 ",\"lastCount\":" + _lastSynthCount +
                 ",\"lastGrade\":" + _lastSynthGrade +
                 ",\"maxGrade\":" + AutoSynthPlugin.MaxGrade +
-                ",\"desiredLevel\":" + AutoSynthPlugin.DesiredLevel +
                 ",\"cycleIntervalSeconds\":" + (int)AutoSynthPlugin.AfterClearDelay +
                 ",\"updatedUtc\":\"" + DateTime.UtcNow.ToString("o") + "\"}";
             File.WriteAllText(StatusPath, json);
@@ -281,7 +279,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                         // few ticks, then once per cycle while running with the recipe
                         // that is currently selected.
                         _recipeAttempts++;
-                        _recipeSelected = SelectHighestUnlockedRecipe(_recipeAttempts <= 3);
+                        _recipeSelected = SelectRecipe(_recipeAttempts <= 3);
                         if (_recipeSelected || _recipeAttempts < 10)
                         {
                             // give the UI a tick to apply the recipe before filling
@@ -389,7 +387,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         }
     }
 
-    private bool SelectHighestUnlockedRecipe(bool loud)
+    private bool SelectRecipe(bool loud)
     {
         try
         {
@@ -435,9 +433,8 @@ public class AutoSynthBehaviour : MonoBehaviour
                 if (loud) AutoSynthPlugin.Logger.LogWarning("recipe select: no sub-recipe buttons yet, will retry");
                 return false;
             }
-            // Pick the unlocked bracket that matches DesiredLevel (or the highest
-            // unlocked when DesiredLevel is 0). Fall back to list position when a
-            // label has no parsable numbers.
+            // Pick by DesiredLevel (0 = highest unlocked). Fall back to list position
+            // when a label has no parsable numbers.
             // The slot buttons carry prefab defaults until the dropdown has been
             // opened once (all same label, nothing selected). Open it ourselves and
             // retry; once populated, pick and close.
@@ -541,10 +538,9 @@ public class AutoSynthBehaviour : MonoBehaviour
         }
     }
 
-    // Pick among unlocked brackets. desired <= 0 keeps the old "highest unlocked"
-    // rule. desired > 0 prefers the bracket whose lower bound equals that value
-    // (exact in-game tier), then any bracket containing it, then the closest
-    // lower unlocked bracket, then the lowest unlocked as a last resort.
+    // Pick among unlocked brackets.
+    // desired <= 0: highest lo (then highest hi) — previous "Max" behavior.
+    // desired > 0: exact lo match, else highest unlocked lo <= desired, else lowest lo.
     private static bool BetterRecipe(int desired, int lo, int hi, int idx,
         int bestLo, int bestHi, int bestIdx, bool noBestYet)
     {
@@ -562,30 +558,16 @@ public class AutoSynthBehaviour : MonoBehaviour
             return (hi >= 0 && (bestHi < 0 || hi < bestHi))
                 || (hi == bestHi && idx > bestIdx);
 
-        bool candContains = RecipeContains(desired, lo, hi);
-        bool bestContains = RecipeContains(desired, bestLo, bestHi);
-        if (candContains != bestContains) return candContains;
-        if (candContains)
-        {
-            int candSpan = hi >= 0 && lo >= 0 ? hi - lo : int.MaxValue;
-            int bestSpan = bestHi >= 0 && bestLo >= 0 ? bestHi - bestLo : int.MaxValue;
-            return candSpan < bestSpan
-                || (candSpan == bestSpan && lo > bestLo)
-                || (candSpan == bestSpan && lo == bestLo && idx > bestIdx);
-        }
         bool candBelow = lo >= 0 && lo <= desired;
         bool bestBelow = bestLo >= 0 && bestLo <= desired;
         if (candBelow != bestBelow) return candBelow;
         if (candBelow)
-            return lo > bestLo || (lo == bestLo && idx > bestIdx);
-        return lo < bestLo || (lo == bestLo && idx < bestIdx);
-    }
-
-    private static bool RecipeContains(int level, int lo, int hi)
-    {
-        if (lo < 0) return false;
-        if (hi < 0) return lo == level;
-        return level >= lo && level <= hi;
+            return lo > bestLo
+                || (lo == bestLo && hi > bestHi)
+                || (lo == bestLo && hi == bestHi && idx > bestIdx);
+        return lo < bestLo
+            || (lo == bestLo && hi < bestHi)
+            || (lo == bestLo && hi == bestHi && idx < bestIdx);
     }
 
     private static void CloseDropdown(SubRecipeComboBoxButton combo)

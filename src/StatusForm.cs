@@ -17,14 +17,21 @@ namespace TbhCompanion
         static readonly string[] Grades =
             { "Common", "Uncommon", "Rare", "Legendary", "Immortal", "Arcana", "Beyond", "Celestial", "Divine", "Cosmic" };
 
-        // In-game synthesis sub-recipe labels (from the Cube dropdown), plus Max.
+        // In-game synthesis sub-recipe brackets (Cube dropdown labels), plus Max.
         // DesiredLevel stores the bracket's lower bound (0 = highest unlocked).
-        static readonly string[] RecipeLabels =
+        struct RecipeTier { public string Label; public int Lo; }
+        static readonly RecipeTier[] Recipes =
         {
-            "Max", "Lv.1~10", "Lv.10~20", "Lv.15~30", "Lv.20~40",
-            "Lv.30~50", "Lv.40~65", "Lv.50~65", "Lv.65~80"
+            new RecipeTier { Label = "Max", Lo = 0 },
+            new RecipeTier { Label = "Lv.1~10", Lo = 1 },
+            new RecipeTier { Label = "Lv.10~20", Lo = 10 },
+            new RecipeTier { Label = "Lv.15~30", Lo = 15 },
+            new RecipeTier { Label = "Lv.20~40", Lo = 20 },
+            new RecipeTier { Label = "Lv.30~50", Lo = 30 },
+            new RecipeTier { Label = "Lv.40~65", Lo = 40 },
+            new RecipeTier { Label = "Lv.50~65", Lo = 50 },
+            new RecipeTier { Label = "Lv.65~80", Lo = 65 }
         };
-        static readonly int[] RecipeLevels = { 0, 1, 10, 15, 20, 30, 40, 50, 65 };
 
         static readonly string StatusPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -271,7 +278,9 @@ namespace TbhCompanion
             y += 24;
 
             AddMainLabel("Target level", 20, y + 4, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
-            _desiredLevel = new FlatDrop { Items = RecipeLabels, SelectedIndex = 0 };
+            var recipeLabels = new string[Recipes.Length];
+            for (int i = 0; i < Recipes.Length; i++) recipeLabels[i] = Recipes[i].Label;
+            _desiredLevel = new FlatDrop { Items = recipeLabels, SelectedIndex = 0 };
             _desiredLevel.SetBounds(Sc(MainW - 8 - 128), Sc(y), Sc(128), Sc(28));
             _main.Controls.Add(_desiredLevel);
             y += 36;
@@ -633,8 +642,8 @@ namespace TbhCompanion
                 // AutoOpenCube / AfterFill / AfterSynthesis are not exposed in the UI — leave cfg values alone.
                 text = SetVal(text, "Safety", "MaxGrade", _seg.Value.ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "General", "DesiredLevel",
-                    RecipeLevels[Math.Max(0, Math.Min(RecipeLevels.Length - 1, _desiredLevel.SelectedIndex))]
-                        .ToString(CultureInfo.InvariantCulture));
+                    Recipes[Math.Max(0, Math.Min(Recipes.Length - 1, _desiredLevel.SelectedIndex))]
+                        .Lo.ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "Timing", "CycleIntervalSeconds", (_cycleMin.Value * 60).ToString(CultureInfo.InvariantCulture));
                 var types = new List<string>();
                 if (_tEquip.Selected) types.Add("Equipment");
@@ -729,16 +738,12 @@ namespace TbhCompanion
             return decimal.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out v) ? v : 0;
         }
 
+        // Map a cfg DesiredLevel to a dropdown index. Unknown values fall back to Max
+        // (0) — DesiredLevel is a discrete enum of known lowers, not free-form.
         static int RecipeIndex(int desiredLevel)
         {
-            for (int i = 0; i < RecipeLevels.Length; i++)
-                if (RecipeLevels[i] == desiredLevel) return i;
-            // Legacy free-form level: map to the bracket whose range contains it.
-            if (desiredLevel > 0)
-            {
-                for (int i = RecipeLevels.Length - 1; i >= 1; i--)
-                    if (RecipeLevels[i] <= desiredLevel) return i;
-            }
+            for (int i = 0; i < Recipes.Length; i++)
+                if (Recipes[i].Lo == desiredLevel) return i;
             return 0;
         }
     }

@@ -260,9 +260,9 @@ it:
   `Button.onClick.Invoke()` — the former only plays hover/click effects.
 - The sub-recipe (cube level) dropdown entries carry prefab-default labels
   until populated; the plugin triggers population and picks by
-  `DesiredLevel` (0 = highest unlocked lower bound; otherwise the bracket
-  whose lower bound equals that value — the same tiers shown in the
-  companion Target level dropdown).
+  `DesiredLevel` (0 = highest unlocked lower bound; otherwise exact lower
+  bound match, else the highest unlocked `lo ≤ DesiredLevel` — same discrete
+  tiers as the companion Target level dropdown).
 
 **Legacy PowerShell prototype** (`legacy/`, for development/inspection):
 

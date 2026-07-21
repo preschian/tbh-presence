@@ -238,6 +238,7 @@ namespace TbhCompanion
     {
         string[] _items = new string[0];
         int _sel;
+        ContextMenuStrip _menu;
         public event EventHandler SelectedIndexChanged;
         public string[] Items
         {
@@ -255,8 +256,10 @@ namespace TbhCompanion
             set
             {
                 int v = _items.Length == 0 ? -1 : Math.Max(0, Math.Min(_items.Length - 1, value));
-                if (_sel != v) { _sel = v; Invalidate(); if (SelectedIndexChanged != null) SelectedIndexChanged(this, EventArgs.Empty); }
-                else { _sel = v; Invalidate(); }
+                if (_sel == v) return;
+                _sel = v;
+                Invalidate();
+                if (SelectedIndexChanged != null) SelectedIndexChanged(this, EventArgs.Empty);
             }
         }
         public string SelectedText
@@ -268,21 +271,23 @@ namespace TbhCompanion
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint |
                      ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
             Height = 30; Cursor = Cursors.Hand;
+            Disposed += delegate { if (_menu != null) { _menu.Dispose(); _menu = null; } };
         }
         protected override void OnClick(EventArgs e)
         {
             if (!Enabled || _items.Length == 0) { base.OnClick(e); return; }
-            var menu = new ContextMenuStrip();
-            menu.Font = Theme.F(9.5f, FontStyle.Regular);
-            menu.ShowImageMargin = false;
+            if (_menu != null) { _menu.Dispose(); _menu = null; }
+            _menu = new ContextMenuStrip();
+            _menu.Font = Theme.F(9.5f, FontStyle.Regular);
+            _menu.ShowImageMargin = false;
             for (int i = 0; i < _items.Length; i++)
             {
                 int idx = i;
                 var item = new ToolStripMenuItem(_items[i]) { Checked = i == _sel };
                 item.Click += delegate { SelectedIndex = idx; };
-                menu.Items.Add(item);
+                _menu.Items.Add(item);
             }
-            menu.Show(this, new Point(0, Height));
+            _menu.Show(this, new Point(0, Height));
             base.OnClick(e);
         }
         protected override void OnPaintBackground(PaintEventArgs e) { }

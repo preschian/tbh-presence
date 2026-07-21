@@ -41,7 +41,7 @@ for you to open the panel yourself instead of opening it.
 | `AutoStart` | true | Arm the auto loop at game start, no F8 needed |
 | `AutoOpenCube` | true | Click the Cube menu button to open the Cube panel when a cycle is due (at most once every 10s, so it doesn't fight you for the tab) |
 | `SynthesisTypes` | Equipment,Materials,Accessories | Which item types to synthesize; the loop rotates through them each round. e.g. `Equipment,Materials` to skip accessories. |
-| `DesiredLevel` | 0 | Target synthesis recipe. `0` = highest unlocked (default). Otherwise the lower bound of an in-game bracket: `1`=`Lv.1~10`, `10`=`Lv.10~20`, `15`=`Lv.15~30`, `20`=`Lv.20~40`, `30`=`Lv.30~50`, `40`=`Lv.40~65`, `50`=`Lv.50~65`, `65`=`Lv.65~80`. |
+| `DesiredLevel` | 0 | Target synthesis recipe. `0` = highest unlocked (default). Otherwise the lower bound of an in-game bracket from the companion Target level dropdown (`1`=`Lv.1~10` … `65`=`Lv.65~80`). If that bracket is locked, uses the highest unlocked bracket with `lo ≤ DesiredLevel`. |
 | `MaxGrade` | 3 | Highest rarity the loop may synthesize (0=Common, 1=Uncommon, 2=Rare, 3=Legendary, 4=Immortal, …). Cycles holding anything above this are skipped. |
 | `CycleIntervalSeconds` | 300 | Pause between cycles |
 | `AfterFillSeconds` | 1 | Delay between auto-fill and synthesis |
