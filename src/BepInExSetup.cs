@@ -5,9 +5,9 @@ using System.Net;
 
 namespace TbhCompanion
 {
-    // One-click installer for the BepInEx mod loader, so users don't have to
-    // download and extract it by hand before using auto-synthesis. Everything
-    // here is opt-in: nothing runs until the user clicks the setup button.
+    // One-click installer/uninstaller for the BepInEx mod loader, so users don't
+    // have to download and extract it by hand before using auto-synthesis.
+    // Everything here is opt-in: nothing runs until the user clicks a button.
     static class BepInExSetup
     {
         // Pinned to the bleeding-edge build this project was validated against.
@@ -16,12 +16,25 @@ namespace TbhCompanion
             "https://builds.bepinex.dev/projects/bepinex_be/785/" +
             "BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.785%2B6abdba4.zip";
 
+        // Paths dropped by the BepInEx Unity IL2CPP / Doorstop package.
+        static readonly string[] RemnantDirs = { "BepInEx", "dotnet" };
+        static readonly string[] RemnantFiles =
+            { "winhttp.dll", "doorstop_config.ini", ".doorstop_version", "changelog.txt" };
+
         public static bool GameFound { get { return AutoSynthDeploy.FindGameDir() != null; } }
 
+        // Complete install (winhttp + BepInEx/) — used to skip re-download.
         public static bool IsInstalled()
         {
             string dir = AutoSynthDeploy.FindGameDir();
             return dir != null && IsInstalledAt(dir);
+        }
+
+        // Any BepInEx/Doorstop remnant — UI uses this for Install vs Remove visibility.
+        public static bool HasRemnants()
+        {
+            string dir = AutoSynthDeploy.FindGameDir();
+            return dir != null && HasRemnantsAt(dir);
         }
 
         static bool IsInstalledAt(string gameDir)
@@ -30,10 +43,51 @@ namespace TbhCompanion
                 && Directory.Exists(Path.Combine(gameDir, "BepInEx"));
         }
 
+        static bool HasRemnantsAt(string gameDir)
+        {
+            foreach (string name in RemnantDirs)
+                if (Directory.Exists(Path.Combine(gameDir, name))) return true;
+            foreach (string name in RemnantFiles)
+                if (File.Exists(Path.Combine(gameDir, name))) return true;
+            return false;
+        }
+
         public static bool GameRunning()
         {
             try { return System.Diagnostics.Process.GetProcessesByName("TaskBarHero").Length > 0; }
             catch { return false; }
+        }
+
+        // Shared preflight for Install/Uninstall. Returns false after logging why.
+        static bool TryResolveGameDir(Action<string> log, out string gameDir)
+        {
+            gameDir = AutoSynthDeploy.FindGameDir();
+            if (gameDir == null)
+            {
+                log("Could not find the TaskBarHero folder. Start the game once, then try again.");
+                return false;
+            }
+            if (GameRunning())
+            {
+                log("Please close TaskBarHero first, then try again.");
+                return false;
+            }
+            return true;
+        }
+
+        // Trailing-separator prefix so "C:\gameExtra" does not match "C:\game\".
+        static string RootPrefix(string dir)
+        {
+            string root = Path.GetFullPath(dir);
+            char sep = Path.DirectorySeparatorChar;
+            if (root.Length == 0 || root[root.Length - 1] != sep)
+                root += sep;
+            return root;
+        }
+
+        static bool IsUnderRoot(string path, string rootPrefix)
+        {
+            return Path.GetFullPath(path).StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase);
         }
 
         // Runs on a background thread. Reports progress via log; returns true on success.
@@ -41,17 +95,8 @@ namespace TbhCompanion
         {
             try
             {
-                string gameDir = AutoSynthDeploy.FindGameDir();
-                if (gameDir == null)
-                {
-                    log("Could not find the TaskBarHero folder. Start the game once, then try again.");
-                    return false;
-                }
-                if (GameRunning())
-                {
-                    log("Please close TaskBarHero first, then try again.");
-                    return false;
-                }
+                string gameDir;
+                if (!TryResolveGameDir(log, out gameDir)) return false;
                 if (IsInstalledAt(gameDir))
                 {
                     log("BepInEx is already installed.");
@@ -87,6 +132,74 @@ namespace TbhCompanion
             {
                 log("Setup failed: " + ex.Message);
                 return false;
+            }
+        }
+
+        // Runs on a background thread. Removes BepInEx/Doorstop from the game folder.
+        // Idempotent: succeeds when nothing is left to remove. Does not touch saves.
+        public static bool Uninstall(Action<string> log)
+        {
+            try
+            {
+                string gameDir;
+                if (!TryResolveGameDir(log, out gameDir)) return false;
+                if (!HasRemnantsAt(gameDir))
+                {
+                    log("Nothing to remove — BepInEx is not installed.");
+                    return true;
+                }
+
+                log("Removing BepInEx...");
+                string root = RootPrefix(gameDir);
+
+                foreach (string name in RemnantDirs)
+                    TryDeleteDir(Path.Combine(gameDir, name), root, log);
+                foreach (string name in RemnantFiles)
+                    TryDeleteFile(Path.Combine(gameDir, name), root, log);
+
+                if (HasRemnantsAt(gameDir))
+                {
+                    log("Cleanup unfinished — close TaskBarHero and retry.");
+                    return false;
+                }
+
+                log("Done. Mods removed. Presence still works.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                log("Cleanup failed: " + ex.Message);
+                return false;
+            }
+        }
+
+        static void TryDeleteDir(string path, string rootPrefix, Action<string> log)
+        {
+            try
+            {
+                if (!IsUnderRoot(path, rootPrefix)) return;
+                if (!Directory.Exists(path)) return;
+                Directory.Delete(path, true);
+                log("Removed " + Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) + "/");
+            }
+            catch (Exception ex)
+            {
+                log("Could not remove " + Path.GetFileName(path) + ": " + ex.Message);
+            }
+        }
+
+        static void TryDeleteFile(string path, string rootPrefix, Action<string> log)
+        {
+            try
+            {
+                if (!IsUnderRoot(path, rootPrefix)) return;
+                if (!File.Exists(path)) return;
+                File.Delete(path);
+                log("Removed " + Path.GetFileName(path));
+            }
+            catch (Exception ex)
+            {
+                log("Could not remove " + Path.GetFileName(path) + ": " + ex.Message);
             }
         }
 
@@ -128,11 +241,11 @@ namespace TbhCompanion
         {
             using (var zip = ZipFile.OpenRead(zipPath))
             {
-                string root = Path.GetFullPath(gameDir);
+                string root = RootPrefix(gameDir);
                 foreach (var entry in zip.Entries)
                 {
                     string target = Path.GetFullPath(Path.Combine(gameDir, entry.FullName));
-                    if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                    if (!IsUnderRoot(target, root))
                         continue; // guard against zip-slip
                     if (entry.FullName.EndsWith("/") || entry.FullName.EndsWith("\\"))
                     {

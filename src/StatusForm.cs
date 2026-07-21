@@ -33,7 +33,9 @@ namespace TbhCompanion
         readonly Action<bool> _setPresenceEnabled;
         readonly Timer _timer;
         string _cfgPath, _bepinexCfgPath;
-        bool _setupRunning;
+        bool _modOpRunning;          // install or remove in flight
+        bool _modsLayoutReady;       // LayoutSaveRow applied at least once
+        bool _modsLayoutPresent;     // last remnant-present layout applied
 
         Bitmap _icon;
         Rectangle _closeRect;
@@ -50,7 +52,7 @@ namespace TbhCompanion
         SegmentBar _seg;
         Label _rarityValue;
         Stepper _cycleMin, _fillSec, _synthSec;
-        FlatButton _saveBtn, _setupBtn;
+        FlatButton _saveBtn, _setupBtn, _removeBtn;
         Label _cfgNote, _setupNote;
         Card _settingsCard;
 
@@ -245,21 +247,28 @@ namespace TbhCompanion
         {
             int y = _settingsCard.Bottom + Sc(16);
             _saveBtn = new FlatButton { Text = "Save settings", Fill = Theme.Terracotta };
-            _saveBtn.SetBounds(Sc(20), y, Sc(150), Sc(38));
+            _saveBtn.SetBounds(Sc(20), y, Sc(130), Sc(38));
             _saveBtn.Click += delegate { SaveConfig(); };
             Controls.Add(_saveBtn);
 
-            _setupBtn = new FlatButton { Text = "Set up auto-synthesis", Fill = Theme.Brown };
-            _setupBtn.SetBounds(Sc(20), y, Sc(200), Sc(38));
+            _removeBtn = new FlatButton { Text = "Remove mods", Fill = Theme.Brown };
+            _removeBtn.SetBounds(Sc(158), y, Sc(130), Sc(38));
+            _removeBtn.Click += delegate { RunRemove(); };
+            _removeBtn.Visible = false;
+            Controls.Add(_removeBtn);
+
+            _setupBtn = new FlatButton { Text = "Install mods", Fill = Theme.Brown };
+            _setupBtn.SetBounds(Sc(20), y, Sc(150), Sc(38));
             _setupBtn.Click += delegate { RunSetup(); };
             _setupBtn.Visible = false;
             Controls.Add(_setupBtn);
 
+            // Note sits after Save+Remove when mods present; after Install when not.
             _cfgNote = new Label
             {
                 AutoSize = false,
-                Location = new Point(Sc(182), y),
-                Size = new Size(Sc(358), Sc(38)),
+                Location = new Point(Sc(296), y),
+                Size = new Size(Sc(244), Sc(38)),
                 ForeColor = Theme.TextMuted,
                 BackColor = Theme.FormBg,
                 Font = Theme.F(9f, FontStyle.Regular),
@@ -267,6 +276,38 @@ namespace TbhCompanion
             };
             Controls.Add(_cfgNote);
             _setupNote = _cfgNote; // shared note line
+            RefreshModsRow(forceLayout: true);
+        }
+
+        // Remnant-present layout (Save+Remove+note) vs Install-only layout.
+        void LayoutSaveRow(bool modsPresent)
+        {
+            int y = _settingsCard.Bottom + Sc(16);
+            if (modsPresent)
+            {
+                _cfgNote.Location = new Point(Sc(296), y);
+                _cfgNote.Size = new Size(Sc(244), Sc(38));
+            }
+            else
+            {
+                _cfgNote.Location = new Point(Sc(178), y);
+                _cfgNote.Size = new Size(Sc(362), Sc(38));
+            }
+        }
+
+        // Visibility + note geometry. Layout only when remnant state changes (or forced).
+        void RefreshModsRow(bool forceLayout = false)
+        {
+            bool present = BepInExSetup.HasRemnants();
+            _setupBtn.Visible = !present;
+            _saveBtn.Visible = present;
+            _removeBtn.Visible = present;
+            if (forceLayout || !_modsLayoutReady || _modsLayoutPresent != present)
+            {
+                _modsLayoutReady = true;
+                _modsLayoutPresent = present;
+                LayoutSaveRow(present);
+            }
         }
 
         // ---- helpers ----
@@ -364,39 +405,56 @@ namespace TbhCompanion
         }
         protected override void OnMouseUp(MouseEventArgs e) { _dragging = false; base.OnMouseUp(e); }
 
-        // ---- one-click BepInEx setup ----
+        // ---- one-click BepInEx setup / cleanup ----
 
         void RunSetup()
         {
-            if (_setupRunning) return;
-            if (!BepInExSetup.GameFound)
-            {
-                MessageBox.Show(this, "Couldn't find the TaskBarHero folder.\n\nStart the game once so it can be located, then try again.",
-                    "Set up auto-synthesis", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-            if (BepInExSetup.GameRunning())
-            {
-                MessageBox.Show(this, "Please close TaskBarHero first, then run setup again.",
-                    "Set up auto-synthesis", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-            var ok = MessageBox.Show(this,
-                "This will set up auto-synthesis by:\n\n" +
+            ConfirmAndRunModOp(
+                "Install mods",
+                "This will install mods by:\n\n" +
                 "  - backing up your save file\n" +
                 "  - downloading BepInEx (the mod loader, ~35 MB)\n" +
                 "  - installing it into the TaskBarHero folder\n\n" +
                 "The presence feature is unaffected. Continue?",
-                "Set up auto-synthesis", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
-            if (ok != DialogResult.OK) return;
+                delegate { _setupBtn.Enabled = false; },
+                BepInExSetup.Install);
+        }
 
-            _setupRunning = true;
-            _setupBtn.Enabled = false;
+        void RunRemove()
+        {
+            ConfirmAndRunModOp(
+                "Remove mods",
+                "This will remove mods by deleting BepInEx from the TaskBarHero folder.\n\n" +
+                "Your save and Discord presence are unaffected. Continue?",
+                delegate { _saveBtn.Enabled = false; _removeBtn.Enabled = false; },
+                BepInExSetup.Uninstall);
+        }
+
+        void ConfirmAndRunModOp(string title, string body, Action onBusy, Func<Action<string>, bool> work)
+        {
+            if (_modOpRunning) return;
+            if (!BepInExSetup.GameFound)
+            {
+                MessageBox.Show(this, "Couldn't find the TaskBarHero folder.\n\nStart the game once so it can be located, then try again.",
+                    title, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (BepInExSetup.GameRunning())
+            {
+                MessageBox.Show(this, "Please close TaskBarHero first, then try again.",
+                    title, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (MessageBox.Show(this, body, title, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
+                return;
+
+            _modOpRunning = true;
+            onBusy();
             _setupNote.Text = "working...";
             var t = new System.Threading.Thread(delegate()
             {
-                bool success = BepInExSetup.Install(delegate(string s) { PostNote(s); });
-                PostSetupDone(success);
+                bool success = work(delegate(string s) { PostNote(s); });
+                PostModOpDone(success);
             });
             t.IsBackground = true;
             t.Start();
@@ -408,16 +466,23 @@ namespace TbhCompanion
             catch { }
         }
 
-        void PostSetupDone(bool success)
+        void PostModOpDone(bool success)
         {
             try
             {
                 if (IsDisposed) return;
                 BeginInvoke((Action)delegate
                 {
-                    _setupRunning = false;
+                    _modOpRunning = false;
                     _setupBtn.Enabled = true;
-                    if (success) LoadConfig();
+                    _removeBtn.Enabled = true;
+                    // Preserve the last progress/result line across LoadConfig (which
+                    // clears the note when a cfg is present).
+                    string note = _setupNote.Text;
+                    LoadConfig();
+                    if (!success && !string.IsNullOrEmpty(note) && note != "working...")
+                        _setupNote.Text = note;
+                    RefreshModsRow();
                 });
             }
             catch { }
@@ -465,12 +530,7 @@ namespace TbhCompanion
 
             if (!Build.Synth) return;   // presence-only edition: no auto-synthesis UI
 
-            bool installed = BepInExSetup.IsInstalled();
-            if (!_setupRunning)
-            {
-                _setupBtn.Visible = !installed;
-                _saveBtn.Visible = installed;
-            }
+            if (!_modOpRunning) RefreshModsRow();
 
             try
             {

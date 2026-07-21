@@ -181,9 +181,10 @@ release**, or the shipped exe carries a stale plugin.
 
 ## Installing BepInEx manually
 
-The Status & Settings window has a **Set up auto-synthesis** button that
-downloads and installs BepInEx automatically (`src/BepInExSetup.cs`, pinned to
-a validated bleeding-edge build). To do it by hand instead:
+The Status & Settings window has an **Install mods** button that downloads and
+installs BepInEx automatically (`src/BepInExSetup.cs`, pinned to a validated
+bleeding-edge build), and a **Remove mods** button that deletes the same
+BepInEx/Doorstop files from the game folder. To do it by hand instead:
 
 1. Back up your save:
    `%USERPROFILE%\AppData\LocalLow\TesseractStudio\TaskbarHero\SaveFile_Live.es3`
