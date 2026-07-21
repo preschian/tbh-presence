@@ -17,11 +17,27 @@ namespace TbhCompanion
         static readonly string[] Grades =
             { "Common", "Uncommon", "Rare", "Legendary", "Immortal", "Arcana", "Beyond", "Celestial", "Divine", "Cosmic" };
 
+        // In-game synthesis sub-recipe brackets (Cube dropdown labels), plus Max.
+        // DesiredLevel stores the bracket's lower bound (0 = highest unlocked).
+        struct RecipeTier { public string Label; public int Lo; }
+        static readonly RecipeTier[] Recipes =
+        {
+            new RecipeTier { Label = "Max", Lo = 0 },
+            new RecipeTier { Label = "Lv.1~10", Lo = 1 },
+            new RecipeTier { Label = "Lv.10~20", Lo = 10 },
+            new RecipeTier { Label = "Lv.15~30", Lo = 15 },
+            new RecipeTier { Label = "Lv.20~40", Lo = 20 },
+            new RecipeTier { Label = "Lv.30~50", Lo = 30 },
+            new RecipeTier { Label = "Lv.40~65", Lo = 40 },
+            new RecipeTier { Label = "Lv.50~65", Lo = 50 },
+            new RecipeTier { Label = "Lv.65~80", Lo = 65 }
+        };
+
         static readonly string StatusPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "tbh-companion", "autosynth-status.json");
 
-        const int W = 640, SideW = 188, H = 420;
+        const int W = 640, SideW = 188, H = 456;
         const int MainW = W - SideW - 40; // content width in main pane
 
         readonly Func<string> _stageLabel;
@@ -49,6 +65,7 @@ namespace TbhCompanion
         SegmentBar _seg;
         Label _rarityValue;
         Stepper _cycleMin;
+        FlatDrop _desiredLevel;
         FlatButton _saveBtn, _setupBtn, _removeBtn;
         Label _cfgNote;
 
@@ -259,6 +276,14 @@ namespace TbhCompanion
             _seg.ValueChanged += delegate { UpdateRarityLabel(); };
             _main.Controls.Add(_seg);
             y += 24;
+
+            AddMainLabel("Target level", 20, y + 4, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+            var recipeLabels = new string[Recipes.Length];
+            for (int i = 0; i < Recipes.Length; i++) recipeLabels[i] = Recipes[i].Label;
+            _desiredLevel = new FlatDrop { Items = recipeLabels, SelectedIndex = 0 };
+            _desiredLevel.SetBounds(Sc(MainW - 8 - 128), Sc(y), Sc(128), Sc(28));
+            _main.Controls.Add(_desiredLevel);
+            y += 36;
 
             AddMainLabel("Cycle interval", 20, y + 4, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
             AddMainLabel("min", MainW - 8, y + 6, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
@@ -556,7 +581,7 @@ namespace TbhCompanion
         {
             _autoStart.Enabled = on; _seg.Enabled = on;
             _tEquip.Enabled = on; _tMaterials.Enabled = on; _tAccessories.Enabled = on;
-            _cycleMin.Enabled = on;
+            _desiredLevel.Enabled = on; _cycleMin.Enabled = on;
             _saveBtn.Enabled = on;
         }
 
@@ -577,6 +602,9 @@ namespace TbhCompanion
                 int mg;
                 if (!int.TryParse(GetVal(text, "Safety", "MaxGrade", "2"), out mg) || mg < 0 || mg > 9) mg = 2;
                 _seg.Value = mg; UpdateRarityLabel();
+                int dl;
+                if (!int.TryParse(GetVal(text, "General", "DesiredLevel", "0"), out dl) || dl < 0) dl = 0;
+                _desiredLevel.SelectedIndex = RecipeIndex(dl);
                 decimal cycleSec = ParseF(GetVal(text, "Timing", "CycleIntervalSeconds", "300"));
                 _cycleMin.SetValue(Math.Round(cycleSec / 60m));
                 string types = GetVal(text, "General", "SynthesisTypes", "Equipment,Materials,Accessories").ToLowerInvariant();
@@ -613,6 +641,9 @@ namespace TbhCompanion
                 text = SetVal(text, "General", "AutoStart", _autoStart.Checked ? "true" : "false");
                 // AutoOpenCube / AfterFill / AfterSynthesis are not exposed in the UI — leave cfg values alone.
                 text = SetVal(text, "Safety", "MaxGrade", _seg.Value.ToString(CultureInfo.InvariantCulture));
+                text = SetVal(text, "General", "DesiredLevel",
+                    Recipes[Math.Max(0, Math.Min(Recipes.Length - 1, _desiredLevel.SelectedIndex))]
+                        .Lo.ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "Timing", "CycleIntervalSeconds", (_cycleMin.Value * 60).ToString(CultureInfo.InvariantCulture));
                 var types = new List<string>();
                 if (_tEquip.Selected) types.Add("Equipment");
@@ -705,6 +736,15 @@ namespace TbhCompanion
         {
             decimal v;
             return decimal.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out v) ? v : 0;
+        }
+
+        // Map a cfg DesiredLevel to a dropdown index. Unknown values fall back to Max
+        // (0) — DesiredLevel is a discrete enum of known lowers, not free-form.
+        static int RecipeIndex(int desiredLevel)
+        {
+            for (int i = 0; i < Recipes.Length; i++)
+                if (Recipes[i].Lo == desiredLevel) return i;
+            return 0;
         }
     }
 }

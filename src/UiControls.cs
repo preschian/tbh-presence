@@ -233,6 +233,89 @@ namespace TbhCompanion
         }
     }
 
+    // Flat dropdown matching the settings window theme.
+    class FlatDrop : Control
+    {
+        string[] _items = new string[0];
+        int _sel;
+        ContextMenuStrip _menu;
+        public event EventHandler SelectedIndexChanged;
+        public string[] Items
+        {
+            get { return _items; }
+            set
+            {
+                _items = value ?? new string[0];
+                if (_sel >= _items.Length) _sel = _items.Length > 0 ? 0 : -1;
+                Invalidate();
+            }
+        }
+        public int SelectedIndex
+        {
+            get { return _sel; }
+            set
+            {
+                int v = _items.Length == 0 ? -1 : Math.Max(0, Math.Min(_items.Length - 1, value));
+                if (_sel == v) return;
+                _sel = v;
+                Invalidate();
+                if (SelectedIndexChanged != null) SelectedIndexChanged(this, EventArgs.Empty);
+            }
+        }
+        public string SelectedText
+        {
+            get { return _sel >= 0 && _sel < _items.Length ? _items[_sel] : ""; }
+        }
+        public FlatDrop()
+        {
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+            Height = 30; Cursor = Cursors.Hand;
+            Disposed += delegate { if (_menu != null) { _menu.Dispose(); _menu = null; } };
+        }
+        protected override void OnClick(EventArgs e)
+        {
+            if (!Enabled || _items.Length == 0) { base.OnClick(e); return; }
+            if (_menu != null) { _menu.Dispose(); _menu = null; }
+            _menu = new ContextMenuStrip();
+            _menu.Font = Theme.F(9.5f, FontStyle.Regular);
+            _menu.ShowImageMargin = false;
+            for (int i = 0; i < _items.Length; i++)
+            {
+                int idx = i;
+                var item = new ToolStripMenuItem(_items[i]) { Checked = i == _sel };
+                item.Click += delegate { SelectedIndex = idx; };
+                _menu.Items.Add(item);
+            }
+            _menu.Show(this, new Point(0, Height));
+            base.OnClick(e);
+        }
+        protected override void OnPaintBackground(PaintEventArgs e) { }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            float s = Theme.Scale(g);
+            using (var b = new SolidBrush(Parent != null ? Parent.BackColor : Theme.CardBg)) g.FillRectangle(b, ClientRectangle);
+            var box = new Rectangle(0, 0, Width, Height);
+            Theme.FillRound(g, box, (int)(8 * s), Enabled ? Theme.CardBg : Theme.StepBtnBg);
+            Theme.DrawRoundBorder(g, box, (int)(8 * s), Theme.CardBorder, 1f);
+            string text = SelectedText;
+            using (var f = Theme.F(10f, FontStyle.Regular))
+            using (var b = new SolidBrush(Enabled ? Theme.TextDark : Theme.TextMuted))
+            {
+                var tr = new RectangleF(10 * s, 0, Width - 28 * s, Height);
+                var sf = new StringFormat { LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter };
+                g.DrawString(text, f, b, tr, sf);
+            }
+            using (var f = Theme.F(8f, FontStyle.Regular))
+            using (var b = new SolidBrush(Theme.TextMuted))
+            {
+                var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                g.DrawString("▾", f, b, new RectangleF(Width - 22 * s, 0, 18 * s, Height), sf);
+            }
+        }
+    }
+
     // Flat rounded button (filled).
     class FlatButton : Control
     {
