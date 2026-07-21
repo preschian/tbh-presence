@@ -107,22 +107,25 @@ memory.
 
 ![The Status & Settings window](docs/settings-window.png)
 
-- Live indicators: is presence connected? is the auto-synthesis loop running?
-  how many rounds so far, and what was synthesized last?
-- **Discord presence on/off** — a single switch (also on the tray menu). Turn it
-  off to stop sharing your stage and clear the activity; it applies instantly and
-  is remembered next launch.
-- Auto-synthesis settings you can change anytime:
-  - start automatically when the game launches (on by default),
-  - **which item types to synthesize** — Equipment, Materials, Accessories
-    (tick any combination; the loop rotates through them),
-  - **max rarity to synthesize** (default: Legendary),
-  - how often a round runs (minutes),
-  - small timing tweaks,
-  - show/hide the BepInEx log console window (applies on next game start).
+Left rail shows live status: Discord presence connection and whether the
+auto-synthesis loop is on (with cycle count). The right pane has the settings.
 
-Press **Save settings** — changes reach the running game within ~10 seconds,
-no restart needed.
+- **Discord Presence** — show your current stage on Discord (also on the tray
+  menu). Applies instantly and is remembered next launch.
+- **Auto synthesis**
+  - **Enable auto synthesis** — arms the loop when the game starts, and syncs
+    the running loop when you save (plugin 0.24.1+). F8 still toggles the live
+    loop in-game without changing this setting.
+  - **which item types** — Equipment, Materials, Accessories (any combination;
+    the loop rotates through them),
+  - **max rarity** (default: Legendary),
+  - how often a round runs (minutes),
+  - show/hide the BepInEx log console (applies on next game start).
+
+Press **Save** — with a current plugin, AutoStart and the other loop settings
+reach the running game within ~10 seconds. If the game is still on an older
+plugin, restart the game after Save (or after Install mods) so the update
+loads. Console visibility always needs a game restart.
 
 ## Start it with Windows
 

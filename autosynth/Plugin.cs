@@ -18,7 +18,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.24.0";
+    internal const string Version = "0.24.1";
 #if RESILIENT
     // Built with /define:RESILIENT for the "-next" edition: obfuscated members are
     // resolved by signature at runtime instead of by hard-coded name, so a game
@@ -67,6 +67,11 @@ public class AutoSynthPlugin : BasePlugin
     }
 
     // The tray exe edits the cfg file; picking the change up live means no game restart.
+    // When AutoStart flips in the cfg, the running loop is armed/disarmed to match —
+    // so the companion's "Enable auto synthesis" toggle actually stops/starts the loop.
+    // F8 still toggles independently without rewriting the cfg.
+    static bool? _prevAutoStart;
+
     internal static void ReloadConfig()
     {
         if (_conf == null) return;
@@ -81,6 +86,16 @@ public class AutoSynthPlugin : BasePlugin
         catch (Exception e) { Logger.LogWarning("config reload failed: " + e.Message); }
     }
 
+    // null = no change since last check; otherwise the new AutoStart value to apply.
+    internal static bool? ConsumeAutoStartChange()
+    {
+        bool cur = AutoStart;
+        if (_prevAutoStart == null) { _prevAutoStart = cur; return null; }
+        if (_prevAutoStart.Value == cur) return null;
+        _prevAutoStart = cur;
+        return cur;
+    }
+
     public override void Load()
     {
         Logger = Log;
@@ -92,7 +107,8 @@ public class AutoSynthPlugin : BasePlugin
         _cycleE = Config.Bind("Timing", "CycleIntervalSeconds", 300.0f,
             "Delay after emptying the cube before the next cycle starts (default: 5 minutes)");
         _autoStartE = Config.Bind("General", "AutoStart", true,
-            "Arm the auto loop as soon as the game starts (no F8 needed). F8 still toggles it.");
+            "Arm the auto loop as soon as the game starts, and sync the live loop when the " +
+            "companion changes this setting. F8 still toggles the live loop without rewriting the cfg.");
         _autoOpenE = Config.Bind("General", "AutoOpenCube", true,
             "While the loop is armed, click the Cube menu button to open the Cube panel when a " +
             "cycle is due. Turn this off to only run while you have the Cube panel open yourself.");
@@ -166,6 +182,9 @@ public class AutoSynthBehaviour : MonoBehaviour
         {
             _nextConfigReload = Time.unscaledTime + 10f;
             AutoSynthPlugin.ReloadConfig();
+            bool? autoStartChange = AutoSynthPlugin.ConsumeAutoStartChange();
+            if (autoStartChange.HasValue)
+                SetAuto(autoStartChange.Value, "from companion AutoStart setting");
         }
         if (Time.unscaledTime >= _nextStatusWrite)
         {
@@ -187,18 +206,7 @@ public class AutoSynthBehaviour : MonoBehaviour
             }
         }
         if (KeyDown(KeyCode.F8))
-        {
-            _auto = !_auto;
-            _phase = Phase.Fill;
-            _cycles = 0;
-            _recipeSelected = false;
-            _recipeAttempts = 0;
-            _typeSelected = false;
-            _nextTick = 0f;
-            _nextOpenAttempt = 0f;
-            _nextStatusWrite = 0f;
-            AutoSynthPlugin.Logger.LogInfo($"Auto-synthesis: {(_auto ? "ON" : "OFF")}");
-        }
+            SetAuto(!_auto, null);
         if (KeyDown(KeyCode.F9))
         {
             var cube = FindCube();
@@ -210,6 +218,21 @@ public class AutoSynthBehaviour : MonoBehaviour
         if (!_auto || Time.unscaledTime < _nextTick) return;
         _nextTick = Time.unscaledTime + 1.5f;
         Tick();
+    }
+
+    void SetAuto(bool on, string reason)
+    {
+        _auto = on;
+        _phase = Phase.Fill;
+        _cycles = 0;
+        _recipeSelected = false;
+        _recipeAttempts = 0;
+        _typeSelected = false;
+        _nextTick = 0f;
+        _nextOpenAttempt = 0f;
+        _nextStatusWrite = 0f;
+        string suffix = string.IsNullOrEmpty(reason) ? "" : " (" + reason + ")";
+        AutoSynthPlugin.Logger.LogInfo($"Auto-synthesis: {(_auto ? "ON" : "OFF")}{suffix}");
     }
 
     private void Tick()
