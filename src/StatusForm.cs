@@ -600,7 +600,7 @@ namespace TbhCompanion
                 int cycles = Convert.ToInt32(d["cycles"]);
                 int cycMin = Math.Max(1, Convert.ToInt32(d["cycleIntervalSeconds"]) / 60);
                 int lastRunes = d.ContainsKey("lastRuneUpgrades") ? Convert.ToInt32(d["lastRuneUpgrades"]) : 0;
-                bool runeOn = !d.ContainsKey("autoUpgradeRune") || (bool)d["autoUpgradeRune"];
+                bool runeOn = d.ContainsKey("autoUpgradeRune") && (bool)d["autoUpgradeRune"];
                 bool synthOn = !d.ContainsKey("enableSynthesis") || (bool)d["enableSynthesis"];
 
                 Color synthDot = auto ? Theme.Green : Theme.TextMuted;

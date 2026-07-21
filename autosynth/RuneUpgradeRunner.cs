@@ -16,7 +16,7 @@ internal sealed class RuneUpgradeRunner
 {
     internal enum TickResult { InProgress, Done }
 
-    private enum ConfirmResult { Success, SoftSuccess, Failed }
+    private enum ConfirmResult { Confirmed, WaitingForLevel, Failed }
 
     private const int MaxOpenAttempts = 6;
     private const float OpenTimeoutSeconds = 60f;
@@ -45,6 +45,7 @@ internal sealed class RuneUpgradeRunner
     private int _pendingCost;
     private int _failStreak;
     private string _lastName = "";
+    private bool _waitAfterSoftConfirm;
 
     internal int UpgradesThisCycle => _upgradesThisCycle;
     internal int LastUpgrades { get; private set; }
@@ -59,6 +60,7 @@ internal sealed class RuneUpgradeRunner
         _nextOpenAttempt = 0f;
         _phaseEnteredAt = Time.unscaledTime;
         _lastName = "";
+        _waitAfterSoftConfirm = false;
     }
 
     internal void ResetSession()
@@ -78,15 +80,19 @@ internal sealed class RuneUpgradeRunner
         _pendingCost = 0;
     }
 
+    private bool AtUpgradeCap =>
+        _upgradesThisCycle >= AutoSynthPlugin.MaxRuneUpgradesPerCycle;
+
     // Runs one rune tick. When Done, the panel is closed and LastUpgrades is set.
     internal TickResult Tick(bool loud, out float nextDelay)
     {
         nextDelay = 1.5f;
 
-        if (_upgradesThisCycle >= AutoSynthPlugin.MaxRuneUpgradesPerCycle)
+        if (AtUpgradeCap)
         {
-            AutoSynthPlugin.Logger.LogInfo(
-                $"rune phase: hit MaxRuneUpgradesPerCycle={AutoSynthPlugin.MaxRuneUpgradesPerCycle}");
+            if (loud)
+                AutoSynthPlugin.Logger.LogInfo(
+                    $"rune phase: hit MaxRuneUpgradesPerCycle={AutoSynthPlugin.MaxRuneUpgradesPerCycle}");
             return Finish(loud);
         }
 
@@ -124,6 +130,27 @@ internal sealed class RuneUpgradeRunner
             var confirm = ConfirmPending(page, loud);
             if (confirm == ConfirmResult.Failed && _failStreak >= FailStreakAbort)
                 return Finish(loud);
+            if (confirm == ConfirmResult.WaitingForLevel)
+            {
+                // Soft confirm (gold dropped, level lagged): wait one tick before
+                // buying again so we do not double-invoke mba() on a stale node.
+                nextDelay = Math.Max(0.75f, AutoSynthPlugin.AfterRuneUpgradeDelay);
+                return TickResult.InProgress;
+            }
+        }
+
+        if (_waitAfterSoftConfirm)
+        {
+            _waitAfterSoftConfirm = false;
+            // Fall through to buy once level has had a tick to catch up.
+        }
+
+        if (AtUpgradeCap)
+        {
+            if (loud)
+                AutoSynthPlugin.Logger.LogInfo(
+                    $"rune phase: hit MaxRuneUpgradesPerCycle={AutoSynthPlugin.MaxRuneUpgradesPerCycle}");
+            return Finish(loud);
         }
 
         long gold = ReadGold(page);
@@ -136,18 +163,20 @@ internal sealed class RuneUpgradeRunner
 
         if (!TryFindCheapestUpgradeable(page, gold, out var best, out var cost, out var key, out var level))
         {
-            AutoSynthPlugin.Logger.LogInfo(
-                $"rune phase: no affordable upgrade (gold={gold}, upgrades so far={_upgradesThisCycle})");
+            if (loud || _upgradesThisCycle == 0)
+                AutoSynthPlugin.Logger.LogInfo(
+                    $"rune phase: no affordable upgrade (gold={gold}, upgrades so far={_upgradesThisCycle})");
             return Finish(loud);
         }
 
-        AutoSynthPlugin.Logger.LogInfo(
-            $"rune phase: cheapest key={key} lv={level} cost={cost} gold={gold} name='{_lastName}'");
+        if (loud)
+            AutoSynthPlugin.Logger.LogInfo(
+                $"rune phase: cheapest key={key} lv={level} cost={cost} gold={gold} name='{_lastName}'");
 
         if (!TryUpgradeRune(best, key, level, cost, loud))
         {
             AutoSynthPlugin.Logger.LogWarning($"rune phase: upgrade invoke failed for key={key}");
-            if (NoteFailure(loud)) return Finish(loud);
+            if (NoteFailure()) return Finish(loud);
             nextDelay = AutoSynthPlugin.AfterRuneUpgradeDelay;
             return TickResult.InProgress;
         }
@@ -165,6 +194,7 @@ internal sealed class RuneUpgradeRunner
         ClosePanel(loud || _upgradesThisCycle > 0);
         LastUpgrades = _upgradesThisCycle;
         ClearPending();
+        _waitAfterSoftConfirm = false;
         return TickResult.Done;
     }
 
@@ -178,28 +208,32 @@ internal sealed class RuneUpgradeRunner
         {
             _upgradesThisCycle++;
             _failStreak = 0;
-            AutoSynthPlugin.Logger.LogInfo(
-                $"rune upgrade ok: key={_pendingKey} lv {_pendingLevel}->{after} " +
-                $"gold {_pendingGold}->{goldNow}");
+            if (loud)
+                AutoSynthPlugin.Logger.LogInfo(
+                    $"rune upgrade ok: key={_pendingKey} lv {_pendingLevel}->{after} " +
+                    $"gold {_pendingGold}->{goldNow}");
             ClearPending();
-            return ConfirmResult.Success;
+            return ConfirmResult.Confirmed;
         }
 
-        // Level can lag a tick; any gold drop counts as a successful purchase.
-        int minDrop = Math.Max(1, _pendingCost > 0 ? Math.Min(_pendingCost, 1000) : 1);
+        // Level can lag a tick; require a gold drop of at least the quoted cost
+        // (or any drop when cost was unknown).
+        long minDrop = _pendingCost > 0 ? _pendingCost : 1;
         bool spent = _pendingGold >= 0 && goldNow >= 0 && goldNow <= _pendingGold - minDrop;
         if (spent)
         {
             _upgradesThisCycle++;
             _failStreak = 0;
-            AutoSynthPlugin.Logger.LogInfo(
-                $"rune upgrade ok (gold spent): key={_pendingKey} lv={after} " +
-                $"gold {_pendingGold}->{goldNow}");
+            if (loud)
+                AutoSynthPlugin.Logger.LogInfo(
+                    $"rune upgrade ok (gold spent): key={_pendingKey} lv={after} " +
+                    $"gold {_pendingGold}->{goldNow}");
             ClearPending();
-            return ConfirmResult.SoftSuccess;
+            _waitAfterSoftConfirm = true;
+            return ConfirmResult.WaitingForLevel;
         }
 
-        NoteFailure(loud);
+        NoteFailure();
         AutoSynthPlugin.Logger.LogWarning(
             $"rune upgrade no effect: key={_pendingKey} lv={_pendingLevel}->{after} " +
             $"gold={goldNow} failStreak={_failStreak}");
@@ -207,7 +241,7 @@ internal sealed class RuneUpgradeRunner
         return ConfirmResult.Failed;
     }
 
-    private bool NoteFailure(bool loud)
+    private bool NoteFailure()
     {
         _failStreak++;
         return _failStreak >= FailStreakAbort;
