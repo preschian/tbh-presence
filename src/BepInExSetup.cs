@@ -23,13 +23,14 @@ namespace TbhCompanion
 
         public static bool GameFound { get { return AutoSynthDeploy.FindGameDir() != null; } }
 
+        // Complete install (winhttp + BepInEx/) — used to skip re-download.
         public static bool IsInstalled()
         {
             string dir = AutoSynthDeploy.FindGameDir();
             return dir != null && IsInstalledAt(dir);
         }
 
-        // True when any BepInEx/Doorstop path is still present (full or partial).
+        // Any BepInEx/Doorstop remnant — UI uses this for Install vs Remove visibility.
         public static bool HasRemnants()
         {
             string dir = AutoSynthDeploy.FindGameDir();
@@ -57,22 +58,45 @@ namespace TbhCompanion
             catch { return false; }
         }
 
+        // Shared preflight for Install/Uninstall. Returns false after logging why.
+        static bool TryResolveGameDir(Action<string> log, out string gameDir)
+        {
+            gameDir = AutoSynthDeploy.FindGameDir();
+            if (gameDir == null)
+            {
+                log("Could not find the TaskBarHero folder. Start the game once, then try again.");
+                return false;
+            }
+            if (GameRunning())
+            {
+                log("Please close TaskBarHero first, then try again.");
+                return false;
+            }
+            return true;
+        }
+
+        // Trailing-separator prefix so "C:\gameExtra" does not match "C:\game\".
+        static string RootPrefix(string dir)
+        {
+            string root = Path.GetFullPath(dir);
+            char sep = Path.DirectorySeparatorChar;
+            if (root.Length == 0 || root[root.Length - 1] != sep)
+                root += sep;
+            return root;
+        }
+
+        static bool IsUnderRoot(string path, string rootPrefix)
+        {
+            return Path.GetFullPath(path).StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase);
+        }
+
         // Runs on a background thread. Reports progress via log; returns true on success.
         public static bool Install(Action<string> log)
         {
             try
             {
-                string gameDir = AutoSynthDeploy.FindGameDir();
-                if (gameDir == null)
-                {
-                    log("Could not find the TaskBarHero folder. Start the game once, then try again.");
-                    return false;
-                }
-                if (GameRunning())
-                {
-                    log("Please close TaskBarHero first, then try again.");
-                    return false;
-                }
+                string gameDir;
+                if (!TryResolveGameDir(log, out gameDir)) return false;
                 if (IsInstalledAt(gameDir))
                 {
                     log("BepInEx is already installed.");
@@ -117,27 +141,16 @@ namespace TbhCompanion
         {
             try
             {
-                string gameDir = AutoSynthDeploy.FindGameDir();
-                if (gameDir == null)
-                {
-                    log("Could not find the TaskBarHero folder. Start the game once, then try again.");
-                    return false;
-                }
-                if (GameRunning())
-                {
-                    log("Please close TaskBarHero first, then try again.");
-                    return false;
-                }
+                string gameDir;
+                if (!TryResolveGameDir(log, out gameDir)) return false;
                 if (!HasRemnantsAt(gameDir))
                 {
                     log("Nothing to remove — BepInEx is not installed.");
                     return true;
                 }
 
-                log("Removing BepInEx from the game folder...");
-                string root = Path.GetFullPath(gameDir);
-                if (!root.EndsWith(Path.DirectorySeparatorChar.ToString()))
-                    root += Path.DirectorySeparatorChar;
+                log("Removing BepInEx...");
+                string root = RootPrefix(gameDir);
 
                 foreach (string name in RemnantDirs)
                     TryDeleteDir(Path.Combine(gameDir, name), root, log);
@@ -146,11 +159,11 @@ namespace TbhCompanion
 
                 if (HasRemnantsAt(gameDir))
                 {
-                    log("Cleanup unfinished — close the game and try again, or Verify integrity of game files in Steam.");
+                    log("Cleanup unfinished — close TaskBarHero and retry.");
                     return false;
                 }
 
-                log("Done. Mods removed. Presence still works. Optional: Verify integrity of game files in Steam.");
+                log("Done. Mods removed. Presence still works.");
                 return true;
             }
             catch (Exception ex)
@@ -160,14 +173,11 @@ namespace TbhCompanion
             }
         }
 
-        static void TryDeleteDir(string path, string root, Action<string> log)
+        static void TryDeleteDir(string path, string rootPrefix, Action<string> log)
         {
             try
             {
-                string full = Path.GetFullPath(path);
-                if (!full.EndsWith(Path.DirectorySeparatorChar.ToString()))
-                    full += Path.DirectorySeparatorChar;
-                if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return;
+                if (!IsUnderRoot(path, rootPrefix)) return;
                 if (!Directory.Exists(path)) return;
                 Directory.Delete(path, true);
                 log("Removed " + Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) + "/");
@@ -178,12 +188,11 @@ namespace TbhCompanion
             }
         }
 
-        static void TryDeleteFile(string path, string root, Action<string> log)
+        static void TryDeleteFile(string path, string rootPrefix, Action<string> log)
         {
             try
             {
-                string full = Path.GetFullPath(path);
-                if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return;
+                if (!IsUnderRoot(path, rootPrefix)) return;
                 if (!File.Exists(path)) return;
                 File.Delete(path);
                 log("Removed " + Path.GetFileName(path));
@@ -232,11 +241,11 @@ namespace TbhCompanion
         {
             using (var zip = ZipFile.OpenRead(zipPath))
             {
-                string root = Path.GetFullPath(gameDir);
+                string root = RootPrefix(gameDir);
                 foreach (var entry in zip.Entries)
                 {
                     string target = Path.GetFullPath(Path.Combine(gameDir, entry.FullName));
-                    if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                    if (!IsUnderRoot(target, root))
                         continue; // guard against zip-slip
                     if (entry.FullName.EndsWith("/") || entry.FullName.EndsWith("\\"))
                     {
