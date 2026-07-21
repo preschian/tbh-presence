@@ -69,8 +69,13 @@ mod loader **BepInEx** installed once. The app can do this for you:
 3. Start TaskBarHero once and wait about a minute (BepInEx finishes setting
    itself up), then open the **Cube** panel.
 
-That's it — the button disappears once it's installed, and the app keeps the
-mod up to date after that.
+That's it — the setup button becomes **Remove auto-synthesis** once it's
+installed, and the app keeps the mod up to date after that.
+
+To undo it later: close TaskBarHero, open Status & Settings, and click
+**Remove auto-synthesis**. That deletes BepInEx from the game folder (your
+save and Discord presence are untouched). You can optionally use Steam's
+**Verify integrity of game files** afterward.
 
 > Prefer to do it by hand? The manual steps (download BepInEx, extract into the
 > game folder) are in [CONTRIBUTING.md](CONTRIBUTING.md).

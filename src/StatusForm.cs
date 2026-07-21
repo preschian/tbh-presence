@@ -50,7 +50,7 @@ namespace TbhCompanion
         SegmentBar _seg;
         Label _rarityValue;
         Stepper _cycleMin, _fillSec, _synthSec;
-        FlatButton _saveBtn, _setupBtn;
+        FlatButton _saveBtn, _setupBtn, _removeBtn;
         Label _cfgNote, _setupNote;
         Card _settingsCard;
 
@@ -249,17 +249,24 @@ namespace TbhCompanion
             _saveBtn.Click += delegate { SaveConfig(); };
             Controls.Add(_saveBtn);
 
+            _removeBtn = new FlatButton { Text = "Remove auto-synthesis", Fill = Theme.Brown };
+            _removeBtn.SetBounds(Sc(178), y, Sc(180), Sc(38));
+            _removeBtn.Click += delegate { RunRemove(); };
+            _removeBtn.Visible = false;
+            Controls.Add(_removeBtn);
+
             _setupBtn = new FlatButton { Text = "Set up auto-synthesis", Fill = Theme.Brown };
             _setupBtn.SetBounds(Sc(20), y, Sc(200), Sc(38));
             _setupBtn.Click += delegate { RunSetup(); };
             _setupBtn.Visible = false;
             Controls.Add(_setupBtn);
 
+            // Note sits after Save+Remove when installed; after setup when not.
             _cfgNote = new Label
             {
                 AutoSize = false,
-                Location = new Point(Sc(182), y),
-                Size = new Size(Sc(358), Sc(38)),
+                Location = new Point(Sc(366), y),
+                Size = new Size(Sc(174), Sc(38)),
                 ForeColor = Theme.TextMuted,
                 BackColor = Theme.FormBg,
                 Font = Theme.F(9f, FontStyle.Regular),
@@ -267,6 +274,21 @@ namespace TbhCompanion
             };
             Controls.Add(_cfgNote);
             _setupNote = _cfgNote; // shared note line
+        }
+
+        void LayoutSaveRow(bool showInstalled)
+        {
+            int y = _settingsCard.Bottom + Sc(16);
+            if (showInstalled)
+            {
+                _cfgNote.Location = new Point(Sc(366), y);
+                _cfgNote.Size = new Size(Sc(174), Sc(38));
+            }
+            else
+            {
+                _cfgNote.Location = new Point(Sc(228), y);
+                _cfgNote.Size = new Size(Sc(312), Sc(38));
+            }
         }
 
         // ---- helpers ----
@@ -364,7 +386,7 @@ namespace TbhCompanion
         }
         protected override void OnMouseUp(MouseEventArgs e) { _dragging = false; base.OnMouseUp(e); }
 
-        // ---- one-click BepInEx setup ----
+        // ---- one-click BepInEx setup / cleanup ----
 
         void RunSetup()
         {
@@ -402,6 +424,40 @@ namespace TbhCompanion
             t.Start();
         }
 
+        void RunRemove()
+        {
+            if (_setupRunning) return;
+            if (!BepInExSetup.GameFound)
+            {
+                MessageBox.Show(this, "Couldn't find the TaskBarHero folder.\n\nStart the game once so it can be located, then try again.",
+                    "Remove auto-synthesis", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (BepInExSetup.GameRunning())
+            {
+                MessageBox.Show(this, "Please close TaskBarHero first, then try again.",
+                    "Remove auto-synthesis", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            var ok = MessageBox.Show(this,
+                "This will remove auto-synthesis by deleting BepInEx from the TaskBarHero folder.\n\n" +
+                "Your save and Discord presence are unaffected. Continue?",
+                "Remove auto-synthesis", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+            if (ok != DialogResult.OK) return;
+
+            _setupRunning = true;
+            _saveBtn.Enabled = false;
+            _removeBtn.Enabled = false;
+            _setupNote.Text = "working...";
+            var t = new System.Threading.Thread(delegate()
+            {
+                bool success = BepInExSetup.Uninstall(delegate(string s) { PostNote(s); });
+                PostSetupDone(success);
+            });
+            t.IsBackground = true;
+            t.Start();
+        }
+
         void PostNote(string s)
         {
             try { if (!IsDisposed) BeginInvoke((Action)delegate { _setupNote.Text = s; }); }
@@ -417,7 +473,10 @@ namespace TbhCompanion
                 {
                     _setupRunning = false;
                     _setupBtn.Enabled = true;
+                    _removeBtn.Enabled = true;
+                    _saveBtn.Enabled = true;
                     if (success) LoadConfig();
+                    UpdateStatus();
                 });
             }
             catch { }
@@ -465,11 +524,13 @@ namespace TbhCompanion
 
             if (!Build.Synth) return;   // presence-only edition: no auto-synthesis UI
 
-            bool installed = BepInExSetup.IsInstalled();
+            bool installed = BepInExSetup.IsInstalled() || BepInExSetup.HasRemnants();
             if (!_setupRunning)
             {
                 _setupBtn.Visible = !installed;
                 _saveBtn.Visible = installed;
+                _removeBtn.Visible = installed;
+                LayoutSaveRow(installed);
             }
 
             try

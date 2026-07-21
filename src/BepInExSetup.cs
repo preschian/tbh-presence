@@ -5,9 +5,9 @@ using System.Net;
 
 namespace TbhCompanion
 {
-    // One-click installer for the BepInEx mod loader, so users don't have to
-    // download and extract it by hand before using auto-synthesis. Everything
-    // here is opt-in: nothing runs until the user clicks the setup button.
+    // One-click installer/uninstaller for the BepInEx mod loader, so users don't
+    // have to download and extract it by hand before using auto-synthesis.
+    // Everything here is opt-in: nothing runs until the user clicks a button.
     static class BepInExSetup
     {
         // Pinned to the bleeding-edge build this project was validated against.
@@ -15,6 +15,11 @@ namespace TbhCompanion
         const string BepInExUrl =
             "https://builds.bepinex.dev/projects/bepinex_be/785/" +
             "BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.785%2B6abdba4.zip";
+
+        // Paths dropped by the BepInEx Unity IL2CPP / Doorstop package.
+        static readonly string[] RemnantDirs = { "BepInEx", "dotnet" };
+        static readonly string[] RemnantFiles =
+            { "winhttp.dll", "doorstop_config.ini", ".doorstop_version", "changelog.txt" };
 
         public static bool GameFound { get { return AutoSynthDeploy.FindGameDir() != null; } }
 
@@ -24,10 +29,26 @@ namespace TbhCompanion
             return dir != null && IsInstalledAt(dir);
         }
 
+        // True when any BepInEx/Doorstop path is still present (full or partial).
+        public static bool HasRemnants()
+        {
+            string dir = AutoSynthDeploy.FindGameDir();
+            return dir != null && HasRemnantsAt(dir);
+        }
+
         static bool IsInstalledAt(string gameDir)
         {
             return File.Exists(Path.Combine(gameDir, "winhttp.dll"))
                 && Directory.Exists(Path.Combine(gameDir, "BepInEx"));
+        }
+
+        static bool HasRemnantsAt(string gameDir)
+        {
+            foreach (string name in RemnantDirs)
+                if (Directory.Exists(Path.Combine(gameDir, name))) return true;
+            foreach (string name in RemnantFiles)
+                if (File.Exists(Path.Combine(gameDir, name))) return true;
+            return false;
         }
 
         public static bool GameRunning()
@@ -87,6 +108,89 @@ namespace TbhCompanion
             {
                 log("Setup failed: " + ex.Message);
                 return false;
+            }
+        }
+
+        // Runs on a background thread. Removes BepInEx/Doorstop from the game folder.
+        // Idempotent: succeeds when nothing is left to remove. Does not touch saves.
+        public static bool Uninstall(Action<string> log)
+        {
+            try
+            {
+                string gameDir = AutoSynthDeploy.FindGameDir();
+                if (gameDir == null)
+                {
+                    log("Could not find the TaskBarHero folder. Start the game once, then try again.");
+                    return false;
+                }
+                if (GameRunning())
+                {
+                    log("Please close TaskBarHero first, then try again.");
+                    return false;
+                }
+                if (!HasRemnantsAt(gameDir))
+                {
+                    log("Nothing to remove — BepInEx is not installed.");
+                    return true;
+                }
+
+                log("Removing BepInEx from the game folder...");
+                string root = Path.GetFullPath(gameDir);
+                if (!root.EndsWith(Path.DirectorySeparatorChar.ToString()))
+                    root += Path.DirectorySeparatorChar;
+
+                foreach (string name in RemnantDirs)
+                    TryDeleteDir(Path.Combine(gameDir, name), root, log);
+                foreach (string name in RemnantFiles)
+                    TryDeleteFile(Path.Combine(gameDir, name), root, log);
+
+                if (HasRemnantsAt(gameDir))
+                {
+                    log("Cleanup unfinished — close the game and try again, or Verify integrity of game files in Steam.");
+                    return false;
+                }
+
+                log("Done. Auto-synthesis removed. Presence still works. Optional: Verify integrity of game files in Steam.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                log("Cleanup failed: " + ex.Message);
+                return false;
+            }
+        }
+
+        static void TryDeleteDir(string path, string root, Action<string> log)
+        {
+            try
+            {
+                string full = Path.GetFullPath(path);
+                if (!full.EndsWith(Path.DirectorySeparatorChar.ToString()))
+                    full += Path.DirectorySeparatorChar;
+                if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return;
+                if (!Directory.Exists(path)) return;
+                Directory.Delete(path, true);
+                log("Removed " + Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) + "/");
+            }
+            catch (Exception ex)
+            {
+                log("Could not remove " + Path.GetFileName(path) + ": " + ex.Message);
+            }
+        }
+
+        static void TryDeleteFile(string path, string root, Action<string> log)
+        {
+            try
+            {
+                string full = Path.GetFullPath(path);
+                if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return;
+                if (!File.Exists(path)) return;
+                File.Delete(path);
+                log("Removed " + Path.GetFileName(path));
+            }
+            catch (Exception ex)
+            {
+                log("Could not remove " + Path.GetFileName(path) + ": " + ex.Message);
             }
         }
 
