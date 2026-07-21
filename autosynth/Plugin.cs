@@ -18,15 +18,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.26.11";
-#if RESILIENT
-    // Built with /define:RESILIENT for the "-next" edition: obfuscated members are
-    // resolved by signature at runtime instead of by hard-coded name, so a game
-    // patch that re-randomizes those names no longer needs a manual remap.
-    internal const string Variant = " [next/resilient]";
-#else
-    internal const string Variant = "";
-#endif
+    internal const string Version = "0.26.12";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -151,7 +143,7 @@ public class AutoSynthPlugin : BasePlugin
         if (!ClassInjector.IsTypeRegisteredInIl2Cpp<AutoSynthBehaviour>())
             ClassInjector.RegisterTypeInIl2Cpp<AutoSynthBehaviour>();
         AddComponent<AutoSynthBehaviour>();
-        Logger.LogInfo($"TBH Auto Synthesis {Version}{Variant}: " +
+        Logger.LogInfo($"TBH Auto Synthesis {Version}: " +
                        "F7 = run one cycle now, F8 = toggle auto loop, F9 = click synth trigger, F10 = dump cube+rune state.");
     }
 }

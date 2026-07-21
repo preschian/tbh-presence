@@ -27,24 +27,28 @@ using System.Reflection;
 
 # The auto-synthesis BepInEx plugin is embedded (as a resource) into the full
 # edition only, so the exe can deploy it into BepInEx\plugins at runtime. Prefer
-# a fresh local build; fall back to the committed prebuilt copy (the plugin can't
-# be built in CI, which lacks the game-generated interop assemblies).
-$synthDll = Join-Path $here 'autosynth\bin\Release\TbhAutoSynth.dll'
-if (-not (Test-Path $synthDll)) { $synthDll = Join-Path $here 'autosynth\prebuilt\TbhAutoSynth.dll' }
+# whichever of the local Release build or committed prebuilt is newer (the plugin
+# can't be built in CI, which lacks the game-generated interop assemblies).
+$synthDllRelease = Join-Path $here 'autosynth\bin\Release\TbhAutoSynth.dll'
+$synthDllPrebuilt = Join-Path $here 'autosynth\prebuilt\TbhAutoSynth.dll'
+if ((Test-Path $synthDllRelease) -and (Test-Path $synthDllPrebuilt)) {
+    $synthDll = if ((Get-Item $synthDllRelease).LastWriteTimeUtc -ge (Get-Item $synthDllPrebuilt).LastWriteTimeUtc) {
+        $synthDllRelease
+    } else {
+        $synthDllPrebuilt
+    }
+} elseif (Test-Path $synthDllRelease) {
+    $synthDll = $synthDllRelease
+} else {
+    $synthDll = $synthDllPrebuilt
+}
 
-# The "-next" edition embeds the patch-resistant plugin (built with /define:RESILIENT,
-# which resolves obfuscated members by signature at runtime). Same resource name and
-# BepInEx GUID as the stable plugin, so whichever edition runs deploys its own copy.
-$synthDllNext = Join-Path $here 'autosynth\bin\Release-next\TbhAutoSynth.dll'
-if (-not (Test-Path $synthDllNext)) { $synthDllNext = Join-Path $here 'autosynth\prebuilt\TbhAutoSynth-next.dll' }
-
-function Build-Edition([string]$outName, [bool]$full, [string]$pluginDll = $null) {
+function Build-Edition([string]$outName, [bool]$full) {
     $out = Join-Path $here $outName
     $extra = @()
     if ($full) {
-        if (-not $pluginDll) { $pluginDll = $synthDll }
-        if (Test-Path $pluginDll) { $extra += "/res:$pluginDll,TbhAutoSynth.dll" }
-        else { Write-Host "note: $pluginDll not found - full build without the embedded plugin" -ForegroundColor Yellow }
+        if (Test-Path $synthDll) { $extra += "/res:$synthDll,TbhAutoSynth.dll" }
+        else { Write-Host "note: $synthDll not found - full build without the embedded plugin" -ForegroundColor Yellow }
     } else {
         $extra += "/define:PRESENCE_ONLY"
     }
@@ -64,9 +68,8 @@ function Build-Edition([string]$outName, [bool]$full, [string]$pluginDll = $null
 }
 
 try {
-    Build-Edition 'TbhCompanion.exe' $true                       # presence + auto-synthesis (stable)
+    Build-Edition 'TbhCompanion.exe' $true                       # presence + auto-synthesis
     Build-Edition 'TbhCompanion-Presence.exe' $false             # presence only
-    Build-Edition 'TbhCompanion-next.exe' $true $synthDllNext    # presence + patch-resistant auto-synthesis
 }
 finally {
     Remove-Item $verFile -ErrorAction SilentlyContinue

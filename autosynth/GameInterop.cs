@@ -1,21 +1,23 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using TaskbarHero;
 using TaskbarHero.Data;
 using TaskbarHero.UI;
-using TaskbarHero.UI.Rune;
 using TS;
 using UnityEngine;
 
 namespace TbhAutoSynth;
 
-// Obfuscated-member access for cube/recipe UI. Default build binds by name; the
-// "-next" edition (/define:RESILIENT) resolves by signature at runtime.
+// Obfuscated-member access for cube/recipe UI and the item/rune DB. Resolves
+// members by signature at runtime so a game patch that re-randomizes those
+// names no longer needs a manual remap.
 internal static class GameInterop
 {
-#if RESILIENT
     static bool _obfResolved;
+    static Exception _resolveError;
     static PropertyInfo _pRecipeType, _pInnerButton, _pIsOn, _pCubeItemData, _pItemInfoData;
+    static MethodInfo[] _mRuneLevelInfo;
     static Type _dbType;
 
     const BindingFlags DeclInstance =
@@ -43,6 +45,25 @@ internal static class GameInterop
         return found;
     }
 
+    static MethodInfo[] Methods(Type declaring, Type returnType, params Type[] args)
+    {
+        var found = new List<MethodInfo>();
+        if (declaring == null) return found.ToArray();
+        foreach (var m in declaring.GetMethods(DeclInstance))
+        {
+            if (m.ReturnType != returnType) continue;
+            var ps = m.GetParameters();
+            if (ps.Length != args.Length) continue;
+            bool match = true;
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (ps[i].ParameterType != args[i]) { match = false; break; }
+            }
+            if (match) found.Add(m);
+        }
+        return found.ToArray();
+    }
+
     static Type FindDbType()
     {
         Type[] types;
@@ -61,7 +82,11 @@ internal static class GameInterop
 
     static void Resolve()
     {
-        if (_obfResolved) return;
+        if (_obfResolved)
+        {
+            if (_resolveError != null) throw _resolveError;
+            return;
+        }
         _obfResolved = true;
         _pRecipeType = OnlyProp(typeof(SubRecipeComboBoxButton), typeof(ERecipeType), false);
         _pInnerButton = OnlyProp(typeof(ButtonBase), typeof(UnityEngine.UI.Button), true);
@@ -69,89 +94,90 @@ internal static class GameInterop
         _pCubeItemData = OnlyProp(typeof(CubeInData), typeof(CubeItemData), false);
         _dbType = FindDbType();
         _pItemInfoData = _dbType != null ? _dbType.GetProperty("itemInfoData", DeclInstance) : null;
+        _mRuneLevelInfo = Methods(_dbType, typeof(RuneLevelInfoData), typeof(int), typeof(int));
         AutoSynthPlugin.Logger.LogInfo(
-            "interop resolved (RESILIENT): " +
+            "interop resolved: " +
             $"ERecipeType={PName(_pRecipeType)}, innerButton={PName(_pInnerButton)}, " +
-            $"isOn={PName(_pIsOn)}, cubeItemData={PName(_pCubeItemData)}, itemDb={(_dbType != null ? _dbType.Name : "null")}");
+            $"isOn={PName(_pIsOn)}, cubeItemData={PName(_pCubeItemData)}, " +
+            $"itemDb={(_dbType != null ? _dbType.Name : "null")}, " +
+            $"runeLevelInfo=[{string.Join(",", Array.ConvertAll(_mRuneLevelInfo, m => m.Name))}]");
+
+        if (_pRecipeType == null || _pInnerButton == null || _pIsOn == null || _pCubeItemData == null)
+        {
+            _resolveError = new InvalidOperationException(
+                "required interop property missing: " +
+                $"ERecipeType={PName(_pRecipeType)}, innerButton={PName(_pInnerButton)}, " +
+                $"isOn={PName(_pIsOn)}, cubeItemData={PName(_pCubeItemData)}");
+            throw _resolveError;
+        }
     }
 
     static string PName(PropertyInfo p) => p != null ? p.Name : "null";
-#endif
+
+    static object DbInstance()
+    {
+        Resolve();
+        if (_dbType == null) return null;
+        var t = Il2CppInterop.Runtime.Il2CppType.From(_dbType);
+        var all = UnityEngine.Resources.FindObjectsOfTypeAll(t);
+        if (all == null || all.Length == 0) return null;
+        return Activator.CreateInstance(_dbType, new object[] { all[0].Pointer });
+    }
 
     internal static ERecipeType RecipeTypeOf(SubRecipeComboBoxButton c)
     {
-#if RESILIENT
         Resolve();
         return (ERecipeType)_pRecipeType.GetValue(c);
-#else
-        return c.bfxh;
-#endif
     }
 
     internal static UnityEngine.UI.Button InnerButton(ButtonBase b)
     {
-#if RESILIENT
         Resolve();
         return (UnityEngine.UI.Button)_pInnerButton.GetValue(b);
-#else
-        return b.bsec;
-#endif
     }
 
     internal static bool IsOn(ToggleButton b)
     {
-#if RESILIENT
         Resolve();
         return (bool)_pIsOn.GetValue(b);
-#else
-        return b.bseh;
-#endif
     }
 
     internal static int CubeItemKey(CubeInData data)
     {
-#if RESILIENT
         Resolve();
         var cid = (CubeItemData)_pCubeItemData.GetValue(data);
         return cid.ItemKey;
-#else
-        return data.bfbr.ItemKey;
-#endif
     }
 
     internal static Il2CppSystem.Collections.Generic.List<ItemInfoData> ItemInfoList()
     {
-#if RESILIENT
         Resolve();
         if (_dbType == null || _pItemInfoData == null) return null;
-        var t = Il2CppInterop.Runtime.Il2CppType.From(_dbType);
-        var all = UnityEngine.Resources.FindObjectsOfTypeAll(t);
-        if (all == null || all.Length == 0) return null;
-        var db = Activator.CreateInstance(_dbType, new object[] { all[0].Pointer });
+        var db = DbInstance();
+        if (db == null) return null;
         return _pItemInfoData.GetValue(db) as Il2CppSystem.Collections.Generic.List<ItemInfoData>;
-#else
-        bal db = null;
-        try { db = nq<bal>.bsen; } catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"nq<bal>.bsen failed: {e.Message}"); }
-        if (db == null) db = UnityEngine.Object.FindObjectOfType<bal>(true);
-        return db != null ? db.itemInfoData : null;
-#endif
     }
 
-    // Rune level-info lookup (obfuscated GetRuneLevelInfo names). Default build tries
-    // remapped method names; RESILIENT edition still uses the same fan-out until a
-    // signature-stable resolver is added for bal.
+    // Several (int,int)->RuneLevelInfoData methods exist on the DB type; try each
+    // until one returns a row (same fan-out as before, discovered by signature).
     internal static RuneLevelInfoData LookupRuneLevelInfo(int runeKey, int level)
     {
         try
         {
-            bal db = null;
-            try { db = nq<bal>.bsen; } catch { }
-            if (db == null) db = UnityEngine.Object.FindObjectOfType<bal>(true);
+            Resolve();
+            if (_mRuneLevelInfo == null || _mRuneLevelInfo.Length == 0) return null;
+            var db = DbInstance();
             if (db == null) return null;
-            try { var r = db.mfg(runeKey, level); if (r != null) return r; } catch { }
-            try { var r = db.ocl(runeKey, level); if (r != null) return r; } catch { }
-            try { var r = db.nfm(runeKey, level); if (r != null) return r; } catch { }
-            try { var r = db.sj(runeKey, level); if (r != null) return r; } catch { }
+            object[] args = { runeKey, level };
+            foreach (var m in _mRuneLevelInfo)
+            {
+                try
+                {
+                    var r = m.Invoke(db, args) as RuneLevelInfoData;
+                    if (r != null) return r;
+                }
+                catch { }
+            }
         }
         catch { }
         return null;
