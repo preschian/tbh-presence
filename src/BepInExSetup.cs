@@ -150,7 +150,7 @@ namespace TbhCompanion
                     return false;
                 }
 
-                log("Done. Auto-synthesis removed. Presence still works. Optional: Verify integrity of game files in Steam.");
+                log("Done. Mods removed. Presence still works. Optional: Verify integrity of game files in Steam.");
                 return true;
             }
             catch (Exception ex)

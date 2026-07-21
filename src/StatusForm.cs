@@ -249,13 +249,13 @@ namespace TbhCompanion
             _saveBtn.Click += delegate { SaveConfig(); };
             Controls.Add(_saveBtn);
 
-            _removeBtn = new FlatButton { Text = "Remove auto-synthesis", Fill = Theme.Brown };
+            _removeBtn = new FlatButton { Text = "Remove mods", Fill = Theme.Brown };
             _removeBtn.SetBounds(Sc(178), y, Sc(180), Sc(38));
             _removeBtn.Click += delegate { RunRemove(); };
             _removeBtn.Visible = false;
             Controls.Add(_removeBtn);
 
-            _setupBtn = new FlatButton { Text = "Set up auto-synthesis", Fill = Theme.Brown };
+            _setupBtn = new FlatButton { Text = "Install mods", Fill = Theme.Brown };
             _setupBtn.SetBounds(Sc(20), y, Sc(200), Sc(38));
             _setupBtn.Click += delegate { RunSetup(); };
             _setupBtn.Visible = false;
@@ -394,22 +394,22 @@ namespace TbhCompanion
             if (!BepInExSetup.GameFound)
             {
                 MessageBox.Show(this, "Couldn't find the TaskBarHero folder.\n\nStart the game once so it can be located, then try again.",
-                    "Set up auto-synthesis", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    "Install mods", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             if (BepInExSetup.GameRunning())
             {
-                MessageBox.Show(this, "Please close TaskBarHero first, then run setup again.",
-                    "Set up auto-synthesis", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(this, "Please close TaskBarHero first, then try again.",
+                    "Install mods", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             var ok = MessageBox.Show(this,
-                "This will set up auto-synthesis by:\n\n" +
+                "This will install mods by:\n\n" +
                 "  - backing up your save file\n" +
                 "  - downloading BepInEx (the mod loader, ~35 MB)\n" +
                 "  - installing it into the TaskBarHero folder\n\n" +
                 "The presence feature is unaffected. Continue?",
-                "Set up auto-synthesis", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+                "Install mods", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
             if (ok != DialogResult.OK) return;
 
             _setupRunning = true;
@@ -430,19 +430,19 @@ namespace TbhCompanion
             if (!BepInExSetup.GameFound)
             {
                 MessageBox.Show(this, "Couldn't find the TaskBarHero folder.\n\nStart the game once so it can be located, then try again.",
-                    "Remove auto-synthesis", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    "Remove mods", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             if (BepInExSetup.GameRunning())
             {
                 MessageBox.Show(this, "Please close TaskBarHero first, then try again.",
-                    "Remove auto-synthesis", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    "Remove mods", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             var ok = MessageBox.Show(this,
-                "This will remove auto-synthesis by deleting BepInEx from the TaskBarHero folder.\n\n" +
+                "This will remove mods by deleting BepInEx from the TaskBarHero folder.\n\n" +
                 "Your save and Discord presence are unaffected. Continue?",
-                "Remove auto-synthesis", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+                "Remove mods", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
             if (ok != DialogResult.OK) return;
 
             _setupRunning = true;
