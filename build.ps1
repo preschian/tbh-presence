@@ -27,10 +27,21 @@ using System.Reflection;
 
 # The auto-synthesis BepInEx plugin is embedded (as a resource) into the full
 # edition only, so the exe can deploy it into BepInEx\plugins at runtime. Prefer
-# a fresh local build; fall back to the committed prebuilt copy (the plugin can't
-# be built in CI, which lacks the game-generated interop assemblies).
-$synthDll = Join-Path $here 'autosynth\bin\Release\TbhAutoSynth.dll'
-if (-not (Test-Path $synthDll)) { $synthDll = Join-Path $here 'autosynth\prebuilt\TbhAutoSynth.dll' }
+# whichever of the local Release build or committed prebuilt is newer (the plugin
+# can't be built in CI, which lacks the game-generated interop assemblies).
+$synthDllRelease = Join-Path $here 'autosynth\bin\Release\TbhAutoSynth.dll'
+$synthDllPrebuilt = Join-Path $here 'autosynth\prebuilt\TbhAutoSynth.dll'
+if ((Test-Path $synthDllRelease) -and (Test-Path $synthDllPrebuilt)) {
+    $synthDll = if ((Get-Item $synthDllRelease).LastWriteTimeUtc -ge (Get-Item $synthDllPrebuilt).LastWriteTimeUtc) {
+        $synthDllRelease
+    } else {
+        $synthDllPrebuilt
+    }
+} elseif (Test-Path $synthDllRelease) {
+    $synthDll = $synthDllRelease
+} else {
+    $synthDll = $synthDllPrebuilt
+}
 
 function Build-Edition([string]$outName, [bool]$full) {
     $out = Join-Path $here $outName
