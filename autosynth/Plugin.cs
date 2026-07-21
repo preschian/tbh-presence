@@ -18,7 +18,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.24.0";
+    internal const string Version = "0.24.1";
 #if RESILIENT
     // Built with /define:RESILIENT for the "-next" edition: obfuscated members are
     // resolved by signature at runtime instead of by hard-coded name, so a game
@@ -67,6 +67,11 @@ public class AutoSynthPlugin : BasePlugin
     }
 
     // The tray exe edits the cfg file; picking the change up live means no game restart.
+    // When AutoStart flips in the cfg, the running loop is armed/disarmed to match —
+    // so the companion's "Enable auto synthesis" toggle actually stops/starts the loop.
+    // F8 still toggles independently without rewriting the cfg.
+    static bool? _prevAutoStart;
+
     internal static void ReloadConfig()
     {
         if (_conf == null) return;
@@ -79,6 +84,16 @@ public class AutoSynthPlugin : BasePlugin
                                $"AutoStart={AutoStart}, AutoOpenCube={AutoOpenCube}");
         }
         catch (Exception e) { Logger.LogWarning("config reload failed: " + e.Message); }
+    }
+
+    // null = no change since last check; otherwise the new AutoStart value to apply.
+    internal static bool? ConsumeAutoStartChange()
+    {
+        bool cur = AutoStart;
+        if (_prevAutoStart == null) { _prevAutoStart = cur; return null; }
+        if (_prevAutoStart.Value == cur) return null;
+        _prevAutoStart = cur;
+        return cur;
     }
 
     public override void Load()
@@ -166,6 +181,20 @@ public class AutoSynthBehaviour : MonoBehaviour
         {
             _nextConfigReload = Time.unscaledTime + 10f;
             AutoSynthPlugin.ReloadConfig();
+            bool? autoStartChange = AutoSynthPlugin.ConsumeAutoStartChange();
+            if (autoStartChange.HasValue)
+            {
+                _auto = autoStartChange.Value;
+                _phase = Phase.Fill;
+                _recipeSelected = false;
+                _recipeAttempts = 0;
+                _typeSelected = false;
+                _nextTick = 0f;
+                _nextOpenAttempt = 0f;
+                _nextStatusWrite = 0f;
+                AutoSynthPlugin.Logger.LogInfo(
+                    $"Auto-synthesis: {(_auto ? "ON" : "OFF")} (from companion AutoStart setting)");
+            }
         }
         if (Time.unscaledTime >= _nextStatusWrite)
         {

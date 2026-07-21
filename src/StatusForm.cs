@@ -10,9 +10,8 @@ using System.Windows.Forms;
 
 namespace TbhCompanion
 {
-    // Status & settings window (parchment theme, custom-painted). Live indicators
-    // for presence + the in-game auto-synthesis plugin, plus editable settings
-    // written to the BepInEx cfg files.
+    // Status & settings window (clean modern theme, side-panel layout).
+    // Left rail: brand + connection pills + live status. Right: settings.
     public class StatusForm : Form
     {
         static readonly string[] Grades =
@@ -22,9 +21,9 @@ namespace TbhCompanion
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "tbh-companion", "autosynth-status.json");
 
-        const int W = 560, TitleH = 72;
-        const int PresY = TitleH + 16 + 64 + 16;   // presence card top (below status strip)
-        const int PresH = 80;                       // presence card height
+        const int W = 640, SideW = 188, H = 420;
+        const int MainX = SideW + 20;
+        const int MainW = W - SideW - 40; // content width in main pane
 
         readonly Func<string> _stageLabel;
         readonly Func<bool> _discordConnected;
@@ -34,8 +33,7 @@ namespace TbhCompanion
         readonly Timer _timer;
         string _cfgPath, _bepinexCfgPath;
         bool _modOpRunning;          // install or remove in flight
-        bool _modsLayoutReady;       // LayoutSaveRow applied at least once
-        bool _modsLayoutPresent;     // last remnant-present layout applied
+        bool _modsPresent;           // last remnant-present state
 
         Bitmap _icon;
         Rectangle _closeRect;
@@ -43,18 +41,16 @@ namespace TbhCompanion
         float _s = 1f;
         int Sc(double v) { return (int)Math.Round(v * _s); }
 
-        PillBadge _presencePill, _synthPill;
-        StatusCard _cardStage, _cardCycles, _cardLast;
-        Card _presenceCard;
+        LiveStrip _live;
+        Panel _side, _main;
         Toggle _presenceToggle;
-        Toggle _autoStart, _autoOpenCube, _showConsole;
+        Toggle _autoStart, _showConsole;
         TypeTile _tEquip, _tMaterials, _tAccessories;
         SegmentBar _seg;
         Label _rarityValue;
-        Stepper _cycleMin, _fillSec, _synthSec;
+        Stepper _cycleMin;
         FlatButton _saveBtn, _setupBtn, _removeBtn;
         Label _cfgNote, _setupNote;
-        Card _settingsCard;
 
         public StatusForm(Func<string> stageLabel, Func<bool> discordConnected, Func<string> diag,
             Func<bool> presenceEnabled, Action<bool> setPresenceEnabled)
@@ -72,23 +68,15 @@ namespace TbhCompanion
             Font = Theme.F(9f, FontStyle.Regular);
             BackColor = Theme.FormBg;
             try { using (var g = Graphics.FromHwnd(IntPtr.Zero)) _s = g.DpiX / 96f; } catch { _s = 1f; }
-            // presence card sits below the status strip in both editions; the full
-            // edition stacks the auto-synthesis card + save row beneath it.
-            int height = Build.Synth ? 648 + PresH + 16 : (PresY + PresH + 20);
+            int height = Build.Synth ? H : 260;
             ClientSize = new Size(Sc(W), Sc(height));
             DoubleBuffered = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
             try { using (var ico = Icon.ExtractAssociatedIcon(Application.ExecutablePath)) _icon = ico.ToBitmap(); } catch { }
 
-            BuildTitleBar();
-            BuildStatusStrip();
-            BuildPresenceCard();
-            if (Build.Synth)
-            {
-                BuildSettingsCard();
-                BuildSaveRow();
-            }
+            BuildSidePanel();
+            BuildMainPane();
 
             LoadConfig();
             UpdateStatus();
@@ -103,248 +91,278 @@ namespace TbhCompanion
 
         void ApplyRegion()
         {
-            using (var p = Theme.Round(new Rectangle(0, 0, Width, Height), Sc(14)))
+            using (var p = Theme.Round(new Rectangle(0, 0, Width, Height), Sc(12)))
                 Region = new Region(p);
         }
 
-        // ---- title bar ----
+        // ---- side panel (brand + pills + status) ----
 
-        void BuildTitleBar()
+        void BuildSidePanel()
         {
-            _presencePill = new PillBadge();
-            _presencePill.SetBounds(0, 0, Sc(96), Sc(26));
-            Controls.Add(_presencePill);
+            _side = new Panel
+            {
+                BackColor = Theme.SideBg,
+                Location = new Point(0, 0),
+                Size = new Size(Sc(SideW), Height)
+            };
+            _side.Paint += PaintSide;
+            _side.MouseDown += SideMouseDown;
+            _side.MouseMove += SideMouseMove;
+            _side.MouseUp += delegate { _dragging = false; };
+            Controls.Add(_side);
+
+            // Live status at the bottom: Presence + Synth/cycles as compact cards.
+            int rows = Build.Synth ? 2 : 1;
+            int statusH = rows * 68 + (rows - 1) * 8;
+            _live = new LiveStrip { Columns = rows, Vertical = true, Flat = true };
+            _live.SetBounds(Sc(12), Height - Sc(14 + statusH), Sc(SideW - 24), Sc(statusH));
+            _live.SetRow(0, "Presence", "—", "", "Off", Theme.TextMuted);
+            if (Build.Synth)
+                _live.SetRow(1, "Synth", "—", "", "Off", Theme.TextMuted);
+            _side.Controls.Add(_live);
+        }
+
+        void PaintSide(object sender, PaintEventArgs e)
+        {
+            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            if (_icon != null)
+            {
+                var ir = new Rectangle(Sc(16), Sc(18), Sc(32), Sc(32));
+                using (var pth = Theme.Round(ir, Sc(7))) { g.SetClip(pth); g.DrawImage(_icon, ir); g.ResetClip(); }
+            }
+            using (var f = Theme.F(11f, FontStyle.Bold)) using (var b = new SolidBrush(Theme.TextDark))
+                g.DrawString("TBH Companion", f, b, new PointF(Sc(56), Sc(24)));
+
+            // Soft rule above the status block.
+            int ruleY = _live.Top - Sc(14);
+            using (var pen = new Pen(Theme.Divider))
+                g.DrawLine(pen, Sc(16), ruleY, _side.Width - Sc(16), ruleY);
+
+            using (var pen = new Pen(Theme.CardBorder))
+                g.DrawLine(pen, _side.Width - 1, Sc(12), _side.Width - 1, _side.Height - Sc(12));
+        }
+
+        void SideMouseDown(object sender, MouseEventArgs e)
+        {
+            _dragging = true;
+            _dragOffset = new Point(e.X, e.Y);
+        }
+
+        void SideMouseMove(object sender, MouseEventArgs e)
+        {
+            if (_dragging) Location = new Point(Location.X + e.X - _dragOffset.X, Location.Y + e.Y - _dragOffset.Y);
+        }
+
+        // ---- main pane (settings / presence) ----
+
+        void BuildMainPane()
+        {
+            _main = new Panel
+            {
+                BackColor = Theme.FormBg,
+                Location = new Point(Sc(SideW), 0),
+                Size = new Size(Sc(W - SideW), Height)
+            };
+            _main.Paint += PaintMain;
+            _main.MouseDown += MainMouseDown;
+            Controls.Add(_main);
+
             if (Build.Synth)
             {
-                _synthPill = new PillBadge();
-                _synthPill.SetBounds(0, 0, Sc(92), Sc(26));
-                _synthPill.Location = new Point(Sc(W - 20) - _synthPill.Width, Sc(36));
-                _presencePill.Location = new Point(_synthPill.Left - Sc(6) - _presencePill.Width, Sc(36));
-                Controls.Add(_synthPill);
-                _synthPill.Set("Synth", Theme.TextMuted);
+                BuildSettings();
             }
-            else
-            {
-                _presencePill.Location = new Point(Sc(W - 20) - _presencePill.Width, Sc(36));
-            }
-            _presencePill.Set("Presence", Theme.TextMuted);
+            else BuildPresenceOnly();
         }
 
-        // ---- status strip ----
-
-        void BuildStatusStrip()
+        void PaintMain(object sender, PaintEventArgs e)
         {
-            int y = Sc(TitleH + 16), h = Sc(64);
-            _cardStage = new StatusCard { Title = "CURRENT STAGE", Radius = 10 };
-            if (!Build.Synth)
+            var g = e.Graphics;
+            _closeRect = new Rectangle(_main.Width - Sc(34), Sc(12), Sc(22), Sc(22));
+            using (var f = Theme.F(13f, FontStyle.Regular)) using (var b = new SolidBrush(Theme.TextMuted))
             {
-                _cardStage.SetBounds(Sc(20), y, Sc(520), h);
-                Controls.Add(_cardStage);
-                return;
+                var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                g.DrawString("×", f, b, _closeRect, sf);
             }
-            int[] xs = { 20, 197, 373 };
-            int[] ws = { 167, 166, 167 };
-            _cardCycles = new StatusCard { Title = "CYCLES", Radius = 10 };
-            _cardLast = new StatusCard { Title = "LAST SYNTHESIS", Radius = 10 };
-            var cards = new[] { _cardStage, _cardCycles, _cardLast };
+        }
+
+        void MainMouseDown(object sender, MouseEventArgs e)
+        {
+            if (_closeRect.Contains(e.Location)) Close();
+        }
+
+        void BuildPresenceOnly()
+        {
+            AddMainLabel("Discord Presence", 20, 28, Theme.TextDark, Theme.F(11f, FontStyle.Bold));
+            AddMainLabel("Show your current stage on Discord", 20, 52, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+            _presenceToggle = MakePresenceToggle(MainW - 44, 34);
+            _main.Controls.Add(_presenceToggle);
+        }
+
+        void BuildSettings()
+        {
+            int right = MainW - 44;
+            int y = 20;
+
+            // ---- 1. Discord Presence ----
+            AddMainLabel("Discord Presence", 20, y, Theme.TextDark, Theme.F(10f, FontStyle.Bold));
+            y += 28;
+            AddMainLabel("Show stage on Discord", 20, y, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
+            _presenceToggle = MakePresenceToggle(right, y - 2);
+            _main.Controls.Add(_presenceToggle);
+            y += 36;
+            AddMainDivider(y);
+            y += 14;
+
+            // ---- 2. Auto synthesis ----
+            AddMainLabel("Auto synthesis", 20, y, Theme.TextDark, Theme.F(10f, FontStyle.Bold));
+            y += 28;
+
+            AddMainLabel("Enable auto synthesis", 20, y, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
+            _autoStart = new Toggle(); _autoStart.SetBounds(Sc(right), Sc(y - 2), Sc(44), Sc(24));
+            _main.Controls.Add(_autoStart);
+            y += 32;
+
+            AddMainLabel("Show BepInEx console", 20, y, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
+            _showConsole = new Toggle(); _showConsole.SetBounds(Sc(right), Sc(y - 2), Sc(44), Sc(24));
+            _main.Controls.Add(_showConsole);
+            y += 34;
+
+            AddMainLabel("Types", 20, y, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+            y += 20;
+            _tEquip = new TypeTile { Caption = "Equipment" };
+            _tMaterials = new TypeTile { Caption = "Materials" };
+            _tAccessories = new TypeTile { Caption = "Accessories" };
+            var tiles = new[] { _tEquip, _tMaterials, _tAccessories };
+            int gap = 8, tw = (MainW - gap * 2) / 3;
             for (int i = 0; i < 3; i++)
             {
-                cards[i].SetBounds(Sc(xs[i]), y, Sc(ws[i]), h);
-                Controls.Add(cards[i]);
+                tiles[i].SetBounds(Sc(20 + i * (tw + gap)), Sc(y), Sc(tw), Sc(28));
+                _main.Controls.Add(tiles[i]);
             }
-        }
+            y += 40;
 
-        // ---- presence card (both editions) ----
-
-        void BuildPresenceCard()
-        {
-            _presenceCard = new Card { Radius = 12 };
-            _presenceCard.SetBounds(Sc(20), Sc(PresY), Sc(520), Sc(PresH));
-            Controls.Add(_presenceCard);
-            var c = _presenceCard;
-
-            AddLabel(c, "DISCORD PRESENCE", 16, 14, Theme.Brown, Theme.FSerif(10.5f, FontStyle.Bold));
-            AddLabel(c, "Show your current stage in Discord", 16, 40, Theme.TextDark, Theme.F(10f, FontStyle.Regular));
-            AddLabel(c, "off clears your activity in Discord", 16, 60, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
-
-            _presenceToggle = new Toggle();
-            _presenceToggle.SetBounds(Sc(520 - 16 - 44), Sc(44), Sc(44), Sc(24));
-            _presenceToggle.Checked = _presenceEnabled == null || _presenceEnabled();
-            _presenceToggle.CheckedChanged += delegate
-            {
-                if (_setPresenceEnabled != null) _setPresenceEnabled(_presenceToggle.Checked);
-            };
-            c.Controls.Add(_presenceToggle);
-        }
-
-        // ---- settings card ----
-
-        void BuildSettingsCard()
-        {
-            int cardY = PresY + PresH + 16; // below the presence card (logical)
-            _settingsCard = new Card { Radius = 12 };
-            _settingsCard.SetBounds(Sc(20), Sc(cardY), Sc(520), Sc(416));
-            Controls.Add(_settingsCard);
-            var c = _settingsCard;
-
-            AddLabel(c, "AUTO-SYNTHESIS", 16, 14, Theme.Brown, Theme.FSerif(10.5f, FontStyle.Bold));
-
-            // toggle rows
-            AddLabel(c, "Start automatically when the game launches", 16, 40, Theme.TextDark, Theme.F(10f, FontStyle.Regular));
-            AddLabel(c, "no F8 needed", 16, 60, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
-            _autoStart = new Toggle(); _autoStart.SetBounds(Sc(504 - 44), Sc(44), Sc(44), Sc(24));
-            c.Controls.Add(_autoStart);
-
-            AddLabel(c, "Open the Cube panel automatically", 16, 84, Theme.TextDark, Theme.F(10f, FontStyle.Regular));
-            AddLabel(c, "off waits for you to open it yourself", 16, 104, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
-            _autoOpenCube = new Toggle(); _autoOpenCube.SetBounds(Sc(504 - 44), Sc(88), Sc(44), Sc(24));
-            c.Controls.Add(_autoOpenCube);
-
-            AddLabel(c, "Show the BepInEx log console", 16, 128, Theme.TextDark, Theme.F(10f, FontStyle.Regular));
-            AddLabel(c, "applies on next game start", 16, 148, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
-            _showConsole = new Toggle(); _showConsole.SetBounds(Sc(504 - 44), Sc(132), Sc(44), Sc(24));
-            c.Controls.Add(_showConsole);
-
-            AddDivider(c, 172);
-
-            // types
-            AddLabel(c, "Synthesize which types", 16, 184, Theme.TextDark, Theme.F(10f, FontStyle.Regular));
-            AddLabel(c, "rotates each round", 176, 186, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
-            _tEquip = new TypeTile { Icon = "⚔", Caption = "Equipment" };
-            _tMaterials = new TypeTile { Icon = "◆", Caption = "Materials" };
-            _tAccessories = new TypeTile { Icon = "◎", Caption = "Accessories" };
-            var tiles = new[] { _tEquip, _tMaterials, _tAccessories };
-            int[] tx = { 16, 181, 346 };
-            int[] tw = { 157, 157, 158 };
-            for (int i = 0; i < 3; i++) { tiles[i].SetBounds(Sc(tx[i]), Sc(208), Sc(tw[i]), Sc(52)); c.Controls.Add(tiles[i]); }
-
-            // rarity
-            AddLabel(c, "Max rarity to synthesize", 16, 272, Theme.TextDark, Theme.F(10f, FontStyle.Regular));
-            _rarityValue = AddLabelBox(c, "★ Legendary", 300, 271, 188, 20, Theme.Amber, Theme.F(9.5f, FontStyle.Bold), ContentAlignment.MiddleRight);
+            AddMainLabel("Max rarity", 20, y, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+            _rarityValue = AddMainLabelBox("Legendary", MainW - 140 + 20, y - 1, 140, 18, Theme.Amber, Theme.F(9f, FontStyle.Bold), ContentAlignment.MiddleRight);
+            y += 20;
             _seg = new SegmentBar { Value = 3 };
-            _seg.SetBounds(Sc(16), Sc(294), Sc(488), Sc(12));
+            _seg.SetBounds(Sc(20), Sc(y), Sc(MainW), Sc(8));
             _seg.ValueChanged += delegate { UpdateRarityLabel(); };
-            c.Controls.Add(_seg);
-            AddLabel(c, "Common", 16, 310, Theme.TextMuted, Theme.F(8f, FontStyle.Regular));
-            AddLabelBox(c, "Cosmic", 404, 310, 100, 16, Theme.TextMuted, Theme.F(8f, FontStyle.Regular), ContentAlignment.MiddleRight);
+            _main.Controls.Add(_seg);
+            y += 24;
 
-            AddDivider(c, 332);
-
-            // timings
-            int[] colx = { 16, 182, 348 };
-            int[] colw = { 156, 156, 156 };
-            AddLabel(c, "Cycle interval (min)", colx[0], 344, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
-            AddLabel(c, "After auto-fill (s)", colx[1], 344, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
-            AddLabel(c, "After synthesis (s)", colx[2], 344, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+            AddMainLabel("Cycle interval", 20, y + 4, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+            AddMainLabel("min", MainW - 8, y + 6, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
             _cycleMin = new Stepper { Min = 1, Max = 1440, Step = 1, Decimals = 0, Value = 5 };
-            _fillSec = new Stepper { Min = 0.5m, Max = 60, Step = 0.5m, Decimals = 1, Value = 1 };
-            _synthSec = new Stepper { Min = 0.5m, Max = 60, Step = 0.5m, Decimals = 1, Value = 4 };
-            var steps = new[] { _cycleMin, _fillSec, _synthSec };
-            for (int i = 0; i < 3; i++) { steps[i].SetBounds(Sc(colx[i]), Sc(362), Sc(colw[i]), Sc(30)); c.Controls.Add(steps[i]); }
-        }
+            _cycleMin.SetBounds(Sc(MainW - 8 - 24 - 100), Sc(y), Sc(100), Sc(28));
+            _main.Controls.Add(_cycleMin);
+            y += 40;
 
-        void BuildSaveRow()
-        {
-            int y = _settingsCard.Bottom + Sc(16);
-            _saveBtn = new FlatButton { Text = "Save settings", Fill = Theme.Terracotta };
-            _saveBtn.SetBounds(Sc(20), y, Sc(130), Sc(38));
+            _saveBtn = new FlatButton { Text = "Save", Fill = Theme.Accent };
+            _saveBtn.SetBounds(Sc(20), Sc(y), Sc(88), Sc(30));
             _saveBtn.Click += delegate { SaveConfig(); };
-            Controls.Add(_saveBtn);
+            _main.Controls.Add(_saveBtn);
 
-            _removeBtn = new FlatButton { Text = "Remove mods", Fill = Theme.Brown };
-            _removeBtn.SetBounds(Sc(158), y, Sc(130), Sc(38));
+            _removeBtn = new FlatButton { Text = "Remove mods", Fill = Theme.Secondary };
+            _removeBtn.SetBounds(Sc(116), Sc(y), Sc(120), Sc(30));
             _removeBtn.Click += delegate { RunRemove(); };
             _removeBtn.Visible = false;
-            Controls.Add(_removeBtn);
+            _main.Controls.Add(_removeBtn);
 
-            _setupBtn = new FlatButton { Text = "Install mods", Fill = Theme.Brown };
-            _setupBtn.SetBounds(Sc(20), y, Sc(150), Sc(38));
+            _setupBtn = new FlatButton { Text = "Install mods", Fill = Theme.Secondary };
+            _setupBtn.SetBounds(Sc(20), Sc(y), Sc(120), Sc(30));
             _setupBtn.Click += delegate { RunSetup(); };
             _setupBtn.Visible = false;
-            Controls.Add(_setupBtn);
+            _main.Controls.Add(_setupBtn);
 
-            // Note sits after Save+Remove when mods present; after Install when not.
             _cfgNote = new Label
             {
                 AutoSize = false,
-                Location = new Point(Sc(296), y),
-                Size = new Size(Sc(244), Sc(38)),
+                Location = new Point(Sc(248), Sc(y)),
+                Size = new Size(Sc(MainW - 228), Sc(30)),
                 ForeColor = Theme.TextMuted,
                 BackColor = Theme.FormBg,
-                Font = Theme.F(9f, FontStyle.Regular),
+                Font = Theme.F(8.5f, FontStyle.Regular),
                 TextAlign = ContentAlignment.MiddleLeft
             };
-            Controls.Add(_cfgNote);
-            _setupNote = _cfgNote; // shared note line
-            RefreshModsRow(forceLayout: true);
+            _main.Controls.Add(_cfgNote);
+            _setupNote = _cfgNote;
+
+            RefreshModsRow();
         }
 
-        // Remnant-present layout (Save+Remove+note) vs Install-only layout.
-        void LayoutSaveRow(bool modsPresent)
-        {
-            int y = _settingsCard.Bottom + Sc(16);
-            if (modsPresent)
-            {
-                _cfgNote.Location = new Point(Sc(296), y);
-                _cfgNote.Size = new Size(Sc(244), Sc(38));
-            }
-            else
-            {
-                _cfgNote.Location = new Point(Sc(178), y);
-                _cfgNote.Size = new Size(Sc(362), Sc(38));
-            }
-        }
-
-        // Visibility + note geometry. Layout only when remnant state changes (or forced).
         void RefreshModsRow(bool forceLayout = false)
         {
             bool present = BepInExSetup.HasRemnants();
             _setupBtn.Visible = !present;
             _saveBtn.Visible = present;
             _removeBtn.Visible = present;
-            if (forceLayout || !_modsLayoutReady || _modsLayoutPresent != present)
+            // Note sits after Save+Remove, or after Install when mods are absent.
+            int y = _cfgNote.Top;
+            if (present)
             {
-                _modsLayoutReady = true;
-                _modsLayoutPresent = present;
-                LayoutSaveRow(present);
+                _cfgNote.Location = new Point(Sc(248), y);
+                _cfgNote.Size = new Size(Sc(MainW - 228), Sc(30));
             }
+            else
+            {
+                _cfgNote.Location = new Point(Sc(148), y);
+                _cfgNote.Size = new Size(Sc(MainW - 128), Sc(30));
+            }
+            _modsPresent = present;
         }
 
         // ---- helpers ----
 
-        Label AddLabel(Card card, string text, int x, int y, Color color, Font font)
+        Toggle MakePresenceToggle(int x, int y)
+        {
+            var t = new Toggle();
+            t.SetBounds(Sc(x), Sc(y), Sc(44), Sc(24));
+            t.Checked = _presenceEnabled == null || _presenceEnabled();
+            t.CheckedChanged += delegate
+            {
+                if (_setPresenceEnabled != null) _setPresenceEnabled(t.Checked);
+            };
+            return t;
+        }
+
+        Label AddMainLabel(string text, int x, int y, Color color, Font font)
         {
             var l = new Label
             {
                 Text = text, AutoSize = true, Location = new Point(Sc(x), Sc(y)),
-                ForeColor = color, BackColor = card.BackColor, Font = font
+                ForeColor = color, BackColor = Theme.FormBg, Font = font
             };
-            card.Controls.Add(l);
+            _main.Controls.Add(l);
             return l;
         }
 
-        Label AddLabelBox(Card card, string text, int x, int y, int w, int h, Color color, Font font, ContentAlignment align)
+        Label AddMainLabelBox(string text, int x, int y, int w, int h, Color color, Font font, ContentAlignment align)
         {
             var l = new Label
             {
                 Text = text, AutoSize = false, Location = new Point(Sc(x), Sc(y)),
-                Size = new Size(Sc(w), Sc(h)), ForeColor = color, BackColor = card.BackColor,
+                Size = new Size(Sc(w), Sc(h)), ForeColor = color, BackColor = Theme.FormBg,
                 Font = font, TextAlign = align
             };
-            card.Controls.Add(l);
+            _main.Controls.Add(l);
             return l;
         }
 
-        void AddDivider(Card card, int y)
+        void AddMainDivider(int y)
         {
-            var p = new Panel { BackColor = Theme.Divider, Location = new Point(Sc(16), Sc(y)), Size = new Size(Sc(488), 1) };
-            card.Controls.Add(p);
+            var p = new Panel
+            {
+                BackColor = Theme.Divider,
+                Location = new Point(Sc(20), Sc(y)),
+                Size = new Size(Sc(MainW), 1)
+            };
+            _main.Controls.Add(p);
         }
 
         void UpdateRarityLabel()
         {
             int v = _seg.Value;
-            _rarityValue.Text = "★ " + Grades[v];
+            _rarityValue.Text = Grades[v];
             _rarityValue.ForeColor = Theme.GradeColors[v];
         }
 
@@ -353,49 +371,14 @@ namespace TbhCompanion
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-            int th = Sc(TitleH);
             var full = new Rectangle(0, 0, Width, Height);
-            Theme.FillRound(g, full, Sc(14), Theme.FormBg);
-
-            // title bar gradient
-            var tb = new Rectangle(0, 0, Width, th);
-            using (var clip = new Region(new Rectangle(0, 0, Width, th)))
-            {
-                g.SetClip(clip, CombineMode.Replace);
-                using (var br = new LinearGradientBrush(tb, Theme.TitleTop, Theme.TitleBottom, 90f))
-                    g.FillRectangle(br, tb);
-                g.ResetClip();
-            }
-            using (var pen = new Pen(Theme.CardBorder)) g.DrawLine(pen, 0, th, Width, th);
-
-            // icon
-            if (_icon != null)
-            {
-                var ir = new Rectangle(Sc(20), Sc(18), Sc(36), Sc(36));
-                using (var pth = Theme.Round(ir, Sc(8))) { g.SetClip(pth); g.DrawImage(_icon, ir); g.ResetClip(); }
-                Theme.DrawRoundBorder(g, ir, Sc(8), Theme.CardBorder, 1f);
-            }
-
-            // title + subtitle
-            using (var f = Theme.FSerif(15f, FontStyle.Bold)) using (var b = new SolidBrush(Theme.TextDark))
-                g.DrawString("TBH Companion", f, b, new PointF(Sc(64), Sc(15)));
-            using (var f = Theme.F(8.5f, FontStyle.Regular)) using (var b = new SolidBrush(Theme.TextMuted))
-                g.DrawString(Build.Synth ? "STATUS  ·  SETTINGS" : "STATUS", f, b, new PointF(Sc(66), Sc(43)));
-
-            // outer border + close
-            Theme.DrawRoundBorder(g, full, Sc(14), Theme.CardBorder, 1f);
-            _closeRect = new Rectangle(Width - Sc(28), Sc(10), Sc(18), Sc(18));
-            using (var f = Theme.F(11f, FontStyle.Bold)) using (var b = new SolidBrush(Theme.TextMuted))
-            {
-                var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-                g.DrawString("✕", f, b, _closeRect, sf);
-            }
+            Theme.FillRound(g, full, Sc(12), Theme.FormBg);
+            Theme.DrawRoundBorder(g, full, Sc(12), Theme.CardBorder, 1f);
         }
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
-            if (_closeRect.Contains(e.Location)) { Close(); return; }
-            if (e.Y <= Sc(TitleH)) { _dragging = true; _dragOffset = e.Location; }
+            if (e.X <= Sc(SideW) || e.Y <= Sc(40)) { _dragging = true; _dragOffset = e.Location; }
             base.OnMouseDown(e);
         }
         protected override void OnMouseMove(MouseEventArgs e)
@@ -476,8 +459,6 @@ namespace TbhCompanion
                     _modOpRunning = false;
                     _setupBtn.Enabled = true;
                     _removeBtn.Enabled = true;
-                    // Preserve the last progress/result line across LoadConfig (which
-                    // clears the note when a cfg is present).
                     string note = _setupNote.Text;
                     LoadConfig();
                     if (!success && !string.IsNullOrEmpty(note) && note != "working...")
@@ -492,43 +473,41 @@ namespace TbhCompanion
 
         void UpdateStatus()
         {
-            // Three independent channels: the current stage, the Discord connection
-            // indicator, and a diagnostic line — so a transient message never hides
-            // the stage.
             string stage = _stageLabel != null ? _stageLabel() : null;
             bool connected = _discordConnected != null && _discordConnected();
             string diag = _diag != null ? _diag() : null;
             bool presenceOn = _presenceEnabled == null || _presenceEnabled();
 
-            // reflect an out-of-band change (e.g. toggled from the tray menu)
             if (_presenceToggle != null && _presenceToggle.Checked != presenceOn)
                 _presenceToggle.Checked = presenceOn;
 
-            if (!presenceOn)
-                _presencePill.Set("Off", Theme.TextMuted);
-            else
-                _presencePill.Set(connected ? "Presence" : "Offline", connected ? Theme.Green : Theme.TextMuted);
+            // Presence row: Discord connection state + the activity Discord shows.
+            string presenceState;
+            Color presenceDot;
+            if (!presenceOn) { presenceState = "Off"; presenceDot = Theme.TextMuted; }
+            else if (connected) { presenceState = "Live"; presenceDot = Theme.Green; }
+            else { presenceState = "Offline"; presenceDot = Theme.TextMuted; }
 
             var m = stage != null
                 ? Regex.Match(stage, @"(Act\s*\d+\s*-\s*Stage\s*\d+)\s*\(([^)]*)\)")
                 : Match.Empty;
             if (m.Success)
             {
-                _cardStage.Value = m.Groups[1].Value.Replace("-", "–");
-                _cardStage.ValueColor = Theme.TextDark;
-                _cardStage.Sub = m.Groups[2].Value.Replace(", ", " · ");
-                _cardStage.SubColor = Theme.Terracotta;
+                _live.SetRow(0, "Presence",
+                    m.Groups[1].Value.Replace("-", "–"),
+                    m.Groups[2].Value.Replace(", ", " · "),
+                    presenceState, presenceDot);
             }
             else
             {
                 bool waiting = diag != null && diag.IndexOf("waiting", StringComparison.OrdinalIgnoreCase) >= 0;
-                _cardStage.Value = waiting ? "Waiting for game" : "—";
-                _cardStage.ValueColor = Theme.TextDark;
-                _cardStage.Sub = ShortStatus(diag);
-                _cardStage.SubColor = Theme.TextMuted;
+                string value = !presenceOn ? "Disabled"
+                    : waiting ? "Waiting for game"
+                    : "—";
+                _live.SetRow(0, "Presence", value, ShortStatus(diag), presenceState, presenceDot);
             }
 
-            if (!Build.Synth) return;   // presence-only edition: no auto-synthesis UI
+            if (!Build.Synth) return;
 
             if (!_modOpRunning) RefreshModsRow();
 
@@ -542,38 +521,28 @@ namespace TbhCompanion
 
                 bool auto = (bool)d["auto"];
                 int cycles = Convert.ToInt32(d["cycles"]);
-                int lastCount = Convert.ToInt32(d["lastCount"]);
-                int lastGrade = Convert.ToInt32(d["lastGrade"]);
                 int cycMin = Math.Max(1, Convert.ToInt32(d["cycleIntervalSeconds"]) / 60);
 
-                _synthPill.Set(auto ? "Synth ON" : "Synth OFF", auto ? Theme.Green : Color.IndianRed);
-                _cardCycles.Value = cycles + " this session"; _cardCycles.ValueColor = Theme.TextDark;
-                _cardCycles.Sub = "every " + cycMin + " min"; _cardCycles.SubColor = Theme.TextMuted;
-                if (lastCount > 0)
-                {
-                    _cardLast.Value = lastCount + " items"; _cardLast.ValueColor = Theme.TextDark;
-                    _cardLast.Sub = GradeName(lastGrade);
-                    _cardLast.SubColor = lastGrade >= 0 && lastGrade < 10 ? Theme.GradeColors[lastGrade] : Theme.TextMuted;
-                }
-                else { _cardLast.Value = "—"; _cardLast.Sub = "none yet"; _cardLast.SubColor = Theme.TextMuted; _cardLast.ValueColor = Theme.TextDark; }
+                Color synthDot = auto ? Theme.Green : Theme.TextMuted;
+                string synthState = auto ? "On" : "Off";
+                _live.SetRow(1, "Synth",
+                    cycles + " cycles",
+                    "every " + cycMin + " min",
+                    synthState, synthDot);
             }
             catch { SynthIdle("status error"); }
         }
 
         void SynthIdle(string why)
         {
-            _synthPill.Set("Synth", Theme.TextMuted);
-            _cardCycles.Value = "—"; _cardCycles.Sub = why; _cardCycles.SubColor = Theme.TextMuted; _cardCycles.ValueColor = Theme.TextDark;
-            _cardLast.Value = "—"; _cardLast.Sub = why; _cardLast.SubColor = Theme.TextMuted; _cardLast.ValueColor = Theme.TextDark;
+            _live.SetRow(1, "Synth", "—", why, "Off", Theme.TextMuted);
         }
 
         static string ShortStatus(string s)
         {
             if (s == null) return "";
-            return s.Length > 30 ? s.Substring(0, 30) + "…" : s;
+            return s.Length > 22 ? s.Substring(0, 22) + "…" : s;
         }
-
-        static string GradeName(int g) { return g >= 0 && g < Grades.Length ? Grades[g] : "?"; }
 
         // ---- config file ----
 
@@ -585,9 +554,9 @@ namespace TbhCompanion
 
         void SetSettingsEnabled(bool on)
         {
-            _autoStart.Enabled = on; _autoOpenCube.Enabled = on; _seg.Enabled = on;
+            _autoStart.Enabled = on; _seg.Enabled = on;
             _tEquip.Enabled = on; _tMaterials.Enabled = on; _tAccessories.Enabled = on;
-            _cycleMin.Enabled = on; _fillSec.Enabled = on; _synthSec.Enabled = on;
+            _cycleMin.Enabled = on;
             _saveBtn.Enabled = on;
         }
 
@@ -605,14 +574,11 @@ namespace TbhCompanion
             {
                 string text = File.ReadAllText(_cfgPath);
                 _autoStart.Checked = !string.Equals(GetVal(text, "General", "AutoStart", "true"), "false", StringComparison.OrdinalIgnoreCase);
-                _autoOpenCube.Checked = !string.Equals(GetVal(text, "General", "AutoOpenCube", "true"), "false", StringComparison.OrdinalIgnoreCase);
                 int mg;
                 if (!int.TryParse(GetVal(text, "Safety", "MaxGrade", "2"), out mg) || mg < 0 || mg > 9) mg = 2;
                 _seg.Value = mg; UpdateRarityLabel();
                 decimal cycleSec = ParseF(GetVal(text, "Timing", "CycleIntervalSeconds", "300"));
                 _cycleMin.SetValue(Math.Round(cycleSec / 60m));
-                _fillSec.SetValue(ParseF(GetVal(text, "Timing", "AfterFillSeconds", "1")));
-                _synthSec.SetValue(ParseF(GetVal(text, "Timing", "AfterSynthesisSeconds", "4")));
                 string types = GetVal(text, "General", "SynthesisTypes", "Equipment,Materials,Accessories").ToLowerInvariant();
                 _tEquip.Selected = types.Contains("equipment") || types.Contains("gear");
                 _tMaterials.Selected = types.Contains("material");
@@ -645,11 +611,9 @@ namespace TbhCompanion
             {
                 string text = File.ReadAllText(_cfgPath);
                 text = SetVal(text, "General", "AutoStart", _autoStart.Checked ? "true" : "false");
-                text = SetVal(text, "General", "AutoOpenCube", _autoOpenCube.Checked ? "true" : "false");
+                text = SetVal(text, "General", "AutoOpenCube", "true");
                 text = SetVal(text, "Safety", "MaxGrade", _seg.Value.ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "Timing", "CycleIntervalSeconds", (_cycleMin.Value * 60).ToString(CultureInfo.InvariantCulture));
-                text = SetVal(text, "Timing", "AfterFillSeconds", _fillSec.Value.ToString(CultureInfo.InvariantCulture));
-                text = SetVal(text, "Timing", "AfterSynthesisSeconds", _synthSec.Value.ToString(CultureInfo.InvariantCulture));
                 var types = new List<string>();
                 if (_tEquip.Selected) types.Add("Equipment");
                 if (_tMaterials.Selected) types.Add("Materials");
@@ -674,21 +638,11 @@ namespace TbhCompanion
             catch (Exception ex) { _cfgNote.Text = "save failed: " + ex.Message; }
         }
 
-        // Matches `key = <value>` on one line, capturing the assignment in group 1
-        // and the raw value in group 2. Deliberately built out of `[ \t]` and
-        // `[^\r\n]` only, so it can never cross or consume a line ending: a
-        // trailing `\s*$` swallows the newline and any blank lines after it (in
-        // multiline mode `$` matches at every line end), which glues the next
-        // section header onto this line and corrupts the file.
         static Regex KeyLine(string key)
         {
             return new Regex("(?m)^([ \t]*" + Regex.Escape(key) + "[ \t]*=[ \t]*)([^\r\n]*)");
         }
 
-        // Character range of `section`'s body: from just after its header line to
-        // the start of the next header (or end of file). Start is -1 when absent.
-        // Reads and writes are scoped to a section so a key name that repeats
-        // across sections can never be read from, or written to, the wrong one.
         static void SectionSpan(string text, string section, out int start, out int end)
         {
             start = -1; end = -1;
@@ -714,8 +668,6 @@ namespace TbhCompanion
             SectionSpan(text, section, out start, out end);
             if (start < 0)
             {
-                // No such section yet: append it rather than dropping the key into
-                // whichever section happens to sit at the end of the file.
                 return text.TrimEnd() + Environment.NewLine + Environment.NewLine
                      + "[" + section + "]" + Environment.NewLine
                      + key + " = " + value + Environment.NewLine;
@@ -734,26 +686,99 @@ namespace TbhCompanion
         }
     }
 
-    // Small live status card (title / value / sub), painted like the design.
-    class StatusCard : Card
+    // Live status cards for the side panel (Presence / Synth).
+    class LiveStrip : Control
     {
-        string _title = "", _value = "", _sub = "";
-        public Color ValueColor = Theme.TextDark, SubColor = Theme.TextMuted;
-        public StatusCard() { Radius = 10; }
-        public string Title { get { return _title; } set { _title = value; Invalidate(); } }
-        public string Value { get { return _value; } set { _value = value; Invalidate(); } }
-        public string Sub { get { return _sub; } set { _sub = value; Invalidate(); } }
+        struct Row
+        {
+            public string Title, Value, Sub, State;
+            public Color StateColor;
+        }
+
+        readonly Row[] _rows = new Row[3];
+        public int Columns = 1;
+        public bool Vertical = true;
+        public bool Flat = true;
+
+        public LiveStrip()
+        {
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+        }
+
+        public void SetRow(int i, string title, string value, string sub, string state, Color stateColor)
+        {
+            if (i < 0 || i >= _rows.Length) return;
+            _rows[i].Title = title;
+            _rows[i].Value = value;
+            _rows[i].Sub = sub;
+            _rows[i].State = state;
+            _rows[i].StateColor = stateColor;
+            Invalidate();
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e) { }
+
         protected override void OnPaint(PaintEventArgs e)
         {
-            base.OnPaint(e);
             var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
             float s = Theme.Scale(g);
-            using (var f = Theme.F(8f, FontStyle.Regular)) using (var b = new SolidBrush(Theme.TextMuted))
-                g.DrawString(_title, f, b, new PointF(11 * s, 8 * s));
-            using (var f = Theme.F(11f, FontStyle.Bold)) using (var b = new SolidBrush(ValueColor))
-                g.DrawString(_value, f, b, new PointF(11 * s, 24 * s));
-            using (var f = Theme.F(9f, FontStyle.Bold)) using (var b = new SolidBrush(SubColor))
-                g.DrawString(_sub, f, b, new PointF(11 * s, 44 * s));
+            Color bg = Parent != null ? Parent.BackColor : Theme.SideBg;
+            using (var b = new SolidBrush(bg)) g.FillRectangle(b, ClientRectangle);
+
+            int n = Math.Max(1, Math.Min(3, Columns));
+            float gap = 8 * s;
+            float rowH = (Height - gap * (n - 1)) / n;
+            int rad = (int)(8 * s);
+
+            for (int i = 0; i < n; i++)
+            {
+                float y = i * (rowH + gap);
+                var card = new Rectangle(0, (int)Math.Round(y), Width, (int)Math.Round(rowH));
+                Theme.FillRound(g, card, rad, Theme.StatusCard);
+
+                float pad = 10 * s;
+                float tx = pad;
+                float ty = card.Y + 8 * s;
+
+                // Title
+                using (var f = Theme.F(7.5f, FontStyle.Bold)) using (var b = new SolidBrush(Theme.TextMuted))
+                    g.DrawString(_rows[i].Title ?? "", f, b, new PointF(tx, ty));
+
+                // State badge (right-aligned)
+                string state = _rows[i].State ?? "";
+                if (state.Length > 0)
+                {
+                    using (var f = Theme.F(7.5f, FontStyle.Bold))
+                    {
+                        var sz = g.MeasureString(state, f);
+                        float bw = sz.Width + 10 * s;
+                        float bh = Math.Max(16 * s, sz.Height + 2 * s);
+                        var badge = new Rectangle(
+                            (int)(Width - pad - bw),
+                            (int)(card.Y + 7 * s),
+                            (int)bw, (int)bh);
+                        Color fill = Color.FromArgb(28, _rows[i].StateColor);
+                        Theme.FillRound(g, badge, (int)(bh / 2), fill);
+                        using (var b = new SolidBrush(_rows[i].StateColor))
+                        {
+                            var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                            g.DrawString(state, f, b, badge, sf);
+                        }
+                    }
+                }
+
+                // Value
+                using (var f = Theme.F(10.5f, FontStyle.Bold)) using (var b = new SolidBrush(Theme.TextDark))
+                    g.DrawString(_rows[i].Value ?? "", f, b, new PointF(tx, card.Y + 26 * s));
+
+                // Sub
+                if (!string.IsNullOrEmpty(_rows[i].Sub))
+                {
+                    using (var f = Theme.F(8f, FontStyle.Regular)) using (var b = new SolidBrush(Theme.TextMuted))
+                        g.DrawString(_rows[i].Sub, f, b, new PointF(tx, card.Y + 46 * s));
+                }
+            }
         }
     }
 }
