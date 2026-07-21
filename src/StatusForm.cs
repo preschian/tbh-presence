@@ -544,16 +544,16 @@ namespace TbhCompanion
             try
             {
                 string text = File.ReadAllText(_cfgPath);
-                _autoStart.Checked = !string.Equals(GetVal(text, "AutoStart", "true"), "false", StringComparison.OrdinalIgnoreCase);
-                _autoOpenCube.Checked = !string.Equals(GetVal(text, "AutoOpenCube", "true"), "false", StringComparison.OrdinalIgnoreCase);
+                _autoStart.Checked = !string.Equals(GetVal(text, "General", "AutoStart", "true"), "false", StringComparison.OrdinalIgnoreCase);
+                _autoOpenCube.Checked = !string.Equals(GetVal(text, "General", "AutoOpenCube", "true"), "false", StringComparison.OrdinalIgnoreCase);
                 int mg;
-                if (!int.TryParse(GetVal(text, "MaxGrade", "2"), out mg) || mg < 0 || mg > 9) mg = 2;
+                if (!int.TryParse(GetVal(text, "Safety", "MaxGrade", "2"), out mg) || mg < 0 || mg > 9) mg = 2;
                 _seg.Value = mg; UpdateRarityLabel();
-                decimal cycleSec = ParseF(GetVal(text, "CycleIntervalSeconds", "300"));
+                decimal cycleSec = ParseF(GetVal(text, "Timing", "CycleIntervalSeconds", "300"));
                 _cycleMin.SetValue(Math.Round(cycleSec / 60m));
-                _fillSec.SetValue(ParseF(GetVal(text, "AfterFillSeconds", "1")));
-                _synthSec.SetValue(ParseF(GetVal(text, "AfterSynthesisSeconds", "4")));
-                string types = GetVal(text, "SynthesisTypes", "Equipment,Materials,Accessories").ToLowerInvariant();
+                _fillSec.SetValue(ParseF(GetVal(text, "Timing", "AfterFillSeconds", "1")));
+                _synthSec.SetValue(ParseF(GetVal(text, "Timing", "AfterSynthesisSeconds", "4")));
+                string types = GetVal(text, "General", "SynthesisTypes", "Equipment,Materials,Accessories").ToLowerInvariant();
                 _tEquip.Selected = types.Contains("equipment") || types.Contains("gear");
                 _tMaterials.Selected = types.Contains("material");
                 _tAccessories.Selected = types.Contains("accessor");
@@ -584,18 +584,18 @@ namespace TbhCompanion
             try
             {
                 string text = File.ReadAllText(_cfgPath);
-                text = SetVal(text, "AutoStart", _autoStart.Checked ? "true" : "false");
-                text = SetVal(text, "AutoOpenCube", _autoOpenCube.Checked ? "true" : "false");
-                text = SetVal(text, "MaxGrade", _seg.Value.ToString(CultureInfo.InvariantCulture));
-                text = SetVal(text, "CycleIntervalSeconds", (_cycleMin.Value * 60).ToString(CultureInfo.InvariantCulture));
-                text = SetVal(text, "AfterFillSeconds", _fillSec.Value.ToString(CultureInfo.InvariantCulture));
-                text = SetVal(text, "AfterSynthesisSeconds", _synthSec.Value.ToString(CultureInfo.InvariantCulture));
+                text = SetVal(text, "General", "AutoStart", _autoStart.Checked ? "true" : "false");
+                text = SetVal(text, "General", "AutoOpenCube", _autoOpenCube.Checked ? "true" : "false");
+                text = SetVal(text, "Safety", "MaxGrade", _seg.Value.ToString(CultureInfo.InvariantCulture));
+                text = SetVal(text, "Timing", "CycleIntervalSeconds", (_cycleMin.Value * 60).ToString(CultureInfo.InvariantCulture));
+                text = SetVal(text, "Timing", "AfterFillSeconds", _fillSec.Value.ToString(CultureInfo.InvariantCulture));
+                text = SetVal(text, "Timing", "AfterSynthesisSeconds", _synthSec.Value.ToString(CultureInfo.InvariantCulture));
                 var types = new List<string>();
                 if (_tEquip.Selected) types.Add("Equipment");
                 if (_tMaterials.Selected) types.Add("Materials");
                 if (_tAccessories.Selected) types.Add("Accessories");
                 if (types.Count == 0) { types.Add("Equipment"); types.Add("Materials"); types.Add("Accessories"); }
-                text = SetVal(text, "SynthesisTypes", string.Join(",", types.ToArray()));
+                text = SetVal(text, "General", "SynthesisTypes", string.Join(",", types.ToArray()));
                 File.WriteAllText(_cfgPath, text);
 
                 bool consoleRestart = false;
@@ -614,16 +614,58 @@ namespace TbhCompanion
             catch (Exception ex) { _cfgNote.Text = "save failed: " + ex.Message; }
         }
 
-        static string GetVal(string text, string key, string fallback)
+        // Matches `key = <value>` on one line, capturing the assignment in group 1
+        // and the raw value in group 2. Deliberately built out of `[ \t]` and
+        // `[^\r\n]` only, so it can never cross or consume a line ending: a
+        // trailing `\s*$` swallows the newline and any blank lines after it (in
+        // multiline mode `$` matches at every line end), which glues the next
+        // section header onto this line and corrupts the file.
+        static Regex KeyLine(string key)
         {
-            var m = Regex.Match(text, @"(?m)^\s*" + Regex.Escape(key) + @"\s*=\s*(.+?)\s*$");
-            return m.Success ? m.Groups[1].Value : fallback;
+            return new Regex("(?m)^([ \t]*" + Regex.Escape(key) + "[ \t]*=[ \t]*)([^\r\n]*)");
         }
-        static string SetVal(string text, string key, string value)
+
+        // Character range of `section`'s body: from just after its header line to
+        // the start of the next header (or end of file). Start is -1 when absent.
+        // Reads and writes are scoped to a section so a key name that repeats
+        // across sections can never be read from, or written to, the wrong one.
+        static void SectionSpan(string text, string section, out int start, out int end)
         {
-            var re = new Regex(@"(?m)^(\s*" + Regex.Escape(key) + @"\s*=\s*).+?\s*$");
-            if (re.IsMatch(text)) return re.Replace(text, "${1}" + value, 1);
-            return text + Environment.NewLine + key + " = " + value + Environment.NewLine;
+            start = -1; end = -1;
+            var header = Regex.Match(text, @"(?m)^\s*\[" + Regex.Escape(section) + @"\]\s*$");
+            if (!header.Success) return;
+            start = header.Index + header.Length;
+            var next = Regex.Match(text.Substring(start), @"(?m)^\s*\[[^\]\r\n]+\]\s*$");
+            end = next.Success ? start + next.Index : text.Length;
+        }
+
+        static string GetVal(string text, string section, string key, string fallback)
+        {
+            int start, end;
+            SectionSpan(text, section, out start, out end);
+            if (start < 0) return fallback;
+            var m = KeyLine(key).Match(text.Substring(start, end - start));
+            return m.Success ? m.Groups[2].Value.TrimEnd(' ', '\t') : fallback;
+        }
+
+        static string SetVal(string text, string section, string key, string value)
+        {
+            int start, end;
+            SectionSpan(text, section, out start, out end);
+            if (start < 0)
+            {
+                // No such section yet: append it rather than dropping the key into
+                // whichever section happens to sit at the end of the file.
+                return text.TrimEnd() + Environment.NewLine + Environment.NewLine
+                     + "[" + section + "]" + Environment.NewLine
+                     + key + " = " + value + Environment.NewLine;
+            }
+            string body = text.Substring(start, end - start);
+            var re = KeyLine(key);
+            string updated = re.IsMatch(body)
+                ? re.Replace(body, "${1}" + value, 1)
+                : body.TrimEnd() + Environment.NewLine + key + " = " + value + Environment.NewLine;
+            return text.Substring(0, start) + updated + text.Substring(end);
         }
         static decimal ParseF(string s)
         {
