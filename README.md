@@ -107,28 +107,33 @@ memory.
 
 ![The Status & Settings window](docs/settings-window.png)
 
-Left rail shows live status: Discord presence connection and whether the
-auto-synthesis loop is on (with cycle count). The right pane has the settings.
+Left rail shows live status: Discord presence (stage/difficulty) and the
+auto-synthesis loop (on/off, cycle count, interval). The right pane has the
+settings, grouped by section:
 
-- **Discord Presence** — show your current stage on Discord (also on the tray
-  menu). Applies instantly and is remembered next launch.
-- **Auto synthesis**
-  - **Enable auto synthesis** — arms the loop when the game starts, and syncs
-    the running loop when you save (plugin 0.24.1+). F8 still toggles the live
-    loop in-game without changing this setting.
-  - **which item types** — Equipment, Materials, Accessories (any combination;
-    the loop rotates through them),
-  - **max rarity** (default: Legendary),
-  - **target level** — which cube recipe bracket to use (dropdown matching
-    the in-game list: Max / `Lv.1~10` … `Lv.65~80`; default Max = highest
-    unlocked),
-  - how often a round runs (minutes),
-  - show/hide the BepInEx log console (applies on next game start).
+- **Discord Presence** — *Show stage on Discord* (also on the tray menu).
+  Applies instantly and is remembered next launch.
+- **Enable Mods**
+  - **Auto Loop** — arms the loop when the game starts, and syncs the running
+    loop when you save. F8 still toggles the live loop in-game without changing
+    this setting.
+  - **Show BepInEx console** — show/hide the log console (applies on next game
+    start).
+  - **Cycle interval** — how often a round runs (minutes).
+- **Runes** — *Enabled* turns on auto-upgrade runes in the shared cycle.
+- **Synthesis**
+  - **Enabled** — include cube synthesis in the cycle,
+  - **Types** — Equipment, Materials, Accessories (any combination; the loop
+    rotates through them),
+  - **Max rarity** (default: Legendary),
+  - **Target level** — which cube recipe bracket to use (dropdown matching the
+    in-game list: Max / `Lv.1~10` … `Lv.65~80`; default Max = highest unlocked).
 
-Press **Save** — with a current plugin, AutoStart and the other loop settings
-reach the running game within ~10 seconds. If the game is still on an older
-plugin, restart the game after Save (or after Install mods) so the update
-loads. Console visibility always needs a game restart.
+Press **Save** — with a current plugin, loop settings reach the running game
+within ~10 seconds. If the game is still on an older plugin, restart the game
+after Save (or after Install mods) so the update loads. Console visibility
+always needs a game restart. Use **Install mods** / **Remove mods** when
+BepInEx isn't set up yet or you want it gone.
 
 ## Start it with Windows
 
