@@ -9,11 +9,10 @@ using UnityEngine;
 
 namespace TbhAutoSynth;
 
-// Obfuscated-member access for cube/recipe UI. Default build binds by name; the
-// "-next" edition (/define:RESILIENT) resolves by signature at runtime.
+// Obfuscated-member access for cube/recipe UI. Resolves members by signature at
+// runtime so a game patch that re-randomizes those names no longer needs a manual remap.
 internal static class GameInterop
 {
-#if RESILIENT
     static bool _obfResolved;
     static PropertyInfo _pRecipeType, _pInnerButton, _pIsOn, _pCubeItemData, _pItemInfoData;
     static Type _dbType;
@@ -70,58 +69,40 @@ internal static class GameInterop
         _dbType = FindDbType();
         _pItemInfoData = _dbType != null ? _dbType.GetProperty("itemInfoData", DeclInstance) : null;
         AutoSynthPlugin.Logger.LogInfo(
-            "interop resolved (RESILIENT): " +
+            "interop resolved: " +
             $"ERecipeType={PName(_pRecipeType)}, innerButton={PName(_pInnerButton)}, " +
             $"isOn={PName(_pIsOn)}, cubeItemData={PName(_pCubeItemData)}, itemDb={(_dbType != null ? _dbType.Name : "null")}");
     }
 
     static string PName(PropertyInfo p) => p != null ? p.Name : "null";
-#endif
 
     internal static ERecipeType RecipeTypeOf(SubRecipeComboBoxButton c)
     {
-#if RESILIENT
         Resolve();
         return (ERecipeType)_pRecipeType.GetValue(c);
-#else
-        return c.bfxh;
-#endif
     }
 
     internal static UnityEngine.UI.Button InnerButton(ButtonBase b)
     {
-#if RESILIENT
         Resolve();
         return (UnityEngine.UI.Button)_pInnerButton.GetValue(b);
-#else
-        return b.bsec;
-#endif
     }
 
     internal static bool IsOn(ToggleButton b)
     {
-#if RESILIENT
         Resolve();
         return (bool)_pIsOn.GetValue(b);
-#else
-        return b.bseh;
-#endif
     }
 
     internal static int CubeItemKey(CubeInData data)
     {
-#if RESILIENT
         Resolve();
         var cid = (CubeItemData)_pCubeItemData.GetValue(data);
         return cid.ItemKey;
-#else
-        return data.bfbr.ItemKey;
-#endif
     }
 
     internal static Il2CppSystem.Collections.Generic.List<ItemInfoData> ItemInfoList()
     {
-#if RESILIENT
         Resolve();
         if (_dbType == null || _pItemInfoData == null) return null;
         var t = Il2CppInterop.Runtime.Il2CppType.From(_dbType);
@@ -129,17 +110,10 @@ internal static class GameInterop
         if (all == null || all.Length == 0) return null;
         var db = Activator.CreateInstance(_dbType, new object[] { all[0].Pointer });
         return _pItemInfoData.GetValue(db) as Il2CppSystem.Collections.Generic.List<ItemInfoData>;
-#else
-        bal db = null;
-        try { db = nq<bal>.bsen; } catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"nq<bal>.bsen failed: {e.Message}"); }
-        if (db == null) db = UnityEngine.Object.FindObjectOfType<bal>(true);
-        return db != null ? db.itemInfoData : null;
-#endif
     }
 
-    // Rune level-info lookup (obfuscated GetRuneLevelInfo names). Default build tries
-    // remapped method names; RESILIENT edition still uses the same fan-out until a
-    // signature-stable resolver is added for bal.
+    // Rune level-info lookup (obfuscated GetRuneLevelInfo names). Tries remapped
+    // method names until a signature-stable resolver is added for bal.
     internal static RuneLevelInfoData LookupRuneLevelInfo(int runeKey, int level)
     {
         try
