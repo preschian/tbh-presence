@@ -16,11 +16,12 @@ internal sealed class RuneUpgradeRunner
 {
     internal enum TickResult { InProgress, Done }
 
-    private enum ConfirmResult { Confirmed, WaitingForLevel, Failed }
+    private enum ConfirmResult { Confirmed, AwaitingLevel, Failed }
 
     private const int MaxOpenAttempts = 6;
     private const float OpenTimeoutSeconds = 60f;
     private const int FailStreakAbort = 5;
+    private const int SoftAwaitTicks = 6; // ~ several AfterRuneUpgradeDelay windows
 
     private readonly Action<ButtonBase, string, bool> _click;
 
@@ -43,9 +44,10 @@ internal sealed class RuneUpgradeRunner
     private int _pendingLevel = -1;
     private long _pendingGold = -1;
     private int _pendingCost;
+    private bool _pendingCounted;   // counted via gold drop while still awaiting level
+    private int _awaitLevelTicks;
     private int _failStreak;
     private string _lastName = "";
-    private bool _waitAfterSoftConfirm;
 
     internal int UpgradesThisCycle => _upgradesThisCycle;
     internal int LastUpgrades { get; private set; }
@@ -60,7 +62,6 @@ internal sealed class RuneUpgradeRunner
         _nextOpenAttempt = 0f;
         _phaseEnteredAt = Time.unscaledTime;
         _lastName = "";
-        _waitAfterSoftConfirm = false;
     }
 
     internal void ResetSession()
@@ -78,6 +79,8 @@ internal sealed class RuneUpgradeRunner
         _pendingLevel = -1;
         _pendingGold = -1;
         _pendingCost = 0;
+        _pendingCounted = false;
+        _awaitLevelTicks = 0;
     }
 
     private bool AtUpgradeCap =>
@@ -88,7 +91,7 @@ internal sealed class RuneUpgradeRunner
     {
         nextDelay = 1.5f;
 
-        if (AtUpgradeCap)
+        if (AtUpgradeCap && _pendingKey < 0)
         {
             if (loud)
                 AutoSynthPlugin.Logger.LogInfo(
@@ -125,24 +128,19 @@ internal sealed class RuneUpgradeRunner
             return Finish(loud);
         }
 
+        // Never buy while a prior purchase is still being confirmed.
         if (_pendingKey >= 0)
         {
             var confirm = ConfirmPending(page, loud);
             if (confirm == ConfirmResult.Failed && _failStreak >= FailStreakAbort)
                 return Finish(loud);
-            if (confirm == ConfirmResult.WaitingForLevel)
+            if (confirm == ConfirmResult.AwaitingLevel || confirm == ConfirmResult.Confirmed)
             {
-                // Soft confirm (gold dropped, level lagged): wait one tick before
-                // buying again so we do not double-invoke mba() on a stale node.
                 nextDelay = Math.Max(0.75f, AutoSynthPlugin.AfterRuneUpgradeDelay);
-                return TickResult.InProgress;
+                // Confirmed clears pending; fall through next tick (or same if we continue).
+                if (confirm == ConfirmResult.AwaitingLevel)
+                    return TickResult.InProgress;
             }
-        }
-
-        if (_waitAfterSoftConfirm)
-        {
-            _waitAfterSoftConfirm = false;
-            // Fall through to buy once level has had a tick to catch up.
         }
 
         if (AtUpgradeCap)
@@ -185,6 +183,8 @@ internal sealed class RuneUpgradeRunner
         _pendingLevel = level;
         _pendingGold = gold;
         _pendingCost = cost;
+        _pendingCounted = false;
+        _awaitLevelTicks = 0;
         nextDelay = Math.Max(0.75f, AutoSynthPlugin.AfterRuneUpgradeDelay);
         return TickResult.InProgress;
     }
@@ -194,7 +194,6 @@ internal sealed class RuneUpgradeRunner
         ClosePanel(loud || _upgradesThisCycle > 0);
         LastUpgrades = _upgradesThisCycle;
         ClearPending();
-        _waitAfterSoftConfirm = false;
         return TickResult.Done;
     }
 
@@ -206,7 +205,8 @@ internal sealed class RuneUpgradeRunner
         bool leveled = after > _pendingLevel;
         if (leveled)
         {
-            _upgradesThisCycle++;
+            if (!_pendingCounted)
+                _upgradesThisCycle++;
             _failStreak = 0;
             if (loud)
                 AutoSynthPlugin.Logger.LogInfo(
@@ -216,21 +216,32 @@ internal sealed class RuneUpgradeRunner
             return ConfirmResult.Confirmed;
         }
 
-        // Level can lag a tick; require a gold drop of at least the quoted cost
-        // (or any drop when cost was unknown).
+        // Gold spent but level lagging: count once, keep awaiting level before next buy.
         long minDrop = _pendingCost > 0 ? _pendingCost : 1;
         bool spent = _pendingGold >= 0 && goldNow >= 0 && goldNow <= _pendingGold - minDrop;
-        if (spent)
+        if (spent || _pendingCounted)
         {
-            _upgradesThisCycle++;
-            _failStreak = 0;
-            if (loud)
-                AutoSynthPlugin.Logger.LogInfo(
-                    $"rune upgrade ok (gold spent): key={_pendingKey} lv={after} " +
-                    $"gold {_pendingGold}->{goldNow}");
-            ClearPending();
-            _waitAfterSoftConfirm = true;
-            return ConfirmResult.WaitingForLevel;
+            if (!_pendingCounted)
+            {
+                _upgradesThisCycle++;
+                _pendingCounted = true;
+                _failStreak = 0;
+                if (loud)
+                    AutoSynthPlugin.Logger.LogInfo(
+                        $"rune upgrade ok (gold spent, awaiting level): key={_pendingKey} lv={after} " +
+                        $"gold {_pendingGold}->{goldNow}");
+            }
+            _awaitLevelTicks++;
+            if (_awaitLevelTicks >= SoftAwaitTicks)
+            {
+                // Level never caught up; accept gold proof and release the buy lock.
+                if (loud)
+                    AutoSynthPlugin.Logger.LogInfo(
+                        $"rune upgrade: level still lagging for key={_pendingKey} after {_awaitLevelTicks} ticks — continuing");
+                ClearPending();
+                return ConfirmResult.Confirmed;
+            }
+            return ConfirmResult.AwaitingLevel;
         }
 
         NoteFailure();
@@ -402,7 +413,7 @@ internal sealed class RuneUpgradeRunner
         {
             if (level >= 0)
             {
-                var next = LookupRuneLevelInfo(key, level + 1);
+                var next = GameInterop.LookupRuneLevelInfo(key, level + 1);
                 if (next != null && next.bgpx > 0) return next.bgpx;
             }
         }
@@ -414,23 +425,6 @@ internal sealed class RuneUpgradeRunner
         }
         catch { }
         return -1;
-    }
-
-    private static RuneLevelInfoData LookupRuneLevelInfo(int runeKey, int level)
-    {
-        try
-        {
-            bal db = null;
-            try { db = nq<bal>.bsen; } catch { }
-            if (db == null) db = UnityEngine.Object.FindObjectOfType<bal>(true);
-            if (db == null) return null;
-            try { var r = db.mfg(runeKey, level); if (r != null) return r; } catch { }
-            try { var r = db.ocl(runeKey, level); if (r != null) return r; } catch { }
-            try { var r = db.nfm(runeKey, level); if (r != null) return r; } catch { }
-            try { var r = db.sj(runeKey, level); if (r != null) return r; } catch { }
-        }
-        catch { }
-        return null;
     }
 
     private static int RuneLevel(RuneNode node)
@@ -450,7 +444,7 @@ internal sealed class RuneUpgradeRunner
         if (node == null || !node.isActiveAndEnabled) return false;
         int level = RuneLevel(node);
         if (level < 0) return false;
-        var next = LookupRuneLevelInfo(node.m_runeKey, level + 1);
+        var next = GameInterop.LookupRuneLevelInfo(node.m_runeKey, level + 1);
         return next != null && next.bgpx > 0;
     }
 

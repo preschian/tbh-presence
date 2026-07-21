@@ -284,7 +284,7 @@ namespace TbhCompanion
             AddRowLabel("Max rarity", y);
             _rarityValue = AddMainLabelBox("Legendary", fieldX, y, fieldW, ControlH, Theme.Amber, Theme.F(9f, FontStyle.Bold), ContentAlignment.MiddleRight);
             y += RowH;
-            _seg = new SegmentBar { Value = 3 };
+            _seg = new SegmentBar { Value = 2 };
             _seg.SetBounds(Sc(PadX), Sc(y), Sc(MainW), Sc(8));
             _seg.ValueChanged += delegate { UpdateRarityLabel(); };
             _main.Controls.Add(_seg);

@@ -18,7 +18,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.26.10";
+    internal const string Version = "0.26.11";
 #if RESILIENT
     // Built with /define:RESILIENT for the "-next" edition: obfuscated members are
     // resolved by signature at runtime instead of by hard-coded name, so a game
@@ -159,7 +159,7 @@ public class AutoSynthPlugin : BasePlugin
 public class AutoSynthBehaviour : MonoBehaviour
 {
     private enum LoopMode { Off, Armed, OneShot }
-    private enum Phase { Fill, Synth, Clear, Rune }
+    private enum Phase { Idle, Fill, Synth, Clear, Rune }
 
     private LoopMode _mode;
     private Phase _phase;
@@ -238,6 +238,8 @@ public class AutoSynthBehaviour : MonoBehaviour
             if (AutoSynthPlugin.AutoStart)
             {
                 _mode = LoopMode.Armed;
+                _phase = Phase.Idle;
+                BeginCycleWork();
                 AutoSynthPlugin.Logger.LogInfo(
                     "Auto loop armed on launch (AutoStart=true). " +
                     (AutoSynthPlugin.EnableSynthesis ? "Synthesis ON. " : "Synthesis OFF. ") +
@@ -286,8 +288,8 @@ public class AutoSynthBehaviour : MonoBehaviour
     {
         _mode = on ? LoopMode.Armed : LoopMode.Off;
         _cycles = 0;
-        BeginCycleWork();
         _runes.ResetSession();
+        BeginCycleWork();
         string suffix = string.IsNullOrEmpty(reason) ? "" : " (" + reason + ")";
         AutoSynthPlugin.Logger.LogInfo($"Auto-synthesis: {(on ? "ON" : "OFF")}{suffix}");
     }
@@ -309,10 +311,20 @@ public class AutoSynthBehaviour : MonoBehaviour
         }
         else
         {
-            _phase = Phase.Fill;
             AutoSynthPlugin.Logger.LogWarning(
                 "cycle skipped: EnableSynthesis and AutoUpgradeRune are both off");
-            EndCycleAndScheduleNext(true, "nothing enabled");
+            // Stay Idle and retry after the normal gap (config may flip mid-session).
+            _phase = Phase.Idle;
+            if (_mode == LoopMode.OneShot)
+            {
+                _mode = LoopMode.Off;
+                AutoSynthPlugin.Logger.LogInfo("one-shot cycle finished — auto OFF (press F7 again for another)");
+                _nextTick = 0f;
+            }
+            else if (_mode == LoopMode.Armed)
+                _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterClearDelay;
+            else
+                _nextTick = 0f;
         }
     }
 
@@ -337,14 +349,16 @@ public class AutoSynthBehaviour : MonoBehaviour
         if (loud || !string.IsNullOrEmpty(detail))
             AutoSynthPlugin.Logger.LogInfo(
                 $"cycle {_cycles} done{(string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")")}");
-        _phase = Phase.Fill;
         if (_mode == LoopMode.OneShot)
         {
             _mode = LoopMode.Off;
+            _phase = Phase.Idle;
             AutoSynthPlugin.Logger.LogInfo("one-shot cycle finished — auto OFF (press F7 again for another)");
             _nextTick = 0f;
             return;
         }
+        // Armed: park on Idle; next tick starts a fresh cycle via BeginCycleWork.
+        _phase = Phase.Idle;
         _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterClearDelay;
     }
 
@@ -352,6 +366,12 @@ public class AutoSynthBehaviour : MonoBehaviour
     {
         try
         {
+            if (_phase == Phase.Idle)
+            {
+                BeginCycleWork();
+                return;
+            }
+
             if (_phase == Phase.Rune)
             {
                 var loud = _cycles < 2 || _cycles % 20 == 0;
@@ -364,12 +384,6 @@ public class AutoSynthBehaviour : MonoBehaviour
                 }
                 else
                     _nextTick = Time.unscaledTime + delay;
-                return;
-            }
-
-            if (!AutoSynthPlugin.EnableSynthesis)
-            {
-                EndCycleAndScheduleNext(true, "nothing enabled");
                 return;
             }
 

@@ -3,6 +3,7 @@ using System.Reflection;
 using TaskbarHero;
 using TaskbarHero.Data;
 using TaskbarHero.UI;
+using TaskbarHero.UI.Rune;
 using TS;
 using UnityEngine;
 
@@ -134,5 +135,25 @@ internal static class GameInterop
         if (db == null) db = UnityEngine.Object.FindObjectOfType<bal>(true);
         return db != null ? db.itemInfoData : null;
 #endif
+    }
+
+    // Rune level-info lookup (obfuscated GetRuneLevelInfo names). Default build tries
+    // remapped method names; RESILIENT edition still uses the same fan-out until a
+    // signature-stable resolver is added for bal.
+    internal static RuneLevelInfoData LookupRuneLevelInfo(int runeKey, int level)
+    {
+        try
+        {
+            bal db = null;
+            try { db = nq<bal>.bsen; } catch { }
+            if (db == null) db = UnityEngine.Object.FindObjectOfType<bal>(true);
+            if (db == null) return null;
+            try { var r = db.mfg(runeKey, level); if (r != null) return r; } catch { }
+            try { var r = db.ocl(runeKey, level); if (r != null) return r; } catch { }
+            try { var r = db.nfm(runeKey, level); if (r != null) return r; } catch { }
+            try { var r = db.sj(runeKey, level); if (r != null) return r; } catch { }
+        }
+        catch { }
+        return null;
     }
 }
