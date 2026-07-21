@@ -37,8 +37,15 @@ namespace TbhCompanion
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "tbh-companion", "autosynth-status.json");
 
-        const int W = 640, SideW = 188, H = 456;
-        const int MainW = W - SideW - 40; // content width in main pane
+        const int W = 640, SideW = 188, H = 560;
+        const int PadX = 20;
+        const int MainW = W - SideW - PadX * 2; // content width in main pane
+        const int ContentRight = PadX + MainW;
+        const int RowH = 32;
+        const int ControlH = 28;
+        const int ToggleH = 24;
+        const int SectionGap = 14;
+        const int HeaderAfter = 22;
 
         readonly Func<string> _stageLabel;
         readonly Func<bool> _discordConnected;
@@ -60,7 +67,7 @@ namespace TbhCompanion
         LiveStrip _live;
         Panel _side, _main;
         Toggle _presenceToggle;
-        Toggle _autoStart, _showConsole;
+        Toggle _autoLoop, _enableSynth, _autoRune, _showConsole;
         TypeTile _tEquip, _tMaterials, _tAccessories;
         SegmentBar _seg;
         Label _rarityValue;
@@ -221,41 +228,47 @@ namespace TbhCompanion
         {
             AddMainLabel("Discord Presence", 20, 28, Theme.TextDark, Theme.F(11f, FontStyle.Bold));
             AddMainLabel("Show your current stage on Discord", 20, 52, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
-            _presenceToggle = MakePresenceToggle(MainW - 44, 34);
+            _presenceToggle = MakePresenceToggle(ContentRight - 44, 34);
             _main.Controls.Add(_presenceToggle);
         }
 
         void BuildSettings()
         {
-            int right = MainW - 44;
-            int y = 20;
+            const int toggleW = 44;
+            const int fieldW = 120;
+            int toggleX = ContentRight - toggleW;
+            int fieldX = ContentRight - fieldW;
+            int y = 18;
 
-            // ---- 1. Discord Presence ----
-            AddMainLabel("Discord Presence", 20, y, Theme.TextDark, Theme.F(10f, FontStyle.Bold));
-            y += 28;
-            AddMainLabel("Show stage on Discord", 20, y, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
-            _presenceToggle = MakePresenceToggle(right, y - 2);
-            _main.Controls.Add(_presenceToggle);
-            y += 36;
-            AddMainDivider(y);
-            y += 14;
+            // ---- Discord Presence ----
+            y = AddSectionHeader("Discord Presence", y);
+            y = AddToggleRow("Show stage on Discord", ref _presenceToggle, toggleX, y);
+            _presenceToggle.Checked = _presenceEnabled == null || _presenceEnabled();
+            _presenceToggle.CheckedChanged += delegate
+            {
+                if (_setPresenceEnabled != null) _setPresenceEnabled(_presenceToggle.Checked);
+            };
+            y = AddSectionDivider(y);
 
-            // ---- 2. Auto synthesis ----
-            AddMainLabel("Auto synthesis", 20, y, Theme.TextDark, Theme.F(10f, FontStyle.Bold));
-            y += 28;
+            // ---- Enable Mods ----
+            y = AddSectionHeader("Enable Mods", y);
+            y = AddToggleRow("Auto Loop", ref _autoLoop, toggleX, y);
+            y = AddToggleRow("Show BepInEx console", ref _showConsole, toggleX, y);
+            y = AddFieldRow("Cycle interval", "min", y, fieldX, fieldW, out _cycleMin);
+            _cycleMin.Min = 1; _cycleMin.Max = 1440; _cycleMin.Step = 1; _cycleMin.Decimals = 0; _cycleMin.Value = 5;
+            y = AddSectionDivider(y);
 
-            AddMainLabel("Enable auto synthesis", 20, y, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
-            _autoStart = new Toggle(); _autoStart.SetBounds(Sc(right), Sc(y - 2), Sc(44), Sc(24));
-            _main.Controls.Add(_autoStart);
-            y += 32;
+            // ---- Runes ----
+            y = AddSectionHeader("Runes", y);
+            y = AddToggleRow("Enabled", ref _autoRune, toggleX, y);
+            y = AddSectionDivider(y);
 
-            AddMainLabel("Show BepInEx console", 20, y, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
-            _showConsole = new Toggle(); _showConsole.SetBounds(Sc(right), Sc(y - 2), Sc(44), Sc(24));
-            _main.Controls.Add(_showConsole);
-            y += 34;
+            // ---- Synthesis ----
+            y = AddSectionHeader("Synthesis", y);
+            y = AddToggleRow("Enabled", ref _enableSynth, toggleX, y);
 
-            AddMainLabel("Types", 20, y, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
-            y += 20;
+            AddMainLabel("Types", PadX, y, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
+            y += 18;
             _tEquip = new TypeTile { Caption = "Equipment" };
             _tMaterials = new TypeTile { Caption = "Materials" };
             _tAccessories = new TypeTile { Caption = "Accessories" };
@@ -263,48 +276,38 @@ namespace TbhCompanion
             int gap = 8, tw = (MainW - gap * 2) / 3;
             for (int i = 0; i < 3; i++)
             {
-                tiles[i].SetBounds(Sc(20 + i * (tw + gap)), Sc(y), Sc(tw), Sc(28));
+                tiles[i].SetBounds(Sc(PadX + i * (tw + gap)), Sc(y), Sc(tw), Sc(ControlH));
                 _main.Controls.Add(tiles[i]);
             }
-            y += 40;
+            y += ControlH + 12;
 
-            AddMainLabel("Max rarity", 20, y, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
-            _rarityValue = AddMainLabelBox("Legendary", MainW - 140 + 20, y - 1, 140, 18, Theme.Amber, Theme.F(9f, FontStyle.Bold), ContentAlignment.MiddleRight);
-            y += 20;
+            AddRowLabel("Max rarity", y);
+            _rarityValue = AddMainLabelBox("Legendary", fieldX, y, fieldW, ControlH, Theme.Amber, Theme.F(9f, FontStyle.Bold), ContentAlignment.MiddleRight);
+            y += RowH;
             _seg = new SegmentBar { Value = 3 };
-            _seg.SetBounds(Sc(20), Sc(y), Sc(MainW), Sc(8));
+            _seg.SetBounds(Sc(PadX), Sc(y), Sc(MainW), Sc(8));
             _seg.ValueChanged += delegate { UpdateRarityLabel(); };
             _main.Controls.Add(_seg);
-            y += 24;
+            y += 16;
 
-            AddMainLabel("Target level", 20, y + 4, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
             var recipeLabels = new string[Recipes.Length];
             for (int i = 0; i < Recipes.Length; i++) recipeLabels[i] = Recipes[i].Label;
-            _desiredLevel = new FlatDrop { Items = recipeLabels, SelectedIndex = 0 };
-            _desiredLevel.SetBounds(Sc(MainW - 8 - 128), Sc(y), Sc(128), Sc(28));
-            _main.Controls.Add(_desiredLevel);
-            y += 36;
-
-            AddMainLabel("Cycle interval", 20, y + 4, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
-            AddMainLabel("min", MainW - 8, y + 6, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
-            _cycleMin = new Stepper { Min = 1, Max = 1440, Step = 1, Decimals = 0, Value = 5 };
-            _cycleMin.SetBounds(Sc(MainW - 8 - 24 - 100), Sc(y), Sc(100), Sc(28));
-            _main.Controls.Add(_cycleMin);
-            y += 40;
+            y = AddDropdownRow("Target level", recipeLabels, y, fieldX, fieldW, out _desiredLevel);
+            y += 14;
 
             _saveBtn = new FlatButton { Text = "Save", Fill = Theme.Accent };
-            _saveBtn.SetBounds(Sc(20), Sc(y), Sc(88), Sc(30));
+            _saveBtn.SetBounds(Sc(PadX), Sc(y), Sc(88), Sc(30));
             _saveBtn.Click += delegate { SaveConfig(); };
             _main.Controls.Add(_saveBtn);
 
             _removeBtn = new FlatButton { Text = "Remove mods", Fill = Theme.Secondary };
-            _removeBtn.SetBounds(Sc(116), Sc(y), Sc(120), Sc(30));
+            _removeBtn.SetBounds(Sc(PadX + 96), Sc(y), Sc(120), Sc(30));
             _removeBtn.Click += delegate { RunRemove(); };
             _removeBtn.Visible = false;
             _main.Controls.Add(_removeBtn);
 
             _setupBtn = new FlatButton { Text = "Install mods", Fill = Theme.Secondary };
-            _setupBtn.SetBounds(Sc(20), Sc(y), Sc(120), Sc(30));
+            _setupBtn.SetBounds(Sc(PadX), Sc(y), Sc(120), Sc(30));
             _setupBtn.Click += delegate { RunSetup(); };
             _setupBtn.Visible = false;
             _main.Controls.Add(_setupBtn);
@@ -312,8 +315,8 @@ namespace TbhCompanion
             _cfgNote = new Label
             {
                 AutoSize = false,
-                Location = new Point(Sc(248), Sc(y)),
-                Size = new Size(Sc(MainW - 228), Sc(30)),
+                Location = new Point(Sc(PadX + 228), Sc(y)),
+                Size = new Size(Sc(MainW - 208), Sc(30)),
                 ForeColor = Theme.TextMuted,
                 BackColor = Theme.FormBg,
                 Font = Theme.F(8.5f, FontStyle.Regular),
@@ -322,6 +325,55 @@ namespace TbhCompanion
             _main.Controls.Add(_cfgNote);
 
             RefreshModsRow(forceLayout: true);
+        }
+
+        int AddSectionHeader(string title, int y)
+        {
+            AddMainLabel(title, PadX, y, Theme.TextDark, Theme.F(10f, FontStyle.Bold));
+            return y + HeaderAfter;
+        }
+
+        int AddSectionDivider(int y)
+        {
+            y += 6;
+            AddMainDivider(y);
+            return y + SectionGap;
+        }
+
+        void AddRowLabel(string label, int y)
+        {
+            AddMainLabel(label, PadX, y + (ControlH - 14) / 2, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
+        }
+
+        int AddToggleRow(string label, ref Toggle toggle, int toggleX, int y)
+        {
+            AddRowLabel(label, y);
+            toggle = new Toggle();
+            int ty = y + (ControlH - ToggleH) / 2;
+            toggle.SetBounds(Sc(toggleX), Sc(ty), Sc(44), Sc(ToggleH));
+            _main.Controls.Add(toggle);
+            return y + RowH;
+        }
+
+        int AddFieldRow(string label, string suffix, int y, int fieldX, int fieldW, out Stepper stepper)
+        {
+            AddRowLabel(label, y);
+            stepper = new Stepper();
+            stepper.SetBounds(Sc(fieldX), Sc(y), Sc(fieldW), Sc(ControlH));
+            _main.Controls.Add(stepper);
+            // Unit sits just left of the right-aligned control so edges match toggles/dropdowns.
+            if (!string.IsNullOrEmpty(suffix))
+                AddMainLabel(suffix, fieldX - 26, y + (ControlH - 12) / 2, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+            return y + RowH;
+        }
+
+        int AddDropdownRow(string label, string[] items, int y, int fieldX, int fieldW, out FlatDrop drop)
+        {
+            AddRowLabel(label, y);
+            drop = new FlatDrop { Items = items, SelectedIndex = 0 };
+            drop.SetBounds(Sc(fieldX), Sc(y), Sc(fieldW), Sc(ControlH));
+            _main.Controls.Add(drop);
+            return y + RowH;
         }
 
         void RefreshModsRow(bool forceLayout = false)
@@ -336,13 +388,13 @@ namespace TbhCompanion
             int y = _cfgNote.Top;
             if (present)
             {
-                _cfgNote.Location = new Point(Sc(248), y);
-                _cfgNote.Size = new Size(Sc(MainW - 228), Sc(30));
+                _cfgNote.Location = new Point(Sc(PadX + 228), y);
+                _cfgNote.Size = new Size(Sc(MainW - 208), Sc(30));
             }
             else
             {
-                _cfgNote.Location = new Point(Sc(148), y);
-                _cfgNote.Size = new Size(Sc(MainW - 128), Sc(30));
+                _cfgNote.Location = new Point(Sc(PadX + 128), y);
+                _cfgNote.Size = new Size(Sc(MainW - 108), Sc(30));
             }
         }
 
@@ -388,7 +440,7 @@ namespace TbhCompanion
             var p = new Panel
             {
                 BackColor = Theme.Divider,
-                Location = new Point(Sc(20), Sc(y)),
+                Location = new Point(Sc(PadX), Sc(y)),
                 Size = new Size(Sc(MainW), 1)
             };
             _main.Controls.Add(p);
@@ -579,7 +631,7 @@ namespace TbhCompanion
 
         void SetSettingsEnabled(bool on)
         {
-            _autoStart.Enabled = on; _seg.Enabled = on;
+            _autoLoop.Enabled = on; _enableSynth.Enabled = on; _autoRune.Enabled = on; _seg.Enabled = on;
             _tEquip.Enabled = on; _tMaterials.Enabled = on; _tAccessories.Enabled = on;
             _desiredLevel.Enabled = on; _cycleMin.Enabled = on;
             _saveBtn.Enabled = on;
@@ -598,7 +650,9 @@ namespace TbhCompanion
             try
             {
                 string text = File.ReadAllText(_cfgPath);
-                _autoStart.Checked = !string.Equals(GetVal(text, "General", "AutoStart", "true"), "false", StringComparison.OrdinalIgnoreCase);
+                _autoLoop.Checked = !string.Equals(GetVal(text, "General", "AutoStart", "true"), "false", StringComparison.OrdinalIgnoreCase);
+                _enableSynth.Checked = !string.Equals(GetVal(text, "General", "EnableSynthesis", "true"), "false", StringComparison.OrdinalIgnoreCase);
+                _autoRune.Checked = !string.Equals(GetVal(text, "General", "AutoUpgradeRune", "true"), "false", StringComparison.OrdinalIgnoreCase);
                 int mg;
                 if (!int.TryParse(GetVal(text, "Safety", "MaxGrade", "2"), out mg) || mg < 0 || mg > 9) mg = 2;
                 _seg.Value = mg; UpdateRarityLabel();
@@ -638,8 +692,10 @@ namespace TbhCompanion
             try
             {
                 string text = File.ReadAllText(_cfgPath);
-                text = SetVal(text, "General", "AutoStart", _autoStart.Checked ? "true" : "false");
-                // AutoOpenCube / AfterFill / AfterSynthesis are not exposed in the UI — leave cfg values alone.
+                text = SetVal(text, "General", "AutoStart", _autoLoop.Checked ? "true" : "false");
+                text = SetVal(text, "General", "EnableSynthesis", _enableSynth.Checked ? "true" : "false");
+                text = SetVal(text, "General", "AutoUpgradeRune", _autoRune.Checked ? "true" : "false");
+                // AutoOpenCube / AutoOpenRune / AfterFill / AfterSynthesis are not exposed in the UI — leave cfg values alone.
                 text = SetVal(text, "Safety", "MaxGrade", _seg.Value.ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "General", "DesiredLevel",
                     Recipes[Math.Max(0, Math.Min(Recipes.Length - 1, _desiredLevel.SelectedIndex))]
