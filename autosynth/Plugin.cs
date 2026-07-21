@@ -107,7 +107,8 @@ public class AutoSynthPlugin : BasePlugin
         _cycleE = Config.Bind("Timing", "CycleIntervalSeconds", 300.0f,
             "Delay after emptying the cube before the next cycle starts (default: 5 minutes)");
         _autoStartE = Config.Bind("General", "AutoStart", true,
-            "Arm the auto loop as soon as the game starts (no F8 needed). F8 still toggles it.");
+            "Arm the auto loop as soon as the game starts, and sync the live loop when the " +
+            "companion changes this setting. F8 still toggles the live loop without rewriting the cfg.");
         _autoOpenE = Config.Bind("General", "AutoOpenCube", true,
             "While the loop is armed, click the Cube menu button to open the Cube panel when a " +
             "cycle is due. Turn this off to only run while you have the Cube panel open yourself.");
@@ -183,18 +184,7 @@ public class AutoSynthBehaviour : MonoBehaviour
             AutoSynthPlugin.ReloadConfig();
             bool? autoStartChange = AutoSynthPlugin.ConsumeAutoStartChange();
             if (autoStartChange.HasValue)
-            {
-                _auto = autoStartChange.Value;
-                _phase = Phase.Fill;
-                _recipeSelected = false;
-                _recipeAttempts = 0;
-                _typeSelected = false;
-                _nextTick = 0f;
-                _nextOpenAttempt = 0f;
-                _nextStatusWrite = 0f;
-                AutoSynthPlugin.Logger.LogInfo(
-                    $"Auto-synthesis: {(_auto ? "ON" : "OFF")} (from companion AutoStart setting)");
-            }
+                SetAuto(autoStartChange.Value, "from companion AutoStart setting");
         }
         if (Time.unscaledTime >= _nextStatusWrite)
         {
@@ -216,18 +206,7 @@ public class AutoSynthBehaviour : MonoBehaviour
             }
         }
         if (KeyDown(KeyCode.F8))
-        {
-            _auto = !_auto;
-            _phase = Phase.Fill;
-            _cycles = 0;
-            _recipeSelected = false;
-            _recipeAttempts = 0;
-            _typeSelected = false;
-            _nextTick = 0f;
-            _nextOpenAttempt = 0f;
-            _nextStatusWrite = 0f;
-            AutoSynthPlugin.Logger.LogInfo($"Auto-synthesis: {(_auto ? "ON" : "OFF")}");
-        }
+            SetAuto(!_auto, null);
         if (KeyDown(KeyCode.F9))
         {
             var cube = FindCube();
@@ -239,6 +218,21 @@ public class AutoSynthBehaviour : MonoBehaviour
         if (!_auto || Time.unscaledTime < _nextTick) return;
         _nextTick = Time.unscaledTime + 1.5f;
         Tick();
+    }
+
+    void SetAuto(bool on, string reason)
+    {
+        _auto = on;
+        _phase = Phase.Fill;
+        _cycles = 0;
+        _recipeSelected = false;
+        _recipeAttempts = 0;
+        _typeSelected = false;
+        _nextTick = 0f;
+        _nextOpenAttempt = 0f;
+        _nextStatusWrite = 0f;
+        string suffix = string.IsNullOrEmpty(reason) ? "" : " (" + reason + ")";
+        AutoSynthPlugin.Logger.LogInfo($"Auto-synthesis: {(_auto ? "ON" : "OFF")}{suffix}");
     }
 
     private void Tick()

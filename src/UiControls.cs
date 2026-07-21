@@ -9,8 +9,6 @@ namespace TbhCompanion
     static class Theme
     {
         public static readonly Color FormBg      = Hex("f4f5f7");
-        public static readonly Color TitleTop    = Hex("ffffff");
-        public static readonly Color TitleBottom = Hex("ffffff");
         public static readonly Color SideBg      = Hex("ffffff");
         public static readonly Color StatusCard  = Hex("f4f5f7");
         public static readonly Color CardBg      = Hex("ffffff");
@@ -21,20 +19,12 @@ namespace TbhCompanion
         public static readonly Color AccentSoft  = Hex("eff6ff");
         public static readonly Color Secondary   = Hex("374151");
         public static readonly Color Green       = Hex("16a34a");
-        public static readonly Color Blue        = Hex("2563eb");
-        public static readonly Color BadgeBg     = Hex("f3f4f6");
-        public static readonly Color BadgeBorder = Hex("e5e7eb");
-        public static readonly Color BadgeText   = Hex("374151");
         public static readonly Color Divider     = Hex("eef0f3");
         public static readonly Color StepBtnBg   = Hex("f3f4f6");
         public static readonly Color TypeSelBg   = Hex("eff6ff");
         public static readonly Color ToggleOff   = Hex("d1d5db");
         public static readonly Color SegEmpty    = Hex("e5e7eb");
         public static readonly Color Amber       = Hex("d97706");
-
-        // Legacy aliases used by StatusForm (mapped to the modern palette).
-        public static readonly Color Brown      = Accent;
-        public static readonly Color Terracotta = Accent;
 
         public static readonly Color[] GradeColors =
         {
@@ -43,11 +33,9 @@ namespace TbhCompanion
         };
 
         public static Font F(float size, FontStyle style) { return new Font("Segoe UI", size, style); }
-        public static Font FSerif(float size, FontStyle style) { return F(size, style); }
 
         // DPI scale for a paint surface (1.0 at 96 dpi, 1.25 at 125%, ...).
         public static float Scale(Graphics g) { return g.DpiX / 96f; }
-        public static float ScaleOf(Control c) { return c.DeviceDpi / 96f; }
 
         static Color Hex(string h)
         {
@@ -98,31 +86,6 @@ namespace TbhCompanion
         }
     }
 
-    // Rounded card background with 1px border.
-    class Card : Panel
-    {
-        public int Radius = 10;
-        public Color Border = Theme.CardBorder;
-        public float BorderWidth = 1f;
-        public Card()
-        {
-            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint |
-                     ControlStyles.UserPaint | ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
-            BackColor = Theme.CardBg;
-        }
-        protected override void OnPaintBackground(PaintEventArgs e) { /* painted in OnPaint */ }
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-            float s = Theme.Scale(g);
-            var r = ClientRectangle;
-            using (var b = new SolidBrush(Parent != null ? Parent.BackColor : Theme.FormBg)) g.FillRectangle(b, r);
-            Theme.FillRound(g, r, (int)(Radius * s), BackColor);
-            Theme.DrawRoundBorder(g, r, (int)(Radius * s), Border, BorderWidth * s);
-            base.OnPaint(e);
-        }
-    }
-
     // iOS-style pill toggle.
     class Toggle : Control
     {
@@ -157,7 +120,6 @@ namespace TbhCompanion
     class TypeTile : Control
     {
         bool _sel;
-        public string Icon = "";
         public string Caption = "";
         public event EventHandler SelectedChanged;
         public bool Selected { get { return _sel; } set { if (_sel != value) { _sel = value; Invalidate(); if (SelectedChanged != null) SelectedChanged(this, EventArgs.Empty); } } }
@@ -210,7 +172,7 @@ namespace TbhCompanion
             float s = Theme.Scale(g);
             using (var b = new SolidBrush(Parent != null ? Parent.BackColor : Theme.CardBg)) g.FillRectangle(b, ClientRectangle);
             int n = 10; float gap = 3 * s; int rad = (int)(4 * s);
-            float step = (Width + gap) / (float)n;      // segment pitch incl. gap
+            float step = (Width + gap) / (float)n;
             float segW = step - gap;
             for (int i = 0; i < n; i++)
             {
@@ -271,34 +233,6 @@ namespace TbhCompanion
         }
     }
 
-    // Pill status badge (dot + text) for the title bar.
-    class PillBadge : Control
-    {
-        Color _dot = Theme.Green;
-        string _text = "";
-        public void Set(string text, Color dot) { _text = text; _dot = dot; Invalidate(); }
-        public PillBadge()
-        {
-            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint |
-                     ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
-            Height = 26;
-        }
-        protected override void OnPaintBackground(PaintEventArgs e) { }
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-            float s = Theme.Scale(g);
-            using (var b = new SolidBrush(Parent != null ? Parent.BackColor : Theme.TitleBottom)) g.FillRectangle(b, ClientRectangle);
-            var r = new Rectangle(0, 0, Width, Height);
-            Theme.FillRound(g, r, Height / 2, Theme.BadgeBg);
-            Theme.DrawRoundBorder(g, r, Height / 2, Theme.BadgeBorder, 1f);
-            int dd = (int)Math.Round(7 * s);
-            using (var b = new SolidBrush(_dot)) g.FillEllipse(b, (int)(10 * s), (Height - dd) / 2, dd, dd);
-            using (var f = Theme.F(9f, FontStyle.Regular)) using (var b = new SolidBrush(Theme.BadgeText))
-                g.DrawString(_text, f, b, new PointF(22 * s, (Height - f.Height) / 2f));
-        }
-    }
-
     // Flat rounded button (filled).
     class FlatButton : Control
     {
@@ -321,6 +255,96 @@ namespace TbhCompanion
             var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
             using (var f = Theme.F(10f, FontStyle.Bold)) using (var b = new SolidBrush(Enabled ? TextColor : Theme.TextMuted))
                 g.DrawString(Text, f, b, r, sf);
+        }
+    }
+
+    // Live status cards for the side panel (Presence / Synth).
+    class LiveStrip : Control
+    {
+        struct Row
+        {
+            public string Title, Value, Sub, State;
+            public Color StateColor;
+        }
+
+        readonly Row[] _rows = new Row[3];
+        public int Columns = 1;
+
+        public LiveStrip()
+        {
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+        }
+
+        public void SetRow(int i, string title, string value, string sub, string state, Color stateColor)
+        {
+            if (i < 0 || i >= _rows.Length) return;
+            _rows[i].Title = title;
+            _rows[i].Value = value;
+            _rows[i].Sub = sub;
+            _rows[i].State = state;
+            _rows[i].StateColor = stateColor;
+            Invalidate();
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e) { }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            float s = Theme.Scale(g);
+            Color bg = Parent != null ? Parent.BackColor : Theme.SideBg;
+            using (var b = new SolidBrush(bg)) g.FillRectangle(b, ClientRectangle);
+
+            int n = Math.Max(1, Math.Min(3, Columns));
+            float gap = 8 * s;
+            float rowH = (Height - gap * (n - 1)) / n;
+            int rad = (int)(8 * s);
+
+            for (int i = 0; i < n; i++)
+            {
+                float y = i * (rowH + gap);
+                var card = new Rectangle(0, (int)Math.Round(y), Width, (int)Math.Round(rowH));
+                Theme.FillRound(g, card, rad, Theme.StatusCard);
+
+                float pad = 10 * s;
+                float tx = pad;
+                float ty = card.Y + 8 * s;
+
+                using (var f = Theme.F(7.5f, FontStyle.Bold)) using (var b = new SolidBrush(Theme.TextMuted))
+                    g.DrawString(_rows[i].Title ?? "", f, b, new PointF(tx, ty));
+
+                string state = _rows[i].State ?? "";
+                if (state.Length > 0)
+                {
+                    using (var f = Theme.F(7.5f, FontStyle.Bold))
+                    {
+                        var sz = g.MeasureString(state, f);
+                        float bw = sz.Width + 10 * s;
+                        float bh = Math.Max(16 * s, sz.Height + 2 * s);
+                        var badge = new Rectangle(
+                            (int)(Width - pad - bw),
+                            (int)(card.Y + 7 * s),
+                            (int)bw, (int)bh);
+                        Color fill = Color.FromArgb(28, _rows[i].StateColor);
+                        Theme.FillRound(g, badge, (int)(bh / 2), fill);
+                        using (var b = new SolidBrush(_rows[i].StateColor))
+                        {
+                            var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                            g.DrawString(state, f, b, badge, sf);
+                        }
+                    }
+                }
+
+                using (var f = Theme.F(10.5f, FontStyle.Bold)) using (var b = new SolidBrush(Theme.TextDark))
+                    g.DrawString(_rows[i].Value ?? "", f, b, new PointF(tx, card.Y + 26 * s));
+
+                if (!string.IsNullOrEmpty(_rows[i].Sub))
+                {
+                    using (var f = Theme.F(8f, FontStyle.Regular)) using (var b = new SolidBrush(Theme.TextMuted))
+                        g.DrawString(_rows[i].Sub, f, b, new PointF(tx, card.Y + 46 * s));
+                }
+            }
         }
     }
 }

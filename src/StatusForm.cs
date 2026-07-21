@@ -11,7 +11,7 @@ using System.Windows.Forms;
 namespace TbhCompanion
 {
     // Status & settings window (clean modern theme, side-panel layout).
-    // Left rail: brand + connection pills + live status. Right: settings.
+    // Left rail: brand + live status. Right: settings.
     public class StatusForm : Form
     {
         static readonly string[] Grades =
@@ -22,7 +22,6 @@ namespace TbhCompanion
             "tbh-companion", "autosynth-status.json");
 
         const int W = 640, SideW = 188, H = 420;
-        const int MainX = SideW + 20;
         const int MainW = W - SideW - 40; // content width in main pane
 
         readonly Func<string> _stageLabel;
@@ -33,7 +32,8 @@ namespace TbhCompanion
         readonly Timer _timer;
         string _cfgPath, _bepinexCfgPath;
         bool _modOpRunning;          // install or remove in flight
-        bool _modsPresent;           // last remnant-present state
+        bool _modsLayoutReady;
+        bool _modsPresent;
 
         Bitmap _icon;
         Rectangle _closeRect;
@@ -50,7 +50,7 @@ namespace TbhCompanion
         Label _rarityValue;
         Stepper _cycleMin;
         FlatButton _saveBtn, _setupBtn, _removeBtn;
-        Label _cfgNote, _setupNote;
+        Label _cfgNote;
 
         public StatusForm(Func<string> stageLabel, Func<bool> discordConnected, Func<string> diag,
             Func<bool> presenceEnabled, Action<bool> setPresenceEnabled)
@@ -114,7 +114,7 @@ namespace TbhCompanion
             // Live status at the bottom: Presence + Synth/cycles as compact cards.
             int rows = Build.Synth ? 2 : 1;
             int statusH = rows * 68 + (rows - 1) * 8;
-            _live = new LiveStrip { Columns = rows, Vertical = true, Flat = true };
+            _live = new LiveStrip { Columns = rows };
             _live.SetBounds(Sc(12), Height - Sc(14 + statusH), Sc(SideW - 24), Sc(statusH));
             _live.SetRow(0, "Presence", "—", "", "Off", Theme.TextMuted);
             if (Build.Synth)
@@ -142,15 +142,17 @@ namespace TbhCompanion
                 g.DrawLine(pen, _side.Width - 1, Sc(12), _side.Width - 1, _side.Height - Sc(12));
         }
 
-        void SideMouseDown(object sender, MouseEventArgs e)
-        {
-            _dragging = true;
-            _dragOffset = new Point(e.X, e.Y);
-        }
+        void SideMouseDown(object sender, MouseEventArgs e) { BeginDrag(e.Location); }
 
         void SideMouseMove(object sender, MouseEventArgs e)
         {
             if (_dragging) Location = new Point(Location.X + e.X - _dragOffset.X, Location.Y + e.Y - _dragOffset.Y);
+        }
+
+        void BeginDrag(Point local)
+        {
+            _dragging = true;
+            _dragOffset = local;
         }
 
         // ---- main pane (settings / presence) ----
@@ -165,6 +167,8 @@ namespace TbhCompanion
             };
             _main.Paint += PaintMain;
             _main.MouseDown += MainMouseDown;
+            _main.MouseMove += MainMouseMove;
+            _main.MouseUp += delegate { _dragging = false; };
             Controls.Add(_main);
 
             if (Build.Synth)
@@ -187,7 +191,13 @@ namespace TbhCompanion
 
         void MainMouseDown(object sender, MouseEventArgs e)
         {
-            if (_closeRect.Contains(e.Location)) Close();
+            if (_closeRect.Contains(e.Location)) { Close(); return; }
+            if (e.Y <= Sc(40)) BeginDrag(e.Location);
+        }
+
+        void MainMouseMove(object sender, MouseEventArgs e)
+        {
+            if (_dragging) Location = new Point(Location.X + e.X - _dragOffset.X, Location.Y + e.Y - _dragOffset.Y);
         }
 
         void BuildPresenceOnly()
@@ -285,9 +295,8 @@ namespace TbhCompanion
                 TextAlign = ContentAlignment.MiddleLeft
             };
             _main.Controls.Add(_cfgNote);
-            _setupNote = _cfgNote;
 
-            RefreshModsRow();
+            RefreshModsRow(forceLayout: true);
         }
 
         void RefreshModsRow(bool forceLayout = false)
@@ -296,7 +305,9 @@ namespace TbhCompanion
             _setupBtn.Visible = !present;
             _saveBtn.Visible = present;
             _removeBtn.Visible = present;
-            // Note sits after Save+Remove, or after Install when mods are absent.
+            if (!forceLayout && _modsLayoutReady && _modsPresent == present) return;
+            _modsLayoutReady = true;
+            _modsPresent = present;
             int y = _cfgNote.Top;
             if (present)
             {
@@ -308,7 +319,6 @@ namespace TbhCompanion
                 _cfgNote.Location = new Point(Sc(148), y);
                 _cfgNote.Size = new Size(Sc(MainW - 128), Sc(30));
             }
-            _modsPresent = present;
         }
 
         // ---- helpers ----
@@ -376,16 +386,6 @@ namespace TbhCompanion
             Theme.DrawRoundBorder(g, full, Sc(12), Theme.CardBorder, 1f);
         }
 
-        protected override void OnMouseDown(MouseEventArgs e)
-        {
-            if (e.X <= Sc(SideW) || e.Y <= Sc(40)) { _dragging = true; _dragOffset = e.Location; }
-            base.OnMouseDown(e);
-        }
-        protected override void OnMouseMove(MouseEventArgs e)
-        {
-            if (_dragging) Location = new Point(Location.X + e.X - _dragOffset.X, Location.Y + e.Y - _dragOffset.Y);
-            base.OnMouseMove(e);
-        }
         protected override void OnMouseUp(MouseEventArgs e) { _dragging = false; base.OnMouseUp(e); }
 
         // ---- one-click BepInEx setup / cleanup ----
@@ -433,7 +433,7 @@ namespace TbhCompanion
 
             _modOpRunning = true;
             onBusy();
-            _setupNote.Text = "working...";
+            _cfgNote.Text = "working...";
             var t = new System.Threading.Thread(delegate()
             {
                 bool success = work(delegate(string s) { PostNote(s); });
@@ -445,7 +445,7 @@ namespace TbhCompanion
 
         void PostNote(string s)
         {
-            try { if (!IsDisposed) BeginInvoke((Action)delegate { _setupNote.Text = s; }); }
+            try { if (!IsDisposed) BeginInvoke((Action)delegate { _cfgNote.Text = s; }); }
             catch { }
         }
 
@@ -459,11 +459,11 @@ namespace TbhCompanion
                     _modOpRunning = false;
                     _setupBtn.Enabled = true;
                     _removeBtn.Enabled = true;
-                    string note = _setupNote.Text;
+                    string note = _cfgNote.Text;
                     LoadConfig();
                     if (!success && !string.IsNullOrEmpty(note) && note != "working...")
-                        _setupNote.Text = note;
-                    RefreshModsRow();
+                        _cfgNote.Text = note;
+                    RefreshModsRow(forceLayout: true);
                 });
             }
             catch { }
@@ -611,7 +611,7 @@ namespace TbhCompanion
             {
                 string text = File.ReadAllText(_cfgPath);
                 text = SetVal(text, "General", "AutoStart", _autoStart.Checked ? "true" : "false");
-                text = SetVal(text, "General", "AutoOpenCube", "true");
+                // AutoOpenCube / AfterFill / AfterSynthesis are not exposed in the UI — leave cfg values alone.
                 text = SetVal(text, "Safety", "MaxGrade", _seg.Value.ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "Timing", "CycleIntervalSeconds", (_cycleMin.Value * 60).ToString(CultureInfo.InvariantCulture));
                 var types = new List<string>();
@@ -632,10 +632,32 @@ namespace TbhCompanion
                         consoleRestart = true;
                     }
                 }
-                _cfgNote.Text = consoleRestart ? "saved — console change needs a game restart"
-                                               : "saved — applies in-game within ~10s";
+                if (consoleRestart)
+                    _cfgNote.Text = "saved — console change needs a game restart";
+                else if (PluginSupportsLiveAutoStart())
+                    _cfgNote.Text = "saved — applies in-game within ~10s";
+                else
+                    _cfgNote.Text = "saved — restart the game to apply (plugin update pending)";
             }
             catch (Exception ex) { _cfgNote.Text = "save failed: " + ex.Message; }
+        }
+
+        // Live AutoStart sync landed in plugin 0.24.1; older loaded plugins need a restart.
+        static bool PluginSupportsLiveAutoStart()
+        {
+            try
+            {
+                if (!File.Exists(StatusPath)) return false;
+                var js = new JavaScriptSerializer();
+                var d = js.Deserialize<Dictionary<string, object>>(File.ReadAllText(StatusPath));
+                DateTime updated = DateTime.Parse((string)d["updatedUtc"], null, DateTimeStyles.RoundtripKind);
+                if ((DateTime.UtcNow - updated).TotalSeconds > 15) return false;
+                object verObj;
+                if (!d.TryGetValue("version", out verObj) || verObj == null) return false;
+                Version v;
+                return Version.TryParse(verObj.ToString(), out v) && v >= new Version(0, 24, 1);
+            }
+            catch { return false; }
         }
 
         static Regex KeyLine(string key)
@@ -683,102 +705,6 @@ namespace TbhCompanion
         {
             decimal v;
             return decimal.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out v) ? v : 0;
-        }
-    }
-
-    // Live status cards for the side panel (Presence / Synth).
-    class LiveStrip : Control
-    {
-        struct Row
-        {
-            public string Title, Value, Sub, State;
-            public Color StateColor;
-        }
-
-        readonly Row[] _rows = new Row[3];
-        public int Columns = 1;
-        public bool Vertical = true;
-        public bool Flat = true;
-
-        public LiveStrip()
-        {
-            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint |
-                     ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
-        }
-
-        public void SetRow(int i, string title, string value, string sub, string state, Color stateColor)
-        {
-            if (i < 0 || i >= _rows.Length) return;
-            _rows[i].Title = title;
-            _rows[i].Value = value;
-            _rows[i].Sub = sub;
-            _rows[i].State = state;
-            _rows[i].StateColor = stateColor;
-            Invalidate();
-        }
-
-        protected override void OnPaintBackground(PaintEventArgs e) { }
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-            float s = Theme.Scale(g);
-            Color bg = Parent != null ? Parent.BackColor : Theme.SideBg;
-            using (var b = new SolidBrush(bg)) g.FillRectangle(b, ClientRectangle);
-
-            int n = Math.Max(1, Math.Min(3, Columns));
-            float gap = 8 * s;
-            float rowH = (Height - gap * (n - 1)) / n;
-            int rad = (int)(8 * s);
-
-            for (int i = 0; i < n; i++)
-            {
-                float y = i * (rowH + gap);
-                var card = new Rectangle(0, (int)Math.Round(y), Width, (int)Math.Round(rowH));
-                Theme.FillRound(g, card, rad, Theme.StatusCard);
-
-                float pad = 10 * s;
-                float tx = pad;
-                float ty = card.Y + 8 * s;
-
-                // Title
-                using (var f = Theme.F(7.5f, FontStyle.Bold)) using (var b = new SolidBrush(Theme.TextMuted))
-                    g.DrawString(_rows[i].Title ?? "", f, b, new PointF(tx, ty));
-
-                // State badge (right-aligned)
-                string state = _rows[i].State ?? "";
-                if (state.Length > 0)
-                {
-                    using (var f = Theme.F(7.5f, FontStyle.Bold))
-                    {
-                        var sz = g.MeasureString(state, f);
-                        float bw = sz.Width + 10 * s;
-                        float bh = Math.Max(16 * s, sz.Height + 2 * s);
-                        var badge = new Rectangle(
-                            (int)(Width - pad - bw),
-                            (int)(card.Y + 7 * s),
-                            (int)bw, (int)bh);
-                        Color fill = Color.FromArgb(28, _rows[i].StateColor);
-                        Theme.FillRound(g, badge, (int)(bh / 2), fill);
-                        using (var b = new SolidBrush(_rows[i].StateColor))
-                        {
-                            var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-                            g.DrawString(state, f, b, badge, sf);
-                        }
-                    }
-                }
-
-                // Value
-                using (var f = Theme.F(10.5f, FontStyle.Bold)) using (var b = new SolidBrush(Theme.TextDark))
-                    g.DrawString(_rows[i].Value ?? "", f, b, new PointF(tx, card.Y + 26 * s));
-
-                // Sub
-                if (!string.IsNullOrEmpty(_rows[i].Sub))
-                {
-                    using (var f = Theme.F(8f, FontStyle.Regular)) using (var b = new SolidBrush(Theme.TextMuted))
-                        g.DrawString(_rows[i].Sub, f, b, new PointF(tx, card.Y + 46 * s));
-                }
-            }
         }
     }
 }
