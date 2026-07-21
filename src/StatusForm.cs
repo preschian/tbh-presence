@@ -17,11 +17,20 @@ namespace TbhCompanion
         static readonly string[] Grades =
             { "Common", "Uncommon", "Rare", "Legendary", "Immortal", "Arcana", "Beyond", "Celestial", "Divine", "Cosmic" };
 
+        // In-game synthesis sub-recipe labels (from the Cube dropdown), plus Max.
+        // DesiredLevel stores the bracket's lower bound (0 = highest unlocked).
+        static readonly string[] RecipeLabels =
+        {
+            "Max", "Lv.1~10", "Lv.10~20", "Lv.15~30", "Lv.20~40",
+            "Lv.30~50", "Lv.40~65", "Lv.50~65", "Lv.65~80"
+        };
+        static readonly int[] RecipeLevels = { 0, 1, 10, 15, 20, 30, 40, 50, 65 };
+
         static readonly string StatusPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "tbh-companion", "autosynth-status.json");
 
-        const int W = 640, SideW = 188, H = 420;
+        const int W = 640, SideW = 188, H = 456;
         const int MainW = W - SideW - 40; // content width in main pane
 
         readonly Func<string> _stageLabel;
@@ -49,6 +58,7 @@ namespace TbhCompanion
         SegmentBar _seg;
         Label _rarityValue;
         Stepper _cycleMin;
+        FlatDrop _desiredLevel;
         FlatButton _saveBtn, _setupBtn, _removeBtn;
         Label _cfgNote;
 
@@ -259,6 +269,12 @@ namespace TbhCompanion
             _seg.ValueChanged += delegate { UpdateRarityLabel(); };
             _main.Controls.Add(_seg);
             y += 24;
+
+            AddMainLabel("Target level", 20, y + 4, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
+            _desiredLevel = new FlatDrop { Items = RecipeLabels, SelectedIndex = 0 };
+            _desiredLevel.SetBounds(Sc(MainW - 8 - 128), Sc(y), Sc(128), Sc(28));
+            _main.Controls.Add(_desiredLevel);
+            y += 36;
 
             AddMainLabel("Cycle interval", 20, y + 4, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
             AddMainLabel("min", MainW - 8, y + 6, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
@@ -556,7 +572,7 @@ namespace TbhCompanion
         {
             _autoStart.Enabled = on; _seg.Enabled = on;
             _tEquip.Enabled = on; _tMaterials.Enabled = on; _tAccessories.Enabled = on;
-            _cycleMin.Enabled = on;
+            _desiredLevel.Enabled = on; _cycleMin.Enabled = on;
             _saveBtn.Enabled = on;
         }
 
@@ -577,6 +593,9 @@ namespace TbhCompanion
                 int mg;
                 if (!int.TryParse(GetVal(text, "Safety", "MaxGrade", "2"), out mg) || mg < 0 || mg > 9) mg = 2;
                 _seg.Value = mg; UpdateRarityLabel();
+                int dl;
+                if (!int.TryParse(GetVal(text, "General", "DesiredLevel", "0"), out dl) || dl < 0) dl = 0;
+                _desiredLevel.SelectedIndex = RecipeIndex(dl);
                 decimal cycleSec = ParseF(GetVal(text, "Timing", "CycleIntervalSeconds", "300"));
                 _cycleMin.SetValue(Math.Round(cycleSec / 60m));
                 string types = GetVal(text, "General", "SynthesisTypes", "Equipment,Materials,Accessories").ToLowerInvariant();
@@ -613,6 +632,9 @@ namespace TbhCompanion
                 text = SetVal(text, "General", "AutoStart", _autoStart.Checked ? "true" : "false");
                 // AutoOpenCube / AfterFill / AfterSynthesis are not exposed in the UI — leave cfg values alone.
                 text = SetVal(text, "Safety", "MaxGrade", _seg.Value.ToString(CultureInfo.InvariantCulture));
+                text = SetVal(text, "General", "DesiredLevel",
+                    RecipeLevels[Math.Max(0, Math.Min(RecipeLevels.Length - 1, _desiredLevel.SelectedIndex))]
+                        .ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "Timing", "CycleIntervalSeconds", (_cycleMin.Value * 60).ToString(CultureInfo.InvariantCulture));
                 var types = new List<string>();
                 if (_tEquip.Selected) types.Add("Equipment");
@@ -705,6 +727,19 @@ namespace TbhCompanion
         {
             decimal v;
             return decimal.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out v) ? v : 0;
+        }
+
+        static int RecipeIndex(int desiredLevel)
+        {
+            for (int i = 0; i < RecipeLevels.Length; i++)
+                if (RecipeLevels[i] == desiredLevel) return i;
+            // Legacy free-form level: map to the bracket whose range contains it.
+            if (desiredLevel > 0)
+            {
+                for (int i = RecipeLevels.Length - 1; i >= 1; i--)
+                    if (RecipeLevels[i] <= desiredLevel) return i;
+            }
+            return 0;
         }
     }
 }

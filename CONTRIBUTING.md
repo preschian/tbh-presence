@@ -259,8 +259,10 @@ it:
 - Clicking a `ButtonBase` needs both `OnPointerClick(...)` *and* the wrapped
   `Button.onClick.Invoke()` — the former only plays hover/click effects.
 - The sub-recipe (cube level) dropdown entries carry prefab-default labels
-  until populated; the plugin triggers population and picks the bracket with
-  the highest lower level bound.
+  until populated; the plugin triggers population and picks by
+  `DesiredLevel` (0 = highest unlocked lower bound; otherwise the bracket
+  whose lower bound equals that value — the same tiers shown in the
+  companion Target level dropdown).
 
 **Legacy PowerShell prototype** (`legacy/`, for development/inspection):
 

@@ -83,10 +83,10 @@ integrity of game files** afterward.
 ## Using auto-synthesis
 
 Open the **Cube** panel in the game — that's it. The loop starts on its own:
-it picks the highest cube level you've unlocked, fills the cube with
-materials, runs the synthesis, empties the cube, then waits for the next
-round (every 5 minutes by default). The Cube panel must stay open while it
-works.
+it picks the highest cube level you've unlocked (or a target level you set in
+Status & Settings), fills the cube with materials, runs the synthesis, empties
+the cube, then waits for the next round (every 5 minutes by default). The Cube
+panel must stay open while it works.
 
 In-game keys:
 
@@ -119,6 +119,9 @@ auto-synthesis loop is on (with cycle count). The right pane has the settings.
   - **which item types** — Equipment, Materials, Accessories (any combination;
     the loop rotates through them),
   - **max rarity** (default: Legendary),
+  - **target level** — which cube recipe bracket to use (dropdown matching
+    the in-game list: Max / `Lv.1~10` … `Lv.65~80`; default Max = highest
+    unlocked),
   - how often a round runs (minutes),
   - show/hide the BepInEx log console (applies on next game start).
 

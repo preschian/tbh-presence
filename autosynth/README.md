@@ -1,7 +1,8 @@
 # TBH Auto Synthesis (BepInEx plugin)
 
-Automates TaskBarHero's **Cube synthesis**: pick the highest unlocked recipe,
-auto-fill the cube, run the synthesis, empty the cube, wait, repeat.
+Automates TaskBarHero's **Cube synthesis**: pick a synthesis recipe
+(highest unlocked by default, or a target level you configure), auto-fill the
+cube, run the synthesis, empty the cube, wait, repeat.
 
 > **Unlike the presence app, this is a game mod.** It runs *inside* the game
 > via [BepInEx](https://github.com/BepInEx/BepInEx) and clicks the game's own
@@ -24,7 +25,7 @@ cycle is due — so nothing has to be open beforehand. Hotkeys:
 
 | Key | Action |
 |-----|--------|
-| **F8** | Toggle the auto loop: open Cube → select highest unlocked recipe → auto-fill → grade check → synthesis → clear cube → wait → repeat |
+| **F8** | Toggle the auto loop: open Cube → select recipe (highest unlocked or configured target level) → auto-fill → grade check → synthesis → clear cube → wait → repeat |
 | **F9** | Click the synthesis trigger once |
 | **F10** | Dump button states and cube-slot item grades to `BepInEx\LogOutput.log` |
 
@@ -40,6 +41,7 @@ for you to open the panel yourself instead of opening it.
 | `AutoStart` | true | Arm the auto loop at game start, no F8 needed |
 | `AutoOpenCube` | true | Click the Cube menu button to open the Cube panel when a cycle is due (at most once every 10s, so it doesn't fight you for the tab) |
 | `SynthesisTypes` | Equipment,Materials,Accessories | Which item types to synthesize; the loop rotates through them each round. e.g. `Equipment,Materials` to skip accessories. |
+| `DesiredLevel` | 0 | Target synthesis recipe. `0` = highest unlocked (default). Otherwise the lower bound of an in-game bracket: `1`=`Lv.1~10`, `10`=`Lv.10~20`, `15`=`Lv.15~30`, `20`=`Lv.20~40`, `30`=`Lv.30~50`, `40`=`Lv.40~65`, `50`=`Lv.50~65`, `65`=`Lv.65~80`. |
 | `MaxGrade` | 3 | Highest rarity the loop may synthesize (0=Common, 1=Uncommon, 2=Rare, 3=Legendary, 4=Immortal, …). Cycles holding anything above this are skipped. |
 | `CycleIntervalSeconds` | 300 | Pause between cycles |
 | `AfterFillSeconds` | 1 | Delay between auto-fill and synthesis |
