@@ -4,7 +4,6 @@ using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
-using System.Reflection;
 using Il2CppInterop.Runtime.Injection;
 using TaskbarHero;
 using TaskbarHero.Data;
@@ -12,13 +11,14 @@ using TaskbarHero.UI;
 using TS;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.UI;
 
 namespace TbhAutoSynth;
 
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.25.0";
+    internal const string Version = "0.26.11";
 #if RESILIENT
     // Built with /define:RESILIENT for the "-next" edition: obfuscated members are
     // resolved by signature at runtime instead of by hard-coded name, so a game
@@ -30,19 +30,24 @@ public class AutoSynthPlugin : BasePlugin
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
-    private static ConfigEntry<float> _afterFillE, _afterSynthE, _cycleE;
-    private static ConfigEntry<int> _maxGradeE, _desiredLevelE;
-    private static ConfigEntry<bool> _autoStartE, _autoOpenE;
+    private static ConfigEntry<float> _afterFillE, _afterSynthE, _cycleE, _afterRuneE;
+    private static ConfigEntry<int> _maxGradeE, _desiredLevelE, _maxRuneUpgradesE;
+    private static ConfigEntry<bool> _autoStartE, _autoOpenE, _autoRuneE, _autoOpenRuneE, _enableSynthE;
 
     internal static float AfterFillDelay => _afterFillE != null ? _afterFillE.Value : 1.0f;
     internal static float AfterSynthDelay => _afterSynthE != null ? _afterSynthE.Value : 4.0f;
     internal static float AfterClearDelay => _cycleE != null ? _cycleE.Value : 300.0f;
+    internal static float AfterRuneUpgradeDelay => _afterRuneE != null ? _afterRuneE.Value : 0.5f;
     internal static int MaxGrade => _maxGradeE != null ? _maxGradeE.Value : 2;
     // 0 = highest unlocked recipe (default). >0 = exact lower-bound match, else
     // the highest unlocked bracket with lo <= DesiredLevel.
     internal static int DesiredLevel => _desiredLevelE != null ? _desiredLevelE.Value : 0;
+    internal static int MaxRuneUpgradesPerCycle => _maxRuneUpgradesE != null ? _maxRuneUpgradesE.Value : 20;
     internal static bool AutoStart => _autoStartE == null || _autoStartE.Value;
     internal static bool AutoOpenCube => _autoOpenE == null || _autoOpenE.Value;
+    internal static bool AutoUpgradeRune => _autoRuneE != null && _autoRuneE.Value;
+    internal static bool AutoOpenRune => _autoOpenRuneE == null || _autoOpenRuneE.Value;
+    internal static bool EnableSynthesis => _enableSynthE == null || _enableSynthE.Value;
 
     private static ConfigEntry<string> _typesE;
 
@@ -80,12 +85,17 @@ public class AutoSynthPlugin : BasePlugin
         if (_conf == null) return;
         try
         {
-            int mg = MaxGrade, dl = DesiredLevel;
-            float ci = AfterClearDelay; bool auto = AutoStart; bool open = AutoOpenCube;
+            int mg = MaxGrade, dl = DesiredLevel, mr = MaxRuneUpgradesPerCycle;
+            float ci = AfterClearDelay;
+            bool auto = AutoStart, open = AutoOpenCube, rune = AutoUpgradeRune, synth = EnableSynthesis;
             _conf.Reload();
-            if (mg != MaxGrade || dl != DesiredLevel || ci != AfterClearDelay || auto != AutoStart || open != AutoOpenCube)
+            if (mg != MaxGrade || dl != DesiredLevel || ci != AfterClearDelay || auto != AutoStart
+                || open != AutoOpenCube || rune != AutoUpgradeRune || synth != EnableSynthesis
+                || mr != MaxRuneUpgradesPerCycle)
                 Logger.LogInfo($"config reloaded: MaxGrade={MaxGrade}, DesiredLevel={DesiredLevel}, " +
-                               $"CycleIntervalSeconds={AfterClearDelay}, AutoStart={AutoStart}, AutoOpenCube={AutoOpenCube}");
+                               $"CycleIntervalSeconds={AfterClearDelay}, AutoStart={AutoStart}, " +
+                               $"EnableSynthesis={EnableSynthesis}, AutoUpgradeRune={AutoUpgradeRune}, " +
+                               $"MaxRuneUpgradesPerCycle={MaxRuneUpgradesPerCycle}");
         }
         catch (Exception e) { Logger.LogWarning("config reload failed: " + e.Message); }
     }
@@ -109,13 +119,24 @@ public class AutoSynthPlugin : BasePlugin
         _afterSynthE = Config.Bind("Timing", "AfterSynthesisSeconds", 4.0f,
             "Delay after clicking the trigger, so the synthesis can finish");
         _cycleE = Config.Bind("Timing", "CycleIntervalSeconds", 300.0f,
-            "Delay after emptying the cube before the next cycle starts (default: 5 minutes)");
+            "Delay after the Cube+Rune cycle finishes before the next cycle starts (default: 5 minutes)");
+        _afterRuneE = Config.Bind("Timing", "AfterRuneUpgradeSeconds", 0.5f,
+            "Delay between successive rune level-up clicks within the Rune phase");
         _autoStartE = Config.Bind("General", "AutoStart", true,
             "Arm the auto loop as soon as the game starts, and sync the live loop when the " +
             "companion changes this setting. F8 still toggles the live loop without rewriting the cfg.");
+        _enableSynthE = Config.Bind("General", "EnableSynthesis", true,
+            "When the loop runs, perform Cube synthesis (fill -> synth -> clear). Turn off to skip the Cube phase.");
         _autoOpenE = Config.Bind("General", "AutoOpenCube", true,
             "While the loop is armed, click the Cube menu button to open the Cube panel when a " +
             "cycle is due. Turn this off to only run while you have the Cube panel open yourself.");
+        _autoRuneE = Config.Bind("General", "AutoUpgradeRune", false,
+            "After the Cube phase (or at cycle start if synthesis is off), open the Rune panel and " +
+            "upgrade the cheapest affordable runes.");
+        _autoOpenRuneE = Config.Bind("General", "AutoOpenRune", true,
+            "During the Rune phase, click the Rune menu button to open the Rune panel.");
+        _maxRuneUpgradesE = Config.Bind("Safety", "MaxRuneUpgradesPerCycle", 20,
+            "Maximum rune level-ups to perform in a single cycle (safety cap).");
         _typesE = Config.Bind("General", "SynthesisTypes", "Equipment,Materials,Accessories",
             "Which synthesis item types the loop rotates through, comma-separated: " +
             "Equipment, Materials, Accessories. e.g. 'Equipment,Materials' to skip accessories.");
@@ -130,17 +151,17 @@ public class AutoSynthPlugin : BasePlugin
         if (!ClassInjector.IsTypeRegisteredInIl2Cpp<AutoSynthBehaviour>())
             ClassInjector.RegisterTypeInIl2Cpp<AutoSynthBehaviour>();
         AddComponent<AutoSynthBehaviour>();
-        Logger.LogInfo($"TBH Auto Synthesis {Version}{Variant}: F8 = toggle auto (select recipe -> fill -> synth -> clear loop), F9 = click trigger once, F10 = dump cube state.");
+        Logger.LogInfo($"TBH Auto Synthesis {Version}{Variant}: " +
+                       "F7 = run one cycle now, F8 = toggle auto loop, F9 = click synth trigger, F10 = dump cube+rune state.");
     }
 }
 
 public class AutoSynthBehaviour : MonoBehaviour
 {
-    public AutoSynthBehaviour(IntPtr ptr) : base(ptr) { }
+    private enum LoopMode { Off, Armed, OneShot }
+    private enum Phase { Idle, Fill, Synth, Clear, Rune }
 
-    private enum Phase { Fill, Synth, Clear }
-
-    private bool _auto;
+    private LoopMode _mode;
     private Phase _phase;
     private int _cycles;
     private bool _recipeSelected;
@@ -152,6 +173,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     private float _nextTick;
     private float _nextOpenAttempt;
     private int _openFails;
+    private readonly RuneUpgradeRunner _runes;
     private UI_Cube _cube;
     private UI_Main _main;
     private bool _legacyInputBroken;
@@ -160,6 +182,13 @@ public class AutoSynthBehaviour : MonoBehaviour
     private float _nextStatusWrite;
     private int _lastSynthCount = -1;
     private int _lastSynthGrade = -1;
+
+    public AutoSynthBehaviour(IntPtr ptr) : base(ptr)
+    {
+        _runes = new RuneUpgradeRunner(Click);
+    }
+
+    private bool LoopRunning => _mode != LoopMode.Off;
 
     private static readonly string StatusPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -172,12 +201,15 @@ public class AutoSynthBehaviour : MonoBehaviour
             Directory.CreateDirectory(Path.GetDirectoryName(StatusPath));
             var json =
                 "{\"version\":\"" + AutoSynthPlugin.Version + "\"" +
-                ",\"auto\":" + (_auto ? "true" : "false") +
+                ",\"auto\":" + (LoopRunning ? "true" : "false") +
                 ",\"phase\":\"" + _phase + "\"" +
                 ",\"cycles\":" + _cycles +
                 ",\"lastCount\":" + _lastSynthCount +
                 ",\"lastGrade\":" + _lastSynthGrade +
+                ",\"lastRuneUpgrades\":" + _runes.LastUpgrades +
                 ",\"maxGrade\":" + AutoSynthPlugin.MaxGrade +
+                ",\"autoUpgradeRune\":" + (AutoSynthPlugin.AutoUpgradeRune ? "true" : "false") +
+                ",\"enableSynthesis\":" + (AutoSynthPlugin.EnableSynthesis ? "true" : "false") +
                 ",\"cycleIntervalSeconds\":" + (int)AutoSynthPlugin.AfterClearDelay +
                 ",\"updatedUtc\":\"" + DateTime.UtcNow.ToString("o") + "\"}";
             File.WriteAllText(StatusPath, json);
@@ -205,17 +237,25 @@ public class AutoSynthBehaviour : MonoBehaviour
             _autoStartApplied = true;
             if (AutoSynthPlugin.AutoStart)
             {
-                _auto = true;
+                _mode = LoopMode.Armed;
+                _phase = Phase.Idle;
+                BeginCycleWork();
                 AutoSynthPlugin.Logger.LogInfo(
-                    "Auto-synthesis armed on launch (AutoStart=true). " +
-                    (AutoSynthPlugin.AutoOpenCube
-                        ? "The Cube panel is opened automatically when a cycle is due."
-                        : "AutoOpenCube=false - open the Cube panel yourself to run it.") +
-                    " F8 toggles.");
+                    "Auto loop armed on launch (AutoStart=true). " +
+                    (AutoSynthPlugin.EnableSynthesis ? "Synthesis ON. " : "Synthesis OFF. ") +
+                    (AutoSynthPlugin.AutoUpgradeRune ? "Rune upgrades ON. " : "Rune upgrades OFF. ") +
+                    "F7 = one cycle, F8 toggles auto.");
+            }
+            else
+            {
+                AutoSynthPlugin.Logger.LogInfo(
+                    "Auto loop idle (AutoStart=false). Press F7 to run one cycle, or F8 to arm the loop.");
             }
         }
+        if (KeyDown(KeyCode.F7))
+            StartOneShotCycle();
         if (KeyDown(KeyCode.F8))
-            SetAuto(!_auto, null);
+            SetAuto(_mode == LoopMode.Off, null);
         if (KeyDown(KeyCode.F9))
         {
             var cube = FindCube();
@@ -224,44 +264,140 @@ public class AutoSynthBehaviour : MonoBehaviour
         }
         if (KeyDown(KeyCode.F10)) DumpState();
 
-        if (!_auto || Time.unscaledTime < _nextTick) return;
+        if (!LoopRunning || Time.unscaledTime < _nextTick) return;
         _nextTick = Time.unscaledTime + 1.5f;
         Tick();
     }
 
+    void StartOneShotCycle()
+    {
+        // F7 while already armed: restart without switching to OneShot
+        // (avoids desyncing companion Auto Loop / AutoStart cfg).
+        if (_mode == LoopMode.Armed)
+        {
+            BeginCycleWork();
+            AutoSynthPlugin.Logger.LogInfo("F7: restarting cycle now (auto stays ON)");
+            return;
+        }
+        _mode = LoopMode.OneShot;
+        BeginCycleWork();
+        AutoSynthPlugin.Logger.LogInfo("F7: starting one-shot cycle (cube -> rune), then auto OFF");
+    }
+
     void SetAuto(bool on, string reason)
     {
-        _auto = on;
-        _phase = Phase.Fill;
+        _mode = on ? LoopMode.Armed : LoopMode.Off;
         _cycles = 0;
+        _runes.ResetSession();
+        BeginCycleWork();
+        string suffix = string.IsNullOrEmpty(reason) ? "" : " (" + reason + ")";
+        AutoSynthPlugin.Logger.LogInfo($"Auto-synthesis: {(on ? "ON" : "OFF")}{suffix}");
+    }
+
+    void BeginCycleWork()
+    {
         _recipeSelected = false;
         _recipeAttempts = 0;
         _typeSelected = false;
         _nextTick = 0f;
         _nextOpenAttempt = 0f;
         _nextStatusWrite = 0f;
-        string suffix = string.IsNullOrEmpty(reason) ? "" : " (" + reason + ")";
-        AutoSynthPlugin.Logger.LogInfo($"Auto-synthesis: {(_auto ? "ON" : "OFF")}{suffix}");
+        if (AutoSynthPlugin.EnableSynthesis)
+            _phase = Phase.Fill;
+        else if (AutoSynthPlugin.AutoUpgradeRune)
+        {
+            _cycles++;
+            StartRunePhase(true);
+        }
+        else
+        {
+            AutoSynthPlugin.Logger.LogWarning(
+                "cycle skipped: EnableSynthesis and AutoUpgradeRune are both off");
+            // Stay Idle and retry after the normal gap (config may flip mid-session).
+            _phase = Phase.Idle;
+            if (_mode == LoopMode.OneShot)
+            {
+                _mode = LoopMode.Off;
+                AutoSynthPlugin.Logger.LogInfo("one-shot cycle finished — auto OFF (press F7 again for another)");
+                _nextTick = 0f;
+            }
+            else if (_mode == LoopMode.Armed)
+                _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterClearDelay;
+            else
+                _nextTick = 0f;
+        }
+    }
+
+    void StartRunePhase(bool loud)
+    {
+        _runes.BeginPhase();
+        _phase = Phase.Rune;
+        _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
+        if (loud) AutoSynthPlugin.Logger.LogInfo($"cycle {_cycles}: starting rune phase");
+    }
+
+    void EnterRuneOrEnd(bool loud, string detailIfEnd)
+    {
+        if (AutoSynthPlugin.AutoUpgradeRune)
+            StartRunePhase(loud);
+        else
+            EndCycleAndScheduleNext(loud, detailIfEnd);
+    }
+
+    void EndCycleAndScheduleNext(bool loud, string detail)
+    {
+        if (loud || !string.IsNullOrEmpty(detail))
+            AutoSynthPlugin.Logger.LogInfo(
+                $"cycle {_cycles} done{(string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")")}");
+        if (_mode == LoopMode.OneShot)
+        {
+            _mode = LoopMode.Off;
+            _phase = Phase.Idle;
+            AutoSynthPlugin.Logger.LogInfo("one-shot cycle finished — auto OFF (press F7 again for another)");
+            _nextTick = 0f;
+            return;
+        }
+        // Armed: park on Idle; next tick starts a fresh cycle via BeginCycleWork.
+        _phase = Phase.Idle;
+        _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterClearDelay;
     }
 
     private void Tick()
     {
         try
         {
+            if (_phase == Phase.Idle)
+            {
+                BeginCycleWork();
+                return;
+            }
+
+            if (_phase == Phase.Rune)
+            {
+                var loud = _cycles < 2 || _cycles % 20 == 0;
+                var result = _runes.Tick(loud, out float delay);
+                if (result == RuneUpgradeRunner.TickResult.Done)
+                {
+                    _nextStatusWrite = 0f;
+                    EndCycleAndScheduleNext(loud || _runes.LastUpgrades > 0,
+                        "rune upgrades this cycle: " + _runes.LastUpgrades);
+                }
+                else
+                    _nextTick = Time.unscaledTime + delay;
+                return;
+            }
+
             var cube = FindCube();
             if (!CubeOpen(cube)) { TryOpenCube(); return; }
 
-            var loud = _cycles < 2 || _cycles % 20 == 0;
+            var cubeLoud = _cycles < 2 || _cycles % 20 == 0;
             switch (_phase)
             {
                 case Phase.Fill:
                     if (!_typeSelected)
                     {
-                        // Rotate through the enabled synthesis types across cycles
-                        // (Equipment/Materials/Accessories), select this cycle's type,
-                        // then re-pick the recipe since the bracket list can differ.
                         _currentType = AutoSynthPlugin.TypeForCycle(_cycles);
-                        if (SelectSynthesisType(cube, _currentType, loud))
+                        if (SelectSynthesisType(cube, _currentType, cubeLoud))
                         {
                             _typeSelected = true;
                             _recipeSelected = false;
@@ -269,20 +405,14 @@ public class AutoSynthBehaviour : MonoBehaviour
                             _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
                             break;
                         }
-                        // couldn't select (type combo not ready) — proceed anyway
                         _typeSelected = true;
                     }
                     if (!_recipeSelected)
                     {
-                        // The sub-recipe UI is built lazily (often only after the recipe
-                        // dropdown has been opened once), so retry: quickly for the first
-                        // few ticks, then once per cycle while running with the recipe
-                        // that is currently selected.
                         _recipeAttempts++;
                         _recipeSelected = SelectRecipe(_recipeAttempts <= 3);
                         if (_recipeSelected || _recipeAttempts < 10)
                         {
-                            // give the UI a tick to apply the recipe before filling
                             _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
                             break;
                         }
@@ -291,7 +421,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                                 "recipe select: UI not available; continuing with the currently selected recipe " +
                                 "(will keep checking each cycle - opening the recipe dropdown once in-game also fixes it)");
                     }
-                    Click(cube.m_synthesisAutoFillButton, "auto-fill", loud);
+                    Click(cube.m_synthesisAutoFillButton, "auto-fill", cubeLoud);
                     _phase = Phase.Synth;
                     _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
                     break;
@@ -316,12 +446,10 @@ public class AutoSynthBehaviour : MonoBehaviour
                     _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterSynthDelay;
                     break;
                 case Phase.Clear:
-                    ClickTrash(cube.m_trashToggleBtn, loud);
-                    _phase = Phase.Fill;
+                    ClickTrash(cube.m_trashToggleBtn, cubeLoud);
                     _cycles++;
                     _typeSelected = false;
-                    if (loud) AutoSynthPlugin.Logger.LogInfo($"cycle {_cycles} done");
-                    _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterClearDelay;
+                    EnterRuneOrEnd(cubeLoud, null);
                     break;
             }
         }
@@ -330,14 +458,13 @@ public class AutoSynthBehaviour : MonoBehaviour
             AutoSynthPlugin.Logger.LogError($"Tick failed: {e}");
         }
     }
-
-    private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
+private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
 
     private void EnsureGradeMap()
     {
         if (_gradeByItemKey != null) return;
         Il2CppSystem.Collections.Generic.List<ItemInfoData> list = null;
-        try { list = ItemInfoList(); }
+        try { list = GameInterop.ItemInfoList(); }
         catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"item db lookup failed: {e.Message}"); }
         if (list == null || list.Count == 0) { AutoSynthPlugin.Logger.LogWarning("item db not found / itemInfoData empty"); return; }
         _gradeByItemKey = new System.Collections.Generic.Dictionary<int, int>();
@@ -394,7 +521,7 @@ public class AutoSynthBehaviour : MonoBehaviour
             var combos = UnityEngine.Object.FindObjectsOfType<SubRecipeComboBoxButton>(true);
             SubRecipeComboBoxButton synth = null;
             foreach (var c in combos)
-                if (c != null && RecipeTypeOf(c) == ERecipeType.SYNTHESIS) { synth = c; break; }
+                if (c != null && GameInterop.RecipeTypeOf(c) == ERecipeType.SYNTHESIS) { synth = c; break; }
             if (synth == null)
             {
                 // second path: the main recipe button holds a reference to its sub combo
@@ -402,7 +529,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                 foreach (var m in mains)
                 {
                     var sc = m != null ? m.m_subRecipeComboBoxButton : null;
-                    if (sc != null && RecipeTypeOf(sc) == ERecipeType.SYNTHESIS) { synth = sc; break; }
+                    if (sc != null && GameInterop.RecipeTypeOf(sc) == ERecipeType.SYNTHESIS) { synth = sc; break; }
                 }
                 if (synth == null)
                 {
@@ -625,7 +752,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     {
         // Primary path uses the real (un-obfuscated) CubeItemData.ItemKey field via
         // CubeItemKey; on the rare read failure report 0 (empty) rather than guess.
-        try { return CubeItemKey(data); }
+        try { return GameInterop.CubeItemKey(data); }
         catch { return 0; }
     }
 
@@ -706,7 +833,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         button.OnPointerClick(ped);
         // ButtonBase.OnPointerClick only handles hover/click effects; game logic is
         // wired to the wrapped UnityEngine.UI.Button, so fire its onClick too.
-        var inner = InnerButton(button);
+        var inner = GameInterop.InnerButton(button);
         if (inner != null && inner.onClick != null)
         {
             inner.onClick.Invoke();
@@ -720,28 +847,36 @@ public class AutoSynthBehaviour : MonoBehaviour
         try
         {
             var cube = FindCube();
-            if (cube == null) { AutoSynthPlugin.Logger.LogInfo("dump: UI_Cube not found"); return; }
-            AutoSynthPlugin.Logger.LogInfo(
-                $"dump: cubeOpen={cube.gameObject.activeInHierarchy} " +
-                $"cubeMenuBtn={Describe(CubeMenuButton())} " +
-                $"autoFillBtn={Describe(cube.m_synthesisAutoFillButton)} " +
-                $"autoFillToggle={Describe(cube.toggleButton_AutoFill)} " +
-                $"trigger={Describe(cube.toggleButton_Trigger)} " +
-                $"useStorage={Describe(cube.toggleButton_UseStorage)}");
-            EnsureGradeMap();
-            var setter = cube.m_cubeSlotSetter;
-            var slots = setter != null ? setter.m_cubeInventorySlots : null;
-            if (slots == null) { AutoSynthPlugin.Logger.LogInfo("dump: no slot setter/slots"); return; }
-            for (int i = 0; i < slots.Count; i++)
+            if (cube == null) AutoSynthPlugin.Logger.LogInfo("dump: UI_Cube not found");
+            else
             {
-                var slot = slots[i];
-                var data = slot != null ? slot._cubeData : null;
-                if (data == null) continue;
-                var key = GetItemKey(data);
-                if (key <= 0) continue;
-                var grade = _gradeByItemKey != null && _gradeByItemKey.TryGetValue(key, out var g) ? g.ToString() : "?";
-                AutoSynthPlugin.Logger.LogInfo($"dump: slot {i} itemKey={key} grade={grade}");
+                AutoSynthPlugin.Logger.LogInfo(
+                    $"dump: cubeOpen={cube.gameObject.activeInHierarchy} " +
+                    $"cubeMenuBtn={Describe(CubeMenuButton())} " +
+                    $"autoFillBtn={Describe(cube.m_synthesisAutoFillButton)} " +
+                    $"autoFillToggle={Describe(cube.toggleButton_AutoFill)} " +
+                    $"trigger={Describe(cube.toggleButton_Trigger)} " +
+                    $"useStorage={Describe(cube.toggleButton_UseStorage)}");
+                EnsureGradeMap();
+                var setter = cube.m_cubeSlotSetter;
+                var slots = setter != null ? setter.m_cubeInventorySlots : null;
+                if (slots == null) AutoSynthPlugin.Logger.LogInfo("dump: no slot setter/slots");
+                else
+                {
+                    for (int i = 0; i < slots.Count; i++)
+                    {
+                        var slot = slots[i];
+                        var data = slot != null ? slot._cubeData : null;
+                        if (data == null) continue;
+                        var key = GetItemKey(data);
+                        if (key <= 0) continue;
+                        var grade = _gradeByItemKey != null && _gradeByItemKey.TryGetValue(key, out var g) ? g.ToString() : "?";
+                        AutoSynthPlugin.Logger.LogInfo($"dump: slot {i} itemKey={key} grade={grade}");
+                    }
+                }
             }
+
+            _runes.Dump(Describe);
         }
         catch (Exception e)
         {
@@ -750,145 +885,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     }
 
     private static string Describe(ToggleButton b)
-        => b == null ? "null" : $"[active={b.gameObject.activeInHierarchy} on={IsOn(b)}]";
-
-    // ---- obfuscated-member access -------------------------------------------
-    // The game's obfuscator re-randomizes short member names every patch. The
-    // default build binds them by name (fast, but breaks each update). The
-    // "-next" edition (built with /define:RESILIENT) instead resolves each one by
-    // signature at runtime, so those patches no longer need a manual remap. The
-    // real (un-obfuscated) names - class names, `m_` fields, ItemKey/GRADE,
-    // itemInfoData - are used directly in both builds.
-
-#if RESILIENT
-    private static bool _obfResolved;
-    private static PropertyInfo _pRecipeType, _pInnerButton, _pIsOn, _pCubeItemData, _pItemInfoData;
-    private static Type _dbType;
-
-    private const BindingFlags DeclInstance =
-        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
-
-    // The single property of a given type declared on `declaring`. With readOnly,
-    // only get-only properties qualify (distinguishes a computed getter from the
-    // serialized get/set field of the same type).
-    private static PropertyInfo OnlyProp(Type declaring, Type propType, bool readOnly)
-    {
-        PropertyInfo found = null;
-        foreach (var p in declaring.GetProperties(DeclInstance))
-        {
-            if (p.PropertyType != propType) continue;
-            if (readOnly && p.CanWrite) continue;
-            if (found != null)
-            {
-                AutoSynthPlugin.Logger.LogWarning(
-                    $"interop resolve: {declaring.Name} has >1 {propType.Name}" +
-                    $"{(readOnly ? " read-only" : "")} property ({found.Name}, {p.Name}); using {found.Name}");
-                break;
-            }
-            found = p;
-        }
-        if (found == null)
-            AutoSynthPlugin.Logger.LogWarning(
-                $"interop resolve: no {propType.Name}{(readOnly ? " read-only" : "")} property on {declaring.Name}");
-        return found;
-    }
-
-    // The item DB is the singleton carrying every info-data list. Match on several
-    // real (un-obfuscated) list names so a coroutine state machine that merely
-    // mentions itemInfoData can't be mistaken for it.
-    private static Type FindDbType()
-    {
-        Type[] types;
-        try { types = typeof(UI_Cube).Assembly.GetTypes(); }
-        catch (ReflectionTypeLoadException e) { types = e.Types; }
-        foreach (var t in types)
-        {
-            if (t == null) continue;
-            if (t.GetProperty("itemInfoData", DeclInstance) != null
-                && t.GetProperty("heroInfoData", DeclInstance) != null
-                && t.GetProperty("stageInfoData", DeclInstance) != null)
-                return t;
-        }
-        return null;
-    }
-
-    private static void ResolveInterop()
-    {
-        if (_obfResolved) return;
-        _obfResolved = true;
-        _pRecipeType = OnlyProp(typeof(SubRecipeComboBoxButton), typeof(ERecipeType), false);
-        _pInnerButton = OnlyProp(typeof(ButtonBase), typeof(UnityEngine.UI.Button), true);
-        _pIsOn = OnlyProp(typeof(ToggleButton), typeof(bool), true);
-        _pCubeItemData = OnlyProp(typeof(CubeInData), typeof(CubeItemData), false);
-        _dbType = FindDbType();
-        _pItemInfoData = _dbType != null ? _dbType.GetProperty("itemInfoData", DeclInstance) : null;
-        AutoSynthPlugin.Logger.LogInfo(
-            "interop resolved (RESILIENT): " +
-            $"ERecipeType={PName(_pRecipeType)}, innerButton={PName(_pInnerButton)}, " +
-            $"isOn={PName(_pIsOn)}, cubeItemData={PName(_pCubeItemData)}, itemDb={(_dbType != null ? _dbType.Name : "null")}");
-    }
-
-    private static string PName(PropertyInfo p) => p != null ? p.Name : "null";
-#endif
-
-    private static ERecipeType RecipeTypeOf(SubRecipeComboBoxButton c)
-    {
-#if RESILIENT
-        ResolveInterop();
-        return (ERecipeType)_pRecipeType.GetValue(c);
-#else
-        return c.bfxh;
-#endif
-    }
-
-    private static UnityEngine.UI.Button InnerButton(ButtonBase b)
-    {
-#if RESILIENT
-        ResolveInterop();
-        return (UnityEngine.UI.Button)_pInnerButton.GetValue(b);
-#else
-        return b.bsec;
-#endif
-    }
-
-    private static bool IsOn(ToggleButton b)
-    {
-#if RESILIENT
-        ResolveInterop();
-        return (bool)_pIsOn.GetValue(b);
-#else
-        return b.bseh;
-#endif
-    }
-
-    private static int CubeItemKey(CubeInData data)
-    {
-#if RESILIENT
-        ResolveInterop();
-        var cid = (CubeItemData)_pCubeItemData.GetValue(data);
-        return cid.ItemKey;
-#else
-        return data.bfbr.ItemKey;
-#endif
-    }
-
-    private static Il2CppSystem.Collections.Generic.List<ItemInfoData> ItemInfoList()
-    {
-#if RESILIENT
-        ResolveInterop();
-        if (_dbType == null || _pItemInfoData == null) return null;
-        var t = Il2CppInterop.Runtime.Il2CppType.From(_dbType);
-        var all = UnityEngine.Resources.FindObjectsOfTypeAll(t);
-        if (all == null || all.Length == 0) return null;
-        var db = Activator.CreateInstance(_dbType, new object[] { all[0].Pointer });
-        return _pItemInfoData.GetValue(db) as Il2CppSystem.Collections.Generic.List<ItemInfoData>;
-#else
-        bal db = null;
-        try { db = nq<bal>.bsen; } catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"nq<bal>.bsen failed: {e.Message}"); }
-        if (db == null) db = UnityEngine.Object.FindObjectOfType<bal>(true);
-        return db != null ? db.itemInfoData : null;
-#endif
-    }
+        => b == null ? "null" : $"[active={b.gameObject.activeInHierarchy} on={GameInterop.IsOn(b)}]";
 
     private bool KeyDown(KeyCode key)
     {
@@ -901,6 +898,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         if (kb == null) return false;
         return key switch
         {
+            KeyCode.F7 => kb.f7Key.wasPressedThisFrame,
             KeyCode.F8 => kb.f8Key.wasPressedThisFrame,
             KeyCode.F9 => kb.f9Key.wasPressedThisFrame,
             KeyCode.F10 => kb.f10Key.wasPressedThisFrame,
