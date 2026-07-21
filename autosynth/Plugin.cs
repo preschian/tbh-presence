@@ -9,7 +9,6 @@ using Il2CppInterop.Runtime.Injection;
 using TaskbarHero;
 using TaskbarHero.Data;
 using TaskbarHero.UI;
-using TaskbarHero.UI.Rune;
 using TS;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -20,7 +19,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.26.8";
+    internal const string Version = "0.26.9";
 #if RESILIENT
     // Built with /define:RESILIENT for the "-next" edition: obfuscated members are
     // resolved by signature at runtime instead of by hard-coded name, so a game
@@ -47,7 +46,7 @@ public class AutoSynthPlugin : BasePlugin
     internal static int MaxRuneUpgradesPerCycle => _maxRuneUpgradesE != null ? _maxRuneUpgradesE.Value : 20;
     internal static bool AutoStart => _autoStartE == null || _autoStartE.Value;
     internal static bool AutoOpenCube => _autoOpenE == null || _autoOpenE.Value;
-    internal static bool AutoUpgradeRune => _autoRuneE == null || _autoRuneE.Value;
+    internal static bool AutoUpgradeRune => _autoRuneE != null && _autoRuneE.Value;
     internal static bool AutoOpenRune => _autoOpenRuneE == null || _autoOpenRuneE.Value;
     internal static bool EnableSynthesis => _enableSynthE == null || _enableSynthE.Value;
 
@@ -77,7 +76,7 @@ public class AutoSynthPlugin : BasePlugin
     }
 
     // The tray exe edits the cfg file; picking the change up live means no game restart.
-    // When AutoStart flips in the cfg, the running loop is armed/disarmed to match —
+    // When AutoStart flips in the cfg, the running loop is armed/disarmed to match â€”
     // so the companion's "Enable auto synthesis" toggle actually stops/starts the loop.
     // F8 still toggles independently without rewriting the cfg.
     static bool? _prevAutoStart;
@@ -132,7 +131,7 @@ public class AutoSynthPlugin : BasePlugin
         _autoOpenE = Config.Bind("General", "AutoOpenCube", true,
             "While the loop is armed, click the Cube menu button to open the Cube panel when a " +
             "cycle is due. Turn this off to only run while you have the Cube panel open yourself.");
-        _autoRuneE = Config.Bind("General", "AutoUpgradeRune", true,
+        _autoRuneE = Config.Bind("General", "AutoUpgradeRune", false,
             "After the Cube phase (or at cycle start if synthesis is off), open the Rune panel and " +
             "upgrade the cheapest affordable runes.");
         _autoOpenRuneE = Config.Bind("General", "AutoOpenRune", true,
@@ -160,12 +159,9 @@ public class AutoSynthPlugin : BasePlugin
 
 public class AutoSynthBehaviour : MonoBehaviour
 {
-    public AutoSynthBehaviour(IntPtr ptr) : base(ptr) { }
-
-    private enum Phase { Fill, Synth, Clear, Rune }
-
     private bool _auto;
-    private bool _oneShot; // F7: run a single cycle then disarm
+    private bool _oneShot; // F7 while idle: run a single cycle then disarm
+    private enum Phase { Fill, Synth, Clear, Rune }
     private Phase _phase;
     private int _cycles;
     private bool _recipeSelected;
@@ -176,24 +172,21 @@ public class AutoSynthBehaviour : MonoBehaviour
     private int _currentType;
     private float _nextTick;
     private float _nextOpenAttempt;
-    private float _nextRuneOpenAttempt;
     private int _openFails;
-    private int _runeOpenFails;
-    private int _runeUpgradesThisCycle;
-    private int _lastRuneUpgrades;
-    private int _pendingRuneKey = -1;
-    private int _pendingRuneLevel = -1;
-    private int _runeFailStreak;
+    private readonly RuneUpgradeRunner _runes;
     private UI_Cube _cube;
     private UI_Main _main;
-    private UI_Rune _runeUi;
-    private RuneTooltip _runeTooltip;
     private bool _legacyInputBroken;
     private bool _autoStartApplied;
     private float _nextConfigReload;
     private float _nextStatusWrite;
     private int _lastSynthCount = -1;
     private int _lastSynthGrade = -1;
+
+    public AutoSynthBehaviour(IntPtr ptr) : base(ptr)
+    {
+        _runes = new RuneUpgradeRunner(Click);
+    }
 
     private static readonly string StatusPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -211,7 +204,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                 ",\"cycles\":" + _cycles +
                 ",\"lastCount\":" + _lastSynthCount +
                 ",\"lastGrade\":" + _lastSynthGrade +
-                ",\"lastRuneUpgrades\":" + _lastRuneUpgrades +
+                ",\"lastRuneUpgrades\":" + _runes.LastUpgrades +
                 ",\"maxGrade\":" + AutoSynthPlugin.MaxGrade +
                 ",\"autoUpgradeRune\":" + (AutoSynthPlugin.AutoUpgradeRune ? "true" : "false") +
                 ",\"enableSynthesis\":" + (AutoSynthPlugin.EnableSynthesis ? "true" : "false") +
@@ -274,44 +267,54 @@ public class AutoSynthBehaviour : MonoBehaviour
 
     void StartOneShotCycle()
     {
-        _oneShot = true;
+        // F7 while auto is already on: nudge the cycle without disarming afterward
+        // (avoids desyncing companion Auto Loop / AutoStart cfg).
+        bool keepAuto = _auto && !_oneShot;
+        _oneShot = !keepAuto;
         _auto = true;
-        _phase = Phase.Fill;
-        _recipeSelected = false;
-        _recipeAttempts = 0;
-        _typeSelected = false;
-        _runeUpgradesThisCycle = 0;
-        _pendingRuneKey = -1;
-        _pendingRuneLevel = -1;
-        _pendingRuneGold = -1;
-        _runeFailStreak = 0;
-        _nextTick = 0f;
-        _nextOpenAttempt = 0f;
-        _nextRuneOpenAttempt = 0f;
-        _nextStatusWrite = 0f;
-        AutoSynthPlugin.Logger.LogInfo("F7: starting one-shot cycle (cube -> rune), then auto OFF");
+        BeginCycleWork();
+        AutoSynthPlugin.Logger.LogInfo(keepAuto
+            ? "F7: restarting cycle now (auto stays ON)"
+            : "F7: starting one-shot cycle (cube -> rune), then auto OFF");
     }
 
     void SetAuto(bool on, string reason)
     {
         _auto = on;
         _oneShot = false;
-        _phase = Phase.Fill;
         _cycles = 0;
+        BeginCycleWork();
+        _runes.ResetSession();
+        string suffix = string.IsNullOrEmpty(reason) ? "" : " (" + reason + ")";
+        AutoSynthPlugin.Logger.LogInfo($"Auto-synthesis: {(_auto ? "ON" : "OFF")}{suffix}");
+    }
+
+    void BeginCycleWork()
+    {
         _recipeSelected = false;
         _recipeAttempts = 0;
         _typeSelected = false;
-        _runeUpgradesThisCycle = 0;
-        _pendingRuneKey = -1;
-        _pendingRuneLevel = -1;
-        _pendingRuneGold = -1;
-        _runeFailStreak = 0;
+        _runes.BeginPhase();
         _nextTick = 0f;
         _nextOpenAttempt = 0f;
-        _nextRuneOpenAttempt = 0f;
         _nextStatusWrite = 0f;
-        string suffix = string.IsNullOrEmpty(reason) ? "" : " (" + reason + ")";
-        AutoSynthPlugin.Logger.LogInfo($"Auto-synthesis: {(_auto ? "ON" : "OFF")}{suffix}");
+        // Always enter via Fill; Tick redirects to Rune when synthesis is off.
+        _phase = Phase.Fill;
+    }
+
+    void EnterRuneOrEnd(bool loud, string detailIfEnd)
+    {
+        _runes.BeginPhase();
+        if (AutoSynthPlugin.AutoUpgradeRune)
+        {
+            _phase = Phase.Rune;
+            _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
+            if (loud) AutoSynthPlugin.Logger.LogInfo($"cycle {_cycles}: starting rune phase");
+        }
+        else
+        {
+            EndCycleAndScheduleNext(loud, detailIfEnd);
+        }
     }
 
     // After a finished cycle: either wait for the next auto tick, or disarm after F7.
@@ -325,7 +328,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         {
             _oneShot = false;
             _auto = false;
-            AutoSynthPlugin.Logger.LogInfo("one-shot cycle finished — auto OFF (press F7 again for another)");
+            AutoSynthPlugin.Logger.LogInfo("one-shot cycle finished â€” auto OFF (press F7 again for another)");
             _nextTick = 0f;
             return;
         }
@@ -336,21 +339,11 @@ public class AutoSynthBehaviour : MonoBehaviour
     {
         try
         {
-            // Synthesis disabled: skip Cube and go straight to runes (or end the cycle).
             if (_phase == Phase.Fill && !AutoSynthPlugin.EnableSynthesis)
             {
                 _cycles++;
-                _runeUpgradesThisCycle = 0;
-                _pendingRuneKey = -1;
-                _pendingRuneLevel = -1;
-                _pendingRuneGold = -1;
-                _runeFailStreak = 0;
                 if (AutoSynthPlugin.AutoUpgradeRune)
-                {
-                    _phase = Phase.Rune;
-                    _nextTick = Time.unscaledTime + 0.25f;
-                    AutoSynthPlugin.Logger.LogInfo($"cycle {_cycles}: synthesis off, starting rune phase");
-                }
+                    EnterRuneOrEnd(true, null);
                 else
                 {
                     AutoSynthPlugin.Logger.LogWarning(
@@ -362,14 +355,23 @@ public class AutoSynthBehaviour : MonoBehaviour
 
             if (_phase == Phase.Rune)
             {
-                TickRune(_cycles < 2 || _cycles % 20 == 0);
+                var loud = _cycles < 2 || _cycles % 20 == 0;
+                var result = _runes.Tick(loud, out float delay);
+                if (result == RuneUpgradeRunner.TickResult.Done)
+                {
+                    _nextStatusWrite = 0f;
+                    EndCycleAndScheduleNext(loud || _runes.LastUpgrades > 0,
+                        "rune upgrades this cycle: " + _runes.LastUpgrades);
+                }
+                else
+                    _nextTick = Time.unscaledTime + delay;
                 return;
             }
 
             var cube = FindCube();
             if (!CubeOpen(cube)) { TryOpenCube(); return; }
 
-            var loud = _cycles < 2 || _cycles % 20 == 0;
+            var cubeLoud = _cycles < 2 || _cycles % 20 == 0;
             switch (_phase)
             {
                 case Phase.Fill:
@@ -379,7 +381,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                         // (Equipment/Materials/Accessories), select this cycle's type,
                         // then re-pick the recipe since the bracket list can differ.
                         _currentType = AutoSynthPlugin.TypeForCycle(_cycles);
-                        if (SelectSynthesisType(cube, _currentType, loud))
+                        if (SelectSynthesisType(cube, _currentType, cubeLoud))
                         {
                             _typeSelected = true;
                             _recipeSelected = false;
@@ -387,7 +389,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                             _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
                             break;
                         }
-                        // couldn't select (type combo not ready) — proceed anyway
+                        // couldn't select (type combo not ready) â€” proceed anyway
                         _typeSelected = true;
                     }
                     if (!_recipeSelected)
@@ -409,7 +411,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                                 "recipe select: UI not available; continuing with the currently selected recipe " +
                                 "(will keep checking each cycle - opening the recipe dropdown once in-game also fixes it)");
                     }
-                    Click(cube.m_synthesisAutoFillButton, "auto-fill", loud);
+                    Click(cube.m_synthesisAutoFillButton, "auto-fill", cubeLoud);
                     _phase = Phase.Synth;
                     _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
                     break;
@@ -434,24 +436,10 @@ public class AutoSynthBehaviour : MonoBehaviour
                     _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterSynthDelay;
                     break;
                 case Phase.Clear:
-                    ClickTrash(cube.m_trashToggleBtn, loud);
+                    ClickTrash(cube.m_trashToggleBtn, cubeLoud);
                     _cycles++;
                     _typeSelected = false;
-                    _runeUpgradesThisCycle = 0;
-                    _pendingRuneKey = -1;
-                    _pendingRuneLevel = -1;
-                    _pendingRuneGold = -1;
-                    _runeFailStreak = 0;
-                    if (AutoSynthPlugin.AutoUpgradeRune)
-                    {
-                        _phase = Phase.Rune;
-                        _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
-                        if (loud) AutoSynthPlugin.Logger.LogInfo($"cycle {_cycles}: cube clear done, starting rune phase");
-                    }
-                    else
-                    {
-                        EndCycleAndScheduleNext(loud, null);
-                    }
+                    EnterRuneOrEnd(cubeLoud, null);
                     break;
             }
         }
@@ -459,137 +447,6 @@ public class AutoSynthBehaviour : MonoBehaviour
         {
             AutoSynthPlugin.Logger.LogError($"Tick failed: {e}");
         }
-    }
-
-    private void FinishRunePhase(bool loud)
-    {
-        CloseRunePanel(loud || _runeUpgradesThisCycle > 0);
-        _lastRuneUpgrades = _runeUpgradesThisCycle;
-        _nextStatusWrite = 0f;
-        EndCycleAndScheduleNext(loud || _runeUpgradesThisCycle > 0,
-            "rune upgrades this cycle: " + _runeUpgradesThisCycle);
-    }
-
-    private void TickRune(bool loud)
-    {
-        if (_runeUpgradesThisCycle >= AutoSynthPlugin.MaxRuneUpgradesPerCycle)
-        {
-            AutoSynthPlugin.Logger.LogInfo(
-                $"rune phase: hit MaxRuneUpgradesPerCycle={AutoSynthPlugin.MaxRuneUpgradesPerCycle}");
-            FinishRunePhase(loud);
-            return;
-        }
-
-        var runeUi = FindRuneUi();
-        if (!RuneOpen(runeUi))
-        {
-            TryOpenRune();
-            return;
-        }
-
-        var page = runeUi.m_runePage;
-        if (page == null)
-        {
-            AutoSynthPlugin.Logger.LogWarning("rune phase: UI_Rune.m_runePage is null, skipping");
-            FinishRunePhase(loud);
-            return;
-        }
-
-        // Verify the previous upgrade on the following tick (save/UI may lag one frame).
-        if (_pendingRuneKey >= 0)
-        {
-            var pending = FindRuneNode(page, _pendingRuneKey);
-            int after = RuneLevel(pending);
-            long goldNow = ReadGold(page);
-            bool leveled = after > _pendingRuneLevel;
-            if (leveled)
-            {
-                _runeUpgradesThisCycle++;
-                _runeFailStreak = 0;
-                AutoSynthPlugin.Logger.LogInfo(
-                    $"rune upgrade ok: key={_pendingRuneKey} lv {_pendingRuneLevel}->{after} " +
-                    $"gold {_pendingRuneGold}->{goldNow}");
-                _pendingRuneKey = -1;
-                _pendingRuneLevel = -1;
-                _pendingRuneGold = -1;
-            }
-            else
-            {
-                // Level field can lag a tick; if gold dropped, still count it as a successful click
-                // and keep bursting — the user wants repeated upgrades in one cycle.
-                bool spent = _pendingRuneGold >= 0 && goldNow >= 0 && goldNow < _pendingRuneGold - 1000;
-                if (spent)
-                {
-                    _runeUpgradesThisCycle++;
-                    _runeFailStreak = 0;
-                    AutoSynthPlugin.Logger.LogInfo(
-                        $"rune upgrade ok (gold spent): key={_pendingRuneKey} lv={after} " +
-                        $"gold {_pendingRuneGold}->{goldNow}");
-                }
-                else
-                {
-                    _runeFailStreak++;
-                    AutoSynthPlugin.Logger.LogWarning(
-                        $"rune upgrade no effect: key={_pendingRuneKey} lv={_pendingRuneLevel}->{after} " +
-                        $"gold={goldNow} failStreak={_runeFailStreak}");
-                    if (_runeFailStreak >= 5)
-                    {
-                        _pendingRuneKey = -1;
-                        _pendingRuneLevel = -1;
-                        _pendingRuneGold = -1;
-                        FinishRunePhase(loud);
-                        return;
-                    }
-                }
-                _pendingRuneKey = -1;
-                _pendingRuneLevel = -1;
-                _pendingRuneGold = -1;
-            }
-        }
-
-        long gold = ReadGold(page);
-        if (_runeUpgradesThisCycle == 0 && _runeFailStreak == 0)
-            LogRuneEconomy(page, gold);
-
-        if (!TryFindCheapestUpgradeable(page, gold, out var best, out var cost, out var key, out var level))
-        {
-            AutoSynthPlugin.Logger.LogInfo(
-                $"rune phase: no affordable upgrade (gold={gold}, upgrades so far={_runeUpgradesThisCycle})");
-            FinishRunePhase(loud);
-            return;
-        }
-
-        AutoSynthPlugin.Logger.LogInfo(
-            $"rune phase: cheapest key={key} lv={level} cost={cost} gold={gold} name='{_lastCheapestName}'");
-
-        if (!TryUpgradeRune(best, key, level, cost, _runeFailStreak, true))
-        {
-            AutoSynthPlugin.Logger.LogWarning($"rune phase: upgrade invoke failed for key={key}");
-            _runeFailStreak++;
-            if (_runeFailStreak >= 5) { FinishRunePhase(loud); return; }
-            _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterRuneUpgradeDelay;
-            return;
-        }
-
-        _pendingRuneKey = key;
-        _pendingRuneLevel = level;
-        _pendingRuneGold = gold;
-        _nextTick = Time.unscaledTime + Math.Max(0.75f, AutoSynthPlugin.AfterRuneUpgradeDelay);
-    }
-
-    private string _lastCheapestName = "";
-    private long _pendingRuneGold = -1;
-
-    private static RuneNode FindRuneNode(RunePage page, int key)
-    {
-        var list = page != null ? page.m_listRuneNode : null;
-        if (list == null) return null;
-        for (int i = 0; i < list.Count; i++)
-        {
-            var n = list[i];
-            if (n != null && n.m_runeKey == key) return n;
-        }
-        return null;
     }
 
     private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
@@ -637,7 +494,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                 }
                 return false;
             }
-            // type not offered by this cube (e.g. accessories locked) — treat as done
+            // type not offered by this cube (e.g. accessories locked) â€” treat as done
             if (loud) AutoSynthPlugin.Logger.LogWarning($"type select: {TypeName(type)} not available, skipping");
             return true;
         }
@@ -800,7 +657,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     }
 
     // Pick among unlocked brackets.
-    // desired <= 0: highest lo (then highest hi) — previous "Max" behavior.
+    // desired <= 0: highest lo (then highest hi) â€” previous "Max" behavior.
     // desired > 0: exact lo match, else highest unlocked lo <= desired, else lowest lo.
     private static bool BetterRecipe(int desired, int lo, int hi, int idx,
         int bestLo, int bestHi, int bestIdx, bool noBestYet)
@@ -935,416 +792,6 @@ public class AutoSynthBehaviour : MonoBehaviour
         Click(btn, "Cube menu button (auto-open)", true);
     }
 
-    private UI_Rune FindRuneUi()
-    {
-        if (_runeUi == null)
-            _runeUi = UnityEngine.Object.FindObjectOfType<UI_Rune>(true);
-        return _runeUi;
-    }
-
-    private static bool RuneOpen(UI_Rune rune)
-        => rune != null && rune.gameObject.activeInHierarchy;
-
-    private ToggleButton RuneMenuButton()
-    {
-        if (_main == null) _main = UnityEngine.Object.FindObjectOfType<UI_Main>(true);
-        var entry = _main != null ? _main.button_Rune : null;
-        return entry != null ? entry.toggleButton : null;
-    }
-
-    private void TryOpenRune()
-    {
-        if (!AutoSynthPlugin.AutoOpenRune) return;
-        if (Time.unscaledTime < _nextRuneOpenAttempt) return;
-        _nextRuneOpenAttempt = Time.unscaledTime + 10f;
-
-        var btn = RuneMenuButton();
-        if (btn == null || !btn.gameObject.activeInHierarchy)
-        {
-            if (++_runeOpenFails == 3)
-                AutoSynthPlugin.Logger.LogWarning(
-                    "auto-open: Rune menu button not available " +
-                    $"(mainUi={(_main == null ? "null" : "found")}, button={(btn == null ? "null" : "inactive")}); " +
-                    "open the Rune panel yourself and the loop will continue");
-            _main = null;
-            return;
-        }
-        _runeOpenFails = 0;
-        Click(btn, "Rune menu button (auto-open)", true);
-    }
-
-    private void CloseRunePanel(bool loud)
-    {
-        try
-        {
-            var runeUi = FindRuneUi();
-            if (!RuneOpen(runeUi)) return;
-            if (ClickUnityButton(runeUi.Button_Close, "Rune close", loud)) return;
-            if (ClickUnityButton(runeUi.Button_Close_Down, "Rune close (down)", loud)) return;
-            try { runeUi.hls(); if (loud) AutoSynthPlugin.Logger.LogInfo("rune close: called hls()"); } catch { }
-        }
-        catch (Exception e)
-        {
-            AutoSynthPlugin.Logger.LogWarning("rune close failed: " + e.Message);
-        }
-    }
-
-    // Prefer live gold from the save manager (ban.mrv); fall back to the Rune page TMP label.
-    private static long ReadGold(RunePage page)
-    {
-        long fromSave = ReadPlayerGold();
-        if (fromSave >= 0) return fromSave;
-        try
-        {
-            var tmp = page != null ? page.m_goldText : null;
-            if (tmp == null) return -1;
-            return ParseGoldText(tmp.text);
-        }
-        catch { return -1; }
-    }
-
-    private static long ReadPlayerGold()
-    {
-        try
-        {
-            ban mgr = null;
-            try { mgr = nq<ban>.bsen; } catch { }
-            if (mgr == null) mgr = UnityEngine.Object.FindObjectOfType<ban>(true);
-            if (mgr == null) return -1;
-            try
-            {
-                long g = mgr.mrv();
-                if (g >= 0) return g;
-            }
-            catch { }
-            // Fallback: currency save list (gold is typically Key == 1).
-            try
-            {
-                var psd = mgr.btct ?? mgr.bglm;
-                var list = psd != null ? psd.currenySaveDatas : null;
-                if (list != null)
-                {
-                    for (int i = 0; i < list.Count; i++)
-                    {
-                        var c = list[i];
-                        if (c != null && c.Key == 1) return c.Quantity;
-                    }
-                }
-            }
-            catch { }
-        }
-        catch (Exception e)
-        {
-            AutoSynthPlugin.Logger.LogWarning("ReadPlayerGold failed: " + e.Message);
-        }
-        return -1;
-    }
-
-    // Confirmed working purchase path: RuneNode.mba() (one call only).
-    private bool TryUpgradeRune(RuneNode node, int key, int level, int cost, int attempt, bool loud)
-    {
-        if (node == null) return false;
-        try
-        {
-            var tip = FindRuneTooltip();
-            if (tip != null)
-            {
-                tip.mbt(node);
-                tip.Show();
-            }
-        }
-        catch { }
-
-        try
-        {
-            node.mba();
-            if (loud)
-                AutoSynthPlugin.Logger.LogInfo(
-                    $"rune upgrade: node.mba() key={key} lv={level} cost={cost} name='{_lastCheapestName}'");
-            return true;
-        }
-        catch (Exception e)
-        {
-            AutoSynthPlugin.Logger.LogWarning($"rune upgrade mba() failed: {e.Message}");
-            return false;
-        }
-    }
-
-    private RuneTooltip FindRuneTooltip()
-    {
-        if (_runeTooltip == null)
-            _runeTooltip = UnityEngine.Object.FindObjectOfType<RuneTooltip>(true);
-        return _runeTooltip;
-    }
-
-    // RuneLevelInfoData.bgpx on the NEXT level row is the gold cost.
-    private static int RuneUpgradeCost(RuneNode node)
-    {
-        if (node == null) return -1;
-        int key = node.m_runeKey;
-        int level = RuneLevel(node);
-        try
-        {
-            if (level >= 0)
-            {
-                var next = LookupRuneLevelInfo(key, level + 1);
-                if (next != null && next.bgpx > 0) return next.bgpx;
-            }
-        }
-        catch { }
-        try
-        {
-            var info = node.btby ?? node.bgir;
-            if (info != null && info.bgpx > 0) return info.bgpx;
-        }
-        catch { }
-        return -1;
-    }
-
-    private static RuneLevelInfoData LookupRuneLevelInfo(int runeKey, int level)
-    {
-        try
-        {
-            bal db = null;
-            try { db = nq<bal>.bsen; } catch { }
-            if (db == null) db = UnityEngine.Object.FindObjectOfType<bal>(true);
-            if (db == null) return null;
-            // Several remapped names for GetRuneLevelInfo(key, level) — try in order.
-            try { var r = db.mfg(runeKey, level); if (r != null) return r; } catch { }
-            try { var r = db.ocl(runeKey, level); if (r != null) return r; } catch { }
-            try { var r = db.nfm(runeKey, level); if (r != null) return r; } catch { }
-            try { var r = db.sj(runeKey, level); if (r != null) return r; } catch { }
-        }
-        catch { }
-        return null;
-    }
-
-    private static int RuneLevel(RuneNode node)
-    {
-        if (node == null) return -1;
-        try
-        {
-            var save = node.bgis;
-            if (save != null) return save.Level;
-        }
-        catch { }
-        return -1;
-    }
-
-    // True when a next-level row exists (not maxed) and optional UI flags agree.
-    private static bool RuneCanUpgrade(RuneNode node)
-    {
-        if (node == null || !node.isActiveAndEnabled) return false;
-        int level = RuneLevel(node);
-        if (level < 0) return false;
-        var next = LookupRuneLevelInfo(node.m_runeKey, level + 1);
-        if (next == null || next.bgpx <= 0) return false; // no next level / maxed
-        return true;
-    }
-
-    private bool TryFindCheapestUpgradeable(RunePage page, long gold,
-        out RuneNode best, out int bestCost, out int bestKey, out int bestLevel)
-    {
-        best = null;
-        bestCost = int.MaxValue;
-        bestKey = -1;
-        bestLevel = -1;
-        _lastCheapestName = "";
-        var list = page != null ? page.m_listRuneNode : null;
-        if (list == null) return false;
-
-        var tip = FindRuneTooltip();
-        for (int i = 0; i < list.Count; i++)
-        {
-            var node = list[i];
-            if (!RuneCanUpgrade(node)) continue;
-            int cost = RuneUpgradeCost(node);
-            if (cost <= 0) continue;
-            if (gold >= 0 && cost > gold) continue;
-
-            string name = "";
-            bool uiBlocks = false;
-            try
-            {
-                if (tip != null)
-                {
-                    tip.mbt(node);
-                    // Don't Show() for every node (expensive); read after bind.
-                    if (tip.m_maxLevelPanel != null && tip.m_maxLevelPanel.activeSelf)
-                        uiBlocks = true;
-                    if (tip.m_runeNameText != null) name = tip.m_runeNameText.text ?? "";
-                    // Prefer the tooltip's displayed cost when parsable.
-                    if (tip.m_runeCostValueText != null)
-                    {
-                        long parsed = ParseGoldText(tip.m_runeCostValueText.text);
-                        if (parsed > 0) cost = (int)Math.Min(parsed, int.MaxValue);
-                    }
-                }
-            }
-            catch { }
-            if (uiBlocks) continue;
-            if (gold >= 0 && cost > gold) continue;
-
-            if (cost > bestCost) continue;
-            if (cost == bestCost && best != null && node.m_runeKey >= bestKey) continue;
-            best = node;
-            bestCost = cost;
-            bestKey = node.m_runeKey;
-            bestLevel = RuneLevel(node);
-            _lastCheapestName = name;
-        }
-        return best != null;
-    }
-
-    private void LogRuneEconomy(RunePage page, long gold)
-    {
-        try
-        {
-            string goldText = "?";
-            try { goldText = page.m_goldText != null ? page.m_goldText.text : "(null)"; } catch { }
-            AutoSynthPlugin.Logger.LogInfo($"rune economy: gold={gold} goldText='{goldText}'");
-
-            var list = page.m_listRuneNode;
-            if (list == null) return;
-            int listed = 0, upgradeable = 0;
-            RuneNode cheapest = null;
-            int cheapestCost = int.MaxValue;
-            string cheapestName = "";
-            var tip = FindRuneTooltip();
-            for (int i = 0; i < list.Count; i++)
-            {
-                var node = list[i];
-                if (node == null) continue;
-                int level = RuneLevel(node);
-                bool can = RuneCanUpgrade(node);
-                int cost = RuneUpgradeCost(node);
-                string name = "";
-                try
-                {
-                    if (tip != null)
-                    {
-                        tip.mbt(node);
-                        if (tip.m_runeNameText != null) name = tip.m_runeNameText.text ?? "";
-                        if (tip.m_runeCostValueText != null)
-                        {
-                            long parsed = ParseGoldText(tip.m_runeCostValueText.text);
-                            if (parsed > 0) cost = (int)Math.Min(parsed, int.MaxValue);
-                        }
-                    }
-                }
-                catch { }
-
-                bool affordable = can && cost > 0 && (gold < 0 || cost <= gold);
-                if (affordable) upgradeable++;
-
-                // Always log affordable ones; otherwise the first few + anything named Hoarding.
-                bool interesting = affordable
-                    || listed < 10
-                    || (name != null && name.IndexOf("Hoard", StringComparison.OrdinalIgnoreCase) >= 0)
-                    || (cost >= 10_000_000 && cost <= 15_000_000);
-                if (interesting)
-                {
-                    AutoSynthPlugin.Logger.LogInfo(
-                        $"rune economy: key={node.m_runeKey} lv={level} cost={cost} can={can} " +
-                        $"affordable={affordable} name='{name}'");
-                    listed++;
-                }
-                if (affordable && cost < cheapestCost)
-                {
-                    cheapest = node;
-                    cheapestCost = cost;
-                    cheapestName = name;
-                }
-            }
-            if (cheapest != null)
-                AutoSynthPlugin.Logger.LogInfo(
-                    $"rune economy: cheapest affordable key={cheapest.m_runeKey} cost={cheapestCost} " +
-                    $"name='{cheapestName}' gold={gold} upgradeableCount={upgradeable}");
-            else
-                AutoSynthPlugin.Logger.LogInfo(
-                    $"rune economy: no affordable upgradeable rune (gold={gold} upgradeableCount={upgradeable})");
-
-            WriteRuneProbe(gold, goldText, cheapest != null ? cheapest.m_runeKey : -1,
-                cheapest != null ? cheapestCost : -1, cheapestName);
-        }
-        catch (Exception e)
-        {
-            AutoSynthPlugin.Logger.LogWarning("LogRuneEconomy failed: " + e.Message);
-        }
-    }
-
-    private static void WriteRuneProbe(long gold, string goldText, int cheapestKey, int cheapestCost, string cheapestName)
-    {
-        try
-        {
-            var path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "tbh-companion", "rune-probe.json");
-            Directory.CreateDirectory(Path.GetDirectoryName(path));
-            string safeName = (cheapestName ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"");
-            File.WriteAllText(path,
-                "{\"gold\":" + gold +
-                ",\"goldText\":\"" + (goldText ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"" +
-                ",\"cheapestKey\":" + cheapestKey +
-                ",\"cheapestCost\":" + cheapestCost +
-                ",\"cheapestName\":\"" + safeName + "\"" +
-                ",\"updatedUtc\":\"" + DateTime.UtcNow.ToString("o") + "\"}");
-        }
-        catch { }
-    }
-
-    private static long ParseGoldText(string raw)
-    {
-        if (string.IsNullOrEmpty(raw)) return -1;
-        var s = raw.Trim().Replace(",", "").Replace(" ", "").Replace("\u00A0", "");
-        if (s.Length == 0) return -1;
-        char suffix = char.ToUpperInvariant(s[s.Length - 1]);
-        double mult = 1;
-        if (suffix == 'K') { mult = 1_000; s = s.Substring(0, s.Length - 1); }
-        else if (suffix == 'M') { mult = 1_000_000; s = s.Substring(0, s.Length - 1); }
-        else if (suffix == 'B') { mult = 1_000_000_000; s = s.Substring(0, s.Length - 1); }
-        var cleaned = new System.Text.StringBuilder(s.Length);
-        bool sawDot = false;
-        for (int i = 0; i < s.Length; i++)
-        {
-            char c = s[i];
-            if (c >= '0' && c <= '9') cleaned.Append(c);
-            else if (c == '.' && !sawDot) { cleaned.Append(c); sawDot = true; }
-        }
-        if (cleaned.Length == 0) return -1;
-        if (!double.TryParse(cleaned.ToString(), System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var n))
-            return -1;
-        return (long)(n * mult);
-    }
-
-    private static bool ClickUnityButton(Button button, string name, bool loud)
-    {
-        if (button == null)
-        {
-            AutoSynthPlugin.Logger.LogWarning($"{name}: null");
-            return false;
-        }
-        if (!button.gameObject.activeInHierarchy)
-        {
-            if (loud) AutoSynthPlugin.Logger.LogInfo($"{name}: inactive, skipped");
-            return false;
-        }
-        if (!button.interactable)
-        {
-            if (loud) AutoSynthPlugin.Logger.LogInfo($"{name}: not interactable, skipped");
-            return false;
-        }
-        if (button.onClick != null)
-        {
-            button.onClick.Invoke();
-            if (loud) AutoSynthPlugin.Logger.LogInfo($"clicked {name}");
-            return true;
-        }
-        AutoSynthPlugin.Logger.LogWarning($"{name}: no onClick");
-        return false;
-    }
-
     private static void ClickTrash(CubeSlotResetButton trash, bool loud)
     {
         if (trash == null || !trash.gameObject.activeInHierarchy)
@@ -1420,77 +867,11 @@ public class AutoSynthBehaviour : MonoBehaviour
                 }
             }
 
-            DumpRuneState();
+            _runes.Dump(Describe);
         }
         catch (Exception e)
         {
             AutoSynthPlugin.Logger.LogError($"dump failed: {e}");
-        }
-    }
-
-    private void DumpRuneState()
-    {
-        try
-        {
-            var runeUi = FindRuneUi();
-            AutoSynthPlugin.Logger.LogInfo(
-                $"dump: runeOpen={(runeUi != null && runeUi.gameObject.activeInHierarchy)} " +
-                $"runeMenuBtn={Describe(RuneMenuButton())} autoUpgradeRune={AutoSynthPlugin.AutoUpgradeRune}");
-            if (runeUi == null)
-            {
-                AutoSynthPlugin.Logger.LogInfo("dump: UI_Rune not found");
-                return;
-            }
-            var page = runeUi.m_runePage;
-            if (page == null)
-            {
-                AutoSynthPlugin.Logger.LogInfo("dump: RunePage null");
-                return;
-            }
-            long gold = ReadGold(page);
-            string goldRaw = page.m_goldText != null ? page.m_goldText.text : "(null)";
-            AutoSynthPlugin.Logger.LogInfo($"dump: goldParsed={gold} goldText='{goldRaw}'");
-            var list = page.m_listRuneNode;
-            if (list == null)
-            {
-                AutoSynthPlugin.Logger.LogInfo("dump: m_listRuneNode null");
-                return;
-            }
-            int shown = 0;
-            for (int i = 0; i < list.Count; i++)
-            {
-                var node = list[i];
-                if (node == null) continue;
-                int cost = RuneUpgradeCost(node);
-                int level = RuneLevel(node);
-                var btn = node.m_levelUpButton;
-                string btnState = btn == null ? "null"
-                    : $"active={btn.gameObject.activeInHierarchy} interactable={btn.interactable}";
-                bool can = RuneCanUpgrade(node);
-                string levelInfo = "?";
-                try
-                {
-                    var info = node.btby ?? node.bgir;
-                    if (info != null)
-                        levelInfo = $"bgpu={info.bgpu} bgpv={info.bgpv} bgpw={info.bgpw} bgpx={info.bgpx} bgpz={info.bgpz}";
-                }
-                catch { }
-                bool btcb = false, btcd = false;
-                try { btcb = node.btcb; } catch { }
-                try { btcd = node.btcd; } catch { }
-                // Prefer logging upgradeable / low-cost nodes; always log first few.
-                if (!can && shown >= 12 && cost > gold && gold >= 0) continue;
-                AutoSynthPlugin.Logger.LogInfo(
-                    $"dump: rune[{i}] key={node.m_runeKey} lv={level} cost={cost} can={can} " +
-                    $"btcb={btcb} btcd={btcd} btn=[{btnState}] levelInfo=[{levelInfo}]");
-                shown++;
-                if (shown >= 40) break;
-            }
-            AutoSynthPlugin.Logger.LogInfo($"dump: rune nodes listed={shown}/{list.Count}");
-        }
-        catch (Exception e)
-        {
-            AutoSynthPlugin.Logger.LogError($"dump rune failed: {e}");
         }
     }
 

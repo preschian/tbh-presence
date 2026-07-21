@@ -142,7 +142,7 @@ namespace TbhCompanion
             _live.SetBounds(Sc(12), Height - Sc(14 + statusH), Sc(SideW - 24), Sc(statusH));
             _live.SetRow(0, "Presence", "—", "", "Off", Theme.TextMuted);
             if (Build.Synth)
-                _live.SetRow(1, "Synth", "—", "", "Off", Theme.TextMuted);
+                _live.SetRow(1, "Loop", "—", "", "Off", Theme.TextMuted);
             _side.Controls.Add(_live);
         }
 
@@ -599,12 +599,18 @@ namespace TbhCompanion
                 bool auto = (bool)d["auto"];
                 int cycles = Convert.ToInt32(d["cycles"]);
                 int cycMin = Math.Max(1, Convert.ToInt32(d["cycleIntervalSeconds"]) / 60);
+                int lastRunes = d.ContainsKey("lastRuneUpgrades") ? Convert.ToInt32(d["lastRuneUpgrades"]) : 0;
+                bool runeOn = !d.ContainsKey("autoUpgradeRune") || (bool)d["autoUpgradeRune"];
+                bool synthOn = !d.ContainsKey("enableSynthesis") || (bool)d["enableSynthesis"];
 
                 Color synthDot = auto ? Theme.Green : Theme.TextMuted;
                 string synthState = auto ? "On" : "Off";
-                _live.SetRow(1, "Synth",
+                string detail = "every " + cycMin + " min";
+                if (lastRunes > 0) detail = lastRunes + " runes · " + detail;
+                else if (!synthOn && runeOn) detail = "runes · " + detail;
+                _live.SetRow(1, "Loop",
                     cycles + " cycles",
-                    "every " + cycMin + " min",
+                    detail,
                     synthState, synthDot);
             }
             catch { SynthIdle("status error"); }
@@ -612,7 +618,7 @@ namespace TbhCompanion
 
         void SynthIdle(string why)
         {
-            _live.SetRow(1, "Synth", "—", why, "Off", Theme.TextMuted);
+            _live.SetRow(1, "Loop", "—", why, "Off", Theme.TextMuted);
         }
 
         static string ShortStatus(string s)
@@ -652,7 +658,7 @@ namespace TbhCompanion
                 string text = File.ReadAllText(_cfgPath);
                 _autoLoop.Checked = !string.Equals(GetVal(text, "General", "AutoStart", "true"), "false", StringComparison.OrdinalIgnoreCase);
                 _enableSynth.Checked = !string.Equals(GetVal(text, "General", "EnableSynthesis", "true"), "false", StringComparison.OrdinalIgnoreCase);
-                _autoRune.Checked = !string.Equals(GetVal(text, "General", "AutoUpgradeRune", "true"), "false", StringComparison.OrdinalIgnoreCase);
+                _autoRune.Checked = !string.Equals(GetVal(text, "General", "AutoUpgradeRune", "false"), "false", StringComparison.OrdinalIgnoreCase);
                 int mg;
                 if (!int.TryParse(GetVal(text, "Safety", "MaxGrade", "2"), out mg) || mg < 0 || mg > 9) mg = 2;
                 _seg.Value = mg; UpdateRarityLabel();
