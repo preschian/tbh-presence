@@ -10,7 +10,7 @@ using UnityEngine.UI;
 namespace TbhAutoSynth;
 
 // Owns the Rune phase: open panel, pick cheapest affordable upgrade, purchase via
-// RuneNode.mba(), verify, then close. Kept out of AutoSynthBehaviour so the cube
+// level-up button, verify, then close. Kept out of AutoSynthBehaviour so the cube
 // loop stays an orchestrator.
 internal sealed class RuneUpgradeRunner
 {
@@ -25,7 +25,6 @@ internal sealed class RuneUpgradeRunner
 
     private readonly Action<ButtonBase, string, bool> _click;
 
-    private UI_Main _main;
     private UI_Rune _runeUi;
     private RuneTooltip _runeTooltip;
 
@@ -70,7 +69,6 @@ internal sealed class RuneUpgradeRunner
         LastUpgrades = 0;
         _runeUi = null;
         _runeTooltip = null;
-        _main = null;
     }
 
     private void ClearPending()
@@ -270,9 +268,7 @@ internal sealed class RuneUpgradeRunner
 
     private ToggleButton RuneMenuButton()
     {
-        if (_main == null) _main = UnityEngine.Object.FindObjectOfType<UI_Main>(true);
-        var entry = _main != null ? _main.button_Rune : null;
-        return entry != null ? entry.toggleButton : null;
+        return GameInterop.FindMenuToggle("Rune");
     }
 
     // Returns true when an open attempt was scheduled/issued (counts toward timeout).
@@ -287,9 +283,8 @@ internal sealed class RuneUpgradeRunner
             if (++_openFails == 3)
                 AutoSynthPlugin.Logger.LogWarning(
                     "auto-open: Rune menu button not available " +
-                    $"(mainUi={(_main == null ? "null" : "found")}, button={(btn == null ? "null" : "inactive")}); " +
+                    $"(button={(btn == null ? "null" : "inactive")}); " +
                     "open the Rune panel yourself and the loop will continue");
-            _main = null;
             return true; // still counts as an attempt window
         }
         _openFails = 0;
@@ -305,7 +300,6 @@ internal sealed class RuneUpgradeRunner
             if (!IsOpen(runeUi)) return;
             if (ClickUnityButton(runeUi.Button_Close, "Rune close", loud)) return;
             if (ClickUnityButton(runeUi.Button_Close_Down, "Rune close (down)", loud)) return;
-            try { runeUi.hls(); if (loud) AutoSynthPlugin.Logger.LogInfo("rune close: called hls()"); } catch { }
         }
         catch (Exception e)
         {
@@ -328,37 +322,8 @@ internal sealed class RuneUpgradeRunner
 
     private static long ReadPlayerGold()
     {
-        try
-        {
-            ban mgr = null;
-            try { mgr = nq<ban>.bsen; } catch { }
-            if (mgr == null) mgr = UnityEngine.Object.FindObjectOfType<ban>(true);
-            if (mgr == null) return -1;
-            try
-            {
-                long g = mgr.mrv();
-                if (g >= 0) return g;
-            }
-            catch { }
-            try
-            {
-                var psd = mgr.btct ?? mgr.bglm;
-                var list = psd != null ? psd.currenySaveDatas : null;
-                if (list != null)
-                {
-                    for (int i = 0; i < list.Count; i++)
-                    {
-                        var c = list[i];
-                        if (c != null && c.Key == 1) return c.Quantity;
-                    }
-                }
-            }
-            catch { }
-        }
-        catch (Exception e)
-        {
-            AutoSynthPlugin.Logger.LogWarning("ReadPlayerGold failed: " + e.Message);
-        }
+        // Player-save singleton names are obfuscated. The active Rune panel always
+        // exposes the displayed gold amount, which ReadGold uses as a stable path.
         return -1;
     }
 
@@ -370,7 +335,7 @@ internal sealed class RuneUpgradeRunner
             var tip = FindRuneTooltip();
             if (tip != null)
             {
-                tip.mbt(node);
+                GameInterop.ShowRuneTooltip(tip, node);
                 tip.Show();
                 try
                 {
@@ -384,15 +349,16 @@ internal sealed class RuneUpgradeRunner
 
         try
         {
-            node.mba();
+            if (!ClickUnityButton(node.m_levelUpButton, "Rune level-up", loud))
+                return false;
             if (loud)
                 AutoSynthPlugin.Logger.LogInfo(
-                    $"rune upgrade: node.mba() key={key} lv={level} cost={cost} name='{_lastName}'");
+                    $"rune upgrade: clicked level-up key={key} lv={level} cost={cost} name='{_lastName}'");
             return true;
         }
         catch (Exception e)
         {
-            AutoSynthPlugin.Logger.LogWarning($"rune upgrade mba() failed: {e.Message}");
+            AutoSynthPlugin.Logger.LogWarning($"rune upgrade failed: {e.Message}");
             return false;
         }
     }
@@ -414,14 +380,15 @@ internal sealed class RuneUpgradeRunner
             if (level >= 0)
             {
                 var next = GameInterop.LookupRuneLevelInfo(key, level + 1);
-                if (next != null && next.bgpx > 0) return next.bgpx;
+                int cost = GameInterop.RuneLevelCost(next);
+                if (cost > 0) return cost;
             }
         }
         catch { }
         try
         {
-            var info = node.btby ?? node.bgir;
-            if (info != null && info.bgpx > 0) return info.bgpx;
+            int cost = GameInterop.RuneLevelCost(GameInterop.RuneLevelInfoOf(node));
+            if (cost > 0) return cost;
         }
         catch { }
         return -1;
@@ -430,13 +397,7 @@ internal sealed class RuneUpgradeRunner
     private static int RuneLevel(RuneNode node)
     {
         if (node == null) return -1;
-        try
-        {
-            var save = node.bgis;
-            if (save != null) return save.Level;
-        }
-        catch { }
-        return -1;
+        return GameInterop.RuneLevel(node);
     }
 
     private static bool RuneCanUpgrade(RuneNode node)
@@ -445,7 +406,7 @@ internal sealed class RuneUpgradeRunner
         int level = RuneLevel(node);
         if (level < 0) return false;
         var next = GameInterop.LookupRuneLevelInfo(node.m_runeKey, level + 1);
-        return next != null && next.bgpx > 0;
+        return GameInterop.RuneLevelCost(next) > 0;
     }
 
     private static RuneNode FindRuneNode(RunePage page, int key)
@@ -582,18 +543,15 @@ internal sealed class RuneUpgradeRunner
                 string levelInfo = "?";
                 try
                 {
-                    var info = node.btby ?? node.bgir;
+                    var info = GameInterop.RuneLevelInfoOf(node);
                     if (info != null)
-                        levelInfo = $"bgpu={info.bgpu} bgpv={info.bgpv} bgpw={info.bgpw} bgpx={info.bgpx} bgpz={info.bgpz}";
+                        levelInfo = $"cost={GameInterop.RuneLevelCost(info)}";
                 }
                 catch { }
-                bool btcb = false, btcd = false;
-                try { btcb = node.btcb; } catch { }
-                try { btcd = node.btcd; } catch { }
                 if (!can && shown >= 12 && cost > gold && gold >= 0) continue;
                 AutoSynthPlugin.Logger.LogInfo(
                     $"dump: rune[{i}] key={node.m_runeKey} lv={level} cost={cost} can={can} " +
-                    $"btcb={btcb} btcd={btcd} btn=[{btnState}] levelInfo=[{levelInfo}]");
+                    $"btn=[{btnState}] levelInfo=[{levelInfo}]");
                 shown++;
                 if (shown >= 40) break;
             }

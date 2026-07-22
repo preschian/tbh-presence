@@ -18,7 +18,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.26.12";
+    internal const string Version = "0.26.16";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -167,7 +167,6 @@ public class AutoSynthBehaviour : MonoBehaviour
     private int _openFails;
     private readonly RuneUpgradeRunner _runes;
     private UI_Cube _cube;
-    private UI_Main _main;
     private bool _legacyInputBroken;
     private bool _autoStartApplied;
     private float _nextConfigReload;
@@ -572,27 +571,27 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
             {
                 var dropdown = synth.m_comboBoxObject;
                 bool open = dropdown != null && dropdown.activeInHierarchy;
-                // Clicking the combo does not populate the list, so try the combo's
-                // own methods, one per attempt, until the entries appear.
+                // Clicking the combo does not always populate the list, so try the
+                // combo's reflected no-argument handlers, one per attempt, until
+                // the entries appear. Their generated names change every patch.
                 _populateStep++;
-                switch (_populateStep)
+                string method, error;
+                if (GameInterop.TryPopulateSubRecipes(synth, _populateStep - 1, out method, out error))
                 {
-                    case 1:
-                        try { synth.kxi(); AutoSynthPlugin.Logger.LogInfo($"recipe select: called kxi() (dropdown open={open})"); }
-                        catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"kxi() failed: {e.Message}"); }
-                        break;
-                    case 2:
-                        try { synth.lag(); AutoSynthPlugin.Logger.LogInfo($"recipe select: called lag() (dropdown open={open})"); }
-                        catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"lag() failed: {e.Message}"); }
-                        break;
-                    case 3:
-                        try { synth.kxk(); AutoSynthPlugin.Logger.LogInfo($"recipe select: called kxk() (dropdown open={open})"); }
-                        catch (Exception e) { AutoSynthPlugin.Logger.LogWarning($"kxk() failed: {e.Message}"); }
-                        break;
-                    default:
-                        if (!open) Click(synth, "sub-recipe dropdown (open to populate)", loud);
-                        else if (loud) AutoSynthPlugin.Logger.LogInfo("recipe select: dropdown open, waiting for entries");
-                        break;
+                    AutoSynthPlugin.Logger.LogInfo(
+                        $"recipe select: called {method}() (dropdown open={open})");
+                }
+                else if (!string.IsNullOrEmpty(error))
+                {
+                    AutoSynthPlugin.Logger.LogWarning($"recipe select: {method}() failed: {error}");
+                }
+                else if (!open)
+                {
+                    Click(synth, "sub-recipe dropdown (open to populate)", loud);
+                }
+                else if (loud)
+                {
+                    AutoSynthPlugin.Logger.LogInfo("recipe select: dropdown open, waiting for entries");
                 }
                 return false;
             }
@@ -695,9 +694,7 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
         {
             var dropdown = combo != null ? combo.m_comboBoxObject : null;
             if (dropdown == null || !dropdown.activeInHierarchy) return;
-            try { combo.kxk(); } catch { }
-            if (dropdown.activeInHierarchy)
-                Click(combo, "sub-recipe dropdown (close)", false);
+            Click(combo, "sub-recipe dropdown (close)", false);
         }
         catch { }
     }
@@ -761,9 +758,7 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
     // The Cube menu button in the main window's content row (Stash/Stat/Cube/Rune/Portal).
     private ToggleButton CubeMenuButton()
     {
-        if (_main == null) _main = UnityEngine.Object.FindObjectOfType<UI_Main>(true);
-        var entry = _main != null ? _main.button_Cube : null;
-        return entry != null ? entry.toggleButton : null;
+        return GameInterop.FindMenuToggle("Cube");
     }
 
     // The loop can only act with the Cube panel open, so open it ourselves when a cycle
@@ -784,9 +779,8 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
             if (++_openFails == 3)
                 AutoSynthPlugin.Logger.LogWarning(
                     "auto-open: Cube menu button not available " +
-                    $"(mainUi={(_main == null ? "null" : "found")}, button={(btn == null ? "null" : "inactive")}); " +
+                    $"(button={(btn == null ? "null" : "inactive")}); " +
                     "open the Cube panel yourself and the loop will run");
-            _main = null; // re-find next time; the main UI may not be built yet
             return;
         }
         _openFails = 0;
