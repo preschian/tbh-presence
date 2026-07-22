@@ -72,9 +72,9 @@ $OFF = @{
     HSD_level       = 0x14
     HSD_unlocked    = 0x18
     HSD_exp         = 0x20
-    # uw.up static fields (live stage system)
-    UU_currentCache = 0x88   # uw.StageCache beyk: the stage currently loaded
-    # uw.StageCache
+    # ux.uq static fields (live stage system)
+    UU_currentCache = 0x88   # ux.StageCache bfan: the stage currently loaded
+    # ux.StageCache
     SC_infoData     = 0x10   # StageInfoData
     # Il2CppClass
     KLASS_staticFields = 0xB8
@@ -92,7 +92,7 @@ $DIFF = @('NORMAL','NIGHTMARE','HELL','TORMENT')
 $STYPE = @('NORMAL','ACTBOSS')
 # EEquipClassType: each hero maps 1:1 to a class, which doubles as its name
 $HCLASS = @('All','Knight','Ranger','Sorcerer','Priest','Hunter','Slayer')
-$CACHE_VERSION = 5
+$CACHE_VERSION = 7
 
 function Get-GameStamp($proc) {
     # Identifies the game build; invalidates the cached stage table on updates.
@@ -155,26 +155,32 @@ function Build-HeroTable($mem) {
 }
 
 function Find-LiveStageStatics($mem) {
-    # Locates the static-field block of uw.up (the live stage system) and the
+    # Locates the static-field block of ux.uq (the live stage system) and the
     # StageCache class pointer. Self-validating: the block is only accepted if
     # its +0x88 slot points at a StageCache instance.
     # Returns @{ Statics; ScKlass } or $null (non-fatal; save data is the fallback).
-    # NOTE: 'up' is an obfuscated class name (was 'uu' pre-1.00.27); it can change
-    # on game updates - re-dump and update the scan bytes if the live source breaks.
-    $scKlass = $mem.FindClass('StageCache', '')
+    # NOTE: 'uq' is an obfuscated class name (uu -> up @1.00.27 -> uq @1.01.01);
+    # try current and recent names so a minor rename still resolves.
+    $scKlass = $mem.FindClass('StageCache', $null)
     if ($scKlass -eq 0) { return $null }
-    $pat = [byte[]](0x00, 0x75, 0x70, 0x00)   # "\0up\0"
-    $strHits = $mem.FindBytes($pat, 256)
-    if ($strHits.Count -eq 0) { return $null }
-    $targets = New-Object 'System.Collections.Generic.HashSet[long]'
-    foreach ($s in $strHits) { [void]$targets.Add($s + 1) }
-    foreach ($r in $mem.FindQwordRefs($targets, 512)) {
-        $klass = $r - 0x10
-        $statics = $mem.ReadPtr($klass + $OFF.KLASS_staticFields)
-        if ($statics -eq 0) { continue }
-        $obj = $mem.ReadPtr($statics + $OFF.UU_currentCache)
-        if ($obj -ne 0 -and $mem.ReadPtr($obj) -eq $scKlass) {
-            return @{ Statics = $statics; ScKlass = $scKlass }
+    $namePats = @(
+        [byte[]](0x00, 0x75, 0x71, 0x00),  # "\0uq\0" 1.01.01
+        [byte[]](0x00, 0x75, 0x70, 0x00),  # "\0up\0" 1.00.27
+        [byte[]](0x00, 0x75, 0x75, 0x00)   # "\0uu\0" older
+    )
+    foreach ($pat in $namePats) {
+        $strHits = $mem.FindBytes($pat, 256)
+        if ($strHits.Count -eq 0) { continue }
+        $targets = New-Object 'System.Collections.Generic.HashSet[long]'
+        foreach ($s in $strHits) { [void]$targets.Add($s + 1) }
+        foreach ($r in $mem.FindQwordRefs($targets, 512)) {
+            $klass = $r - 0x10
+            $statics = $mem.ReadPtr($klass + $OFF.KLASS_staticFields)
+            if ($statics -eq 0) { continue }
+            $obj = $mem.ReadPtr($statics + $OFF.UU_currentCache)
+            if ($obj -ne 0 -and $mem.ReadPtr($obj) -eq $scKlass) {
+                return @{ Statics = $statics; ScKlass = $scKlass }
+            }
         }
     }
     return $null
@@ -276,7 +282,7 @@ function Resolve-Targets($mem, $proc) {
 }
 
 function Read-Stage($mem, $ctx) {
-    # stage identity: prefer the live loaded stage (uw.up.beyk -> StageInfoData),
+    # stage identity: prefer the live loaded stage (ux.uq.bfan -> StageInfoData),
     # which flips the moment a new stage loads; save data lags until autosave.
     $key = 0
     $source = 'save'

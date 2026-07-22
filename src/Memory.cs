@@ -172,6 +172,7 @@ namespace TbhCompanion
         }
 
         // Il2CppClass (metadata v31): +0x10 name char*, +0x18 namespace char*.
+        // Pass ns=null to accept any namespace (used for obfuscated holders like StageCache).
         public long FindClass(string name, string ns)
         {
             var strAddrs = FindBytes(Encoding.ASCII.GetBytes(name + "\0"), 128);
@@ -182,7 +183,7 @@ namespace TbhCompanion
                 long klass = r - 0x10;
                 long nsPtr = ReadPtr(klass + 0x18);
                 if (nsPtr == 0) continue;
-                if (ReadCString(nsPtr, 64) == ns) return klass;
+                if (ns == null || ReadCString(nsPtr, 64) == ns) return klass;
             }
             return 0;
         }

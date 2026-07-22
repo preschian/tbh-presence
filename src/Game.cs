@@ -75,14 +75,14 @@ namespace TbhCompanion
         const long HID_ClassType = 0x48;
         const long HSD_heroKey   = 0x10;   // HeroSaveData
         const long HSD_level     = 0x14;
-        const long UU_currentCache = 0x88; // uw.up statics: current StageCache (beyk)
-        const long SC_infoData   = 0x10;   // uw.StageCache.beyo (StageInfoData)
+        const long UU_currentCache = 0x88; // ux.uq statics: current StageCache (bfan)
+        const long SC_infoData   = 0x10;   // ux.StageCache.bfar (StageInfoData)
         const long KLASS_staticFields = 0xB8; // Il2CppClass.static_fields
 
         static readonly string[] DIFFS = { "NORMAL", "NIGHTMARE", "HELL", "TORMENT" };
         static readonly string[] STYPES = { "NORMAL", "ACTBOSS" };
         static readonly string[] HCLASS = { "All", "Knight", "Ranger", "Sorcerer", "Priest", "Hunter", "Slayer" };
-        const int CACHE_VERSION = 6;
+        const int CACHE_VERSION = 7;
 
         readonly Mem _mem;
         readonly Process _proc;
@@ -272,29 +272,38 @@ namespace TbhCompanion
 
         void FindLiveStageStatics()
         {
-            // The static class 'up' holds the live stage system. Self-validated: the
+            // The static class 'uq' holds the live stage system. Self-validated: the
             // static block is only accepted if its +0x88 slot points at a StageCache
-            // instance. NOTE: 'up' is an obfuscated class name that the game's obfuscator
-            // re-randomizes on updates (was 'uu' pre-1.00.27); re-dump and update the
-            // scan bytes below if the live stage source stops resolving after a patch.
+            // instance. NOTE: 'uq' is an obfuscated class name that the game's obfuscator
+            // re-randomizes on updates (uu -> up @1.00.27 -> uq @1.01.01); try current
+            // and recent names so a minor rename still resolves.
             _uuStatics = 0; _scKlass = 0;
-            long scKlass = _mem.FindClass("StageCache", "");
+            long scKlass = _mem.FindClass("StageCache", null);
             if (scKlass == 0) return;
-            var strHits = _mem.FindBytes(new byte[] { 0x00, 0x75, 0x70, 0x00 }, 256); // "\0up\0"
-            if (strHits.Count == 0) return;
-            var targets = new HashSet<long>();
-            foreach (long s in strHits) targets.Add(s + 1);
-            foreach (long r in _mem.FindQwordRefs(targets, 512))
+            // "\0uq\0" (1.01.01), "\0up\0" (1.00.27), "\0uu\0" (older)
+            byte[][] namePats = {
+                new byte[] { 0x00, 0x75, 0x71, 0x00 },
+                new byte[] { 0x00, 0x75, 0x70, 0x00 },
+                new byte[] { 0x00, 0x75, 0x75, 0x00 },
+            };
+            foreach (byte[] pat in namePats)
             {
-                long klass = r - 0x10;
-                long statics = _mem.ReadPtr(klass + KLASS_staticFields);
-                if (statics == 0) continue;
-                long obj = _mem.ReadPtr(statics + UU_currentCache);
-                if (obj != 0 && _mem.ReadPtr(obj) == scKlass)
+                var strHits = _mem.FindBytes(pat, 256);
+                if (strHits.Count == 0) continue;
+                var targets = new HashSet<long>();
+                foreach (long s in strHits) targets.Add(s + 1);
+                foreach (long r in _mem.FindQwordRefs(targets, 512))
                 {
-                    _uuStatics = statics;
-                    _scKlass = scKlass;
-                    return;
+                    long klass = r - 0x10;
+                    long statics = _mem.ReadPtr(klass + KLASS_staticFields);
+                    if (statics == 0) continue;
+                    long obj = _mem.ReadPtr(statics + UU_currentCache);
+                    if (obj != 0 && _mem.ReadPtr(obj) == scKlass)
+                    {
+                        _uuStatics = statics;
+                        _scKlass = scKlass;
+                        return;
+                    }
                 }
             }
         }
