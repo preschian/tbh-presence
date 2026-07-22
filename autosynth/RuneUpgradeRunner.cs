@@ -309,8 +309,6 @@ internal sealed class RuneUpgradeRunner
 
     private static long ReadGold(RunePage page)
     {
-        long fromSave = ReadPlayerGold();
-        if (fromSave >= 0) return fromSave;
         try
         {
             var tmp = page != null ? page.m_goldText : null;
@@ -318,13 +316,6 @@ internal sealed class RuneUpgradeRunner
             return ParseGoldText(tmp.text);
         }
         catch { return -1; }
-    }
-
-    private static long ReadPlayerGold()
-    {
-        // Player-save singleton names are obfuscated. The active Rune panel always
-        // exposes the displayed gold amount, which ReadGold uses as a stable path.
-        return -1;
     }
 
     private bool TryUpgradeRune(RuneNode node, int key, int level, int cost, bool loud)

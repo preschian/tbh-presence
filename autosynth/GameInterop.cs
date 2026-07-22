@@ -18,8 +18,9 @@ internal static class GameInterop
     static bool _obfResolved;
     static Exception _resolveError;
     static PropertyInfo _pRecipeType, _pInnerButton, _pIsOn, _pCubeItemData, _pItemInfoData;
-    static PropertyInfo _pRuneNodeLevelInfo, _pRuneNodeSave, _pRuneLevelCost, _pRuneSaveLevel;
-    static MethodInfo _mRuneTooltipBind, _mSubRecipeOpen;
+    static PropertyInfo _pRuneNodeSave, _pRuneLevelCost, _pRuneSaveLevel;
+    static PropertyInfo[] _pRuneNodeLevelInfos;
+    static MethodInfo _mRuneTooltipBind, _mSubRecipeOpen, _mSubRecipeLearned;
     static MethodInfo[] _mRuneLevelInfo, _mSubRecipeActions;
     static Type _dbType;
     static bool _runeMenuFallbackLogged;
@@ -55,6 +56,9 @@ internal static class GameInterop
         if (declaring == null) return found.ToArray();
         foreach (var m in declaring.GetMethods(DeclInstance))
         {
+            // Skip property getters/setters — GetMethods order is not a contract and
+            // setters (set_*) otherwise match void(T) signatures used for bind/open.
+            if (m.IsSpecialName) continue;
             if (m.ReturnType != returnType) continue;
             var ps = m.GetParameters();
             if (ps.Length != args.Length) continue;
@@ -68,29 +72,54 @@ internal static class GameInterop
         return found.ToArray();
     }
 
-    static PropertyInfo FirstProp(Type declaring, Type propType)
+    static MethodInfo PreferMethod(string role, MethodInfo[] candidates)
     {
+        if (candidates == null || candidates.Length == 0) return null;
+        if (candidates.Length > 1)
+            AutoSynthPlugin.Logger.LogWarning(
+                $"interop resolve: {role} has {candidates.Length} matches " +
+                $"([{string.Join(",", Array.ConvertAll(candidates, m => m.Name))}]); using {candidates[0].Name}");
+        return candidates[0];
+    }
+
+    static PropertyInfo[] PropsOfType(Type declaring, Type propType)
+    {
+        var found = new List<PropertyInfo>();
         foreach (var p in declaring.GetProperties(DeclInstance))
-            if (p.PropertyType == propType) return p;
-        return null;
+            if (p.PropertyType == propType) found.Add(p);
+        return found.ToArray();
     }
 
     static PropertyInfo FirstPropNamed(Type declaring, string typeName)
     {
+        PropertyInfo found = null;
+        var extras = new List<string>();
         foreach (var p in declaring.GetProperties(DeclInstance))
-            if (p.PropertyType.Name == typeName) return p;
-        return null;
+        {
+            if (p.PropertyType.Name != typeName) continue;
+            if (found == null) found = p;
+            else extras.Add(p.Name);
+        }
+        if (found != null && extras.Count > 0)
+            AutoSynthPlugin.Logger.LogWarning(
+                $"interop resolve: {declaring.Name} has >1 {typeName} property " +
+                $"({found.Name}, {string.Join(", ", extras)}); using {found.Name}");
+        return found;
     }
 
     static PropertyInfo IntPropAt(Type declaring, int index)
     {
-        int seen = 0;
+        var ints = new List<PropertyInfo>();
         foreach (var p in declaring.GetProperties(DeclInstance))
+            if (p.PropertyType == typeof(int)) ints.Add(p);
+        if (index < 0 || index >= ints.Count)
         {
-            if (p.PropertyType != typeof(int)) continue;
-            if (seen++ == index) return p;
+            AutoSynthPlugin.Logger.LogWarning(
+                $"interop resolve: {declaring.Name} int[{index}] missing " +
+                $"(have {ints.Count}: [{string.Join(",", ints.ConvertAll(p => p.Name))}])");
+            return null;
         }
-        return null;
+        return ints[index];
     }
 
     static MethodInfo[] SubRecipeActions()
@@ -142,25 +171,29 @@ internal static class GameInterop
         _pInnerButton = OnlyProp(typeof(ButtonBase), typeof(UnityEngine.UI.Button), true);
         _pIsOn = OnlyProp(typeof(ToggleButton), typeof(bool), true);
         _pCubeItemData = OnlyProp(typeof(CubeInData), typeof(CubeItemData), false);
-        _pRuneNodeLevelInfo = FirstProp(typeof(RuneNode), typeof(RuneLevelInfoData));
+        _pRuneNodeLevelInfos = PropsOfType(typeof(RuneNode), typeof(RuneLevelInfoData));
         _pRuneNodeSave = FirstPropNamed(typeof(RuneNode), "RuneSaveData");
         _pRuneLevelCost = IntPropAt(typeof(RuneLevelInfoData), 3);
         _pRuneSaveLevel = _pRuneNodeSave != null
             ? _pRuneNodeSave.PropertyType.GetProperty("Level", DeclInstance)
             : null;
-        var tooltipBind = Methods(typeof(RuneTooltip), typeof(void), typeof(RuneNode));
-        _mRuneTooltipBind = tooltipBind.Length > 0 ? tooltipBind[0] : null;
+        _mRuneTooltipBind = PreferMethod(
+            "RuneTooltip.bind(RuneNode)", Methods(typeof(RuneTooltip), typeof(void), typeof(RuneNode)));
         _mSubRecipeActions = SubRecipeActions();
-        var subRecipeOpen = Methods(typeof(ComboBoxButton), typeof(void), typeof(bool));
-        _mSubRecipeOpen = subRecipeOpen.Length > 0 ? subRecipeOpen[0] : null;
+        _mSubRecipeOpen = PreferMethod(
+            "ComboBoxButton.open(bool)", Methods(typeof(ComboBoxButton), typeof(void), typeof(bool)));
+        _mSubRecipeLearned = null;
         _dbType = FindDbType();
         _pItemInfoData = _dbType != null ? _dbType.GetProperty("itemInfoData", DeclInstance) : null;
         _mRuneLevelInfo = Methods(_dbType, typeof(RuneLevelInfoData), typeof(int), typeof(int));
+        string runeNodeInfos = _pRuneNodeLevelInfos.Length == 0
+            ? "null"
+            : string.Join(",", Array.ConvertAll(_pRuneNodeLevelInfos, p => p.Name));
         AutoSynthPlugin.Logger.LogInfo(
             "interop resolved: " +
             $"ERecipeType={PName(_pRecipeType)}, innerButton={PName(_pInnerButton)}, " +
             $"isOn={PName(_pIsOn)}, cubeItemData={PName(_pCubeItemData)}, " +
-            $"runeNodeInfo={PName(_pRuneNodeLevelInfo)}, runeNodeSave={PName(_pRuneNodeSave)}, " +
+            $"runeNodeInfo=[{runeNodeInfos}], runeNodeSave={PName(_pRuneNodeSave)}, " +
             $"runeCost={PName(_pRuneLevelCost)}, runeTooltipBind={MName(_mRuneTooltipBind)}, " +
             $"subRecipeOpen={MName(_mSubRecipeOpen)}, " +
             $"subRecipeActions=[{string.Join(",", Array.ConvertAll(_mSubRecipeActions, m => m.Name))}], " +
@@ -229,12 +262,22 @@ internal static class GameInterop
         catch { return -1; }
     }
 
+    // RuneNode exposes two RuneLevelInfoData props (current vs next-tier style);
+    // try each like the old btby ?? bgir chain.
     internal static RuneLevelInfoData RuneLevelInfoOf(RuneNode node)
     {
         Resolve();
-        try { return node != null && _pRuneNodeLevelInfo != null
-            ? _pRuneNodeLevelInfo.GetValue(node) as RuneLevelInfoData : null; }
-        catch { return null; }
+        if (node == null || _pRuneNodeLevelInfos == null) return null;
+        foreach (var prop in _pRuneNodeLevelInfos)
+        {
+            try
+            {
+                var info = prop.GetValue(node) as RuneLevelInfoData;
+                if (info != null) return info;
+            }
+            catch { }
+        }
+        return null;
     }
 
     internal static int RuneLevelCost(RuneLevelInfoData info)
@@ -252,14 +295,29 @@ internal static class GameInterop
     }
 
     // Invokes one candidate only. The caller retries until the game's sub-recipe
-    // slots are populated, so an update cannot permanently bind us to a renamed
-    // method that merely toggles the dropdown.
+    // slots are populated. Once a call coincides with a successful populate, that
+    // method is remembered so later cycles skip the shotgun fan-out.
     internal static bool TryPopulateSubRecipes(SubRecipeComboBoxButton combo, int attempt,
         out string methodName, out string error)
     {
         Resolve();
         methodName = null; error = null;
         if (combo == null || attempt < 0) return false;
+
+        if (_mSubRecipeLearned != null)
+        {
+            methodName = _mSubRecipeLearned.Name;
+            try
+            {
+                if (_mSubRecipeLearned.GetParameters().Length == 1)
+                    _mSubRecipeLearned.Invoke(combo, new object[] { true });
+                else
+                    _mSubRecipeLearned.Invoke(combo, null);
+                return true;
+            }
+            catch (Exception e) { error = e.GetBaseException().Message; return false; }
+        }
+
         if (_mSubRecipeOpen != null && attempt == 0)
         {
             methodName = _mSubRecipeOpen.Name + "(true)";
@@ -272,6 +330,29 @@ internal static class GameInterop
         methodName = method.Name;
         try { method.Invoke(combo, null); return true; }
         catch (Exception e) { error = e.GetBaseException().Message; return false; }
+    }
+
+    // Called by the recipe loop once the sub-recipe slots look populated, so the
+    // last successful populate attempt can be reused next cycle.
+    internal static void RememberSubRecipePopulate(string methodName)
+    {
+        if (string.IsNullOrEmpty(methodName) || _mSubRecipeLearned != null) return;
+        string bare = methodName.EndsWith("(true)", StringComparison.Ordinal)
+            ? methodName.Substring(0, methodName.Length - 6) : methodName;
+        if (_mSubRecipeOpen != null && _mSubRecipeOpen.Name == bare)
+        {
+            _mSubRecipeLearned = _mSubRecipeOpen;
+            AutoSynthPlugin.Logger.LogInfo($"recipe populate: learned {_mSubRecipeLearned.Name}(true)");
+            return;
+        }
+        if (_mSubRecipeActions == null) return;
+        foreach (var m in _mSubRecipeActions)
+        {
+            if (m.Name != bare) continue;
+            _mSubRecipeLearned = m;
+            AutoSynthPlugin.Logger.LogInfo($"recipe populate: learned {_mSubRecipeLearned.Name}()");
+            return;
+        }
     }
 
     // UI_Main keeps stable button_* names across patches; only the wrapper type
@@ -322,8 +403,8 @@ internal static class GameInterop
             { cube = button; break; }
         if (cube == null) return null;
 
-        // The main-content tabs keep their stable order even though the entry
-        // object and the Rune label are obfuscated. Rune sits immediately left of Cube.
+        // Main-content order is Stash/Stat/Cube/Rune/Portal — Rune is immediately
+        // right of Cube (left of Cube is Stat).
         for (Transform parent = cube.transform.parent; parent != null; parent = parent.parent)
         {
             var siblings = new List<ToggleButton>();
@@ -336,8 +417,8 @@ internal static class GameInterop
                     siblings.Add(button);
             }
             int cubeIndex = siblings.IndexOf(cube);
-            if (cubeIndex > 0 && siblings.Count >= 5)
-                return siblings[cubeIndex - 1];
+            if (cubeIndex >= 0 && cubeIndex + 1 < siblings.Count && siblings.Count >= 5)
+                return siblings[cubeIndex + 1];
         }
         return null;
     }
@@ -366,7 +447,7 @@ internal static class GameInterop
                 if (!_runeMenuFallbackLogged)
                 {
                     _runeMenuFallbackLogged = true;
-                    AutoSynthPlugin.Logger.LogInfo("menu resolve: selected the active tab left of Cube as Rune");
+                    AutoSynthPlugin.Logger.LogInfo("menu resolve: selected the active tab right of Cube as Rune");
                 }
                 return rune;
             }

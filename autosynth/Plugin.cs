@@ -18,7 +18,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.26.16";
+    internal const string Version = "0.26.17";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -160,6 +160,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     private int _recipeAttempts;
     private bool _recipeListDumped;
     private int _populateStep;
+    private string _lastPopulateMethod;
     private bool _typeSelected;
     private int _currentType;
     private float _nextTick;
@@ -578,6 +579,7 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
                 string method, error;
                 if (GameInterop.TryPopulateSubRecipes(synth, _populateStep - 1, out method, out error))
                 {
+                    _lastPopulateMethod = method;
                     AutoSynthPlugin.Logger.LogInfo(
                         $"recipe select: called {method}() (dropdown open={open})");
                 }
@@ -594,6 +596,12 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
                     AutoSynthPlugin.Logger.LogInfo("recipe select: dropdown open, waiting for entries");
                 }
                 return false;
+            }
+
+            if (!string.IsNullOrEmpty(_lastPopulateMethod))
+            {
+                GameInterop.RememberSubRecipePopulate(_lastPopulateMethod);
+                _lastPopulateMethod = null;
             }
 
             if (!_recipeListDumped)

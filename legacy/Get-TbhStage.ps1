@@ -92,7 +92,7 @@ $DIFF = @('NORMAL','NIGHTMARE','HELL','TORMENT')
 $STYPE = @('NORMAL','ACTBOSS')
 # EEquipClassType: each hero maps 1:1 to a class, which doubles as its name
 $HCLASS = @('All','Knight','Ranger','Sorcerer','Priest','Hunter','Slayer')
-$CACHE_VERSION = 6
+$CACHE_VERSION = 7
 
 function Get-GameStamp($proc) {
     # Identifies the game build; invalidates the cached stage table on updates.
