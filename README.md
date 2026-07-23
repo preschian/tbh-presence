@@ -116,7 +116,8 @@ settings in two columns:
     Applies instantly and is remembered next launch.
   - **Scheduled Restart** — optionally close and relaunch TaskBarHero after it
     has been open for a set number of days (1–30). Helps shed RAM on long idle
-    sessions. Applies instantly; off by default.
+    sessions. Off by default; enabling (or lowering the day limit) starts a fresh
+    countdown so a long-lived session is not killed immediately.
   - **Enable Mods**
     - **Auto Loop** — arms the loop when the game starts, and syncs the running
       loop when you save. F8 still toggles the live loop in-game without changing

@@ -112,14 +112,19 @@ namespace TbhCompanion
 
                         while (_running && !proc.HasExited)
                         {
-                            if (GameRestart.IsDue(proc))
-                            {
-                                // Clear Discord before killing so the profile doesn't stick.
-                                if (discord.Connected && lastSent != "")
+                            // Lifecycle handoff: clears Discord, queues close/relaunch
+                            // off this thread, then we detach and wait for the new process.
+                            if (GameRestart.TryRestartIfDue(proc,
+                                delegate
                                 {
-                                    try { discord.ClearActivity(); lastSent = ""; } catch { discord.Dispose(); }
-                                }
-                                GameRestart.TryRestart(proc, Status);
+                                    if (discord.Connected && lastSent != "")
+                                    {
+                                        try { discord.ClearActivity(); lastSent = ""; } catch { discord.Dispose(); }
+                                    }
+                                },
+                                Status,
+                                delegate { return _running; }))
+                            {
                                 break;
                             }
 

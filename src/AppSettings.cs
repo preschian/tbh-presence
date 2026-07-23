@@ -24,27 +24,71 @@ namespace TbhCompanion
 
         // Close and relaunch TaskBarHero after it has been running this long.
         // Off by default — opt-in for long idle sessions that accumulate RAM.
+        // Enabling (or tightening the day limit) arms a timer so a long-lived
+        // session is not killed on the next poll.
         public static bool AutoRestartEnabled
         {
             get { return GetBool("AutoRestartEnabled", false); }
-            set { Set("AutoRestartEnabled", value ? "true" : "false"); }
+            set
+            {
+                bool was = GetBool("AutoRestartEnabled", false);
+                Set("AutoRestartEnabled", value ? "true" : "false");
+                if (value && !was) ArmRestartClock();
+                else if (!value) ClearRestartArm();
+            }
         }
 
         // Days of continuous uptime before a scheduled restart (1–30).
         public static int AutoRestartDays
         {
-            get
-            {
-                int d = GetInt("AutoRestartDays", 1);
-                if (d < 1) return 1;
-                if (d > 30) return 30;
-                return d;
-            }
+            get { return ClampDays(GetInt("AutoRestartDays", 1)); }
             set
             {
-                int d = value < 1 ? 1 : (value > 30 ? 30 : value);
+                int prev = AutoRestartDays;
+                int d = ClampDays(value);
                 Set("AutoRestartDays", d.ToString(CultureInfo.InvariantCulture));
+                // Tightening the limit re-arms so we don't immediately kill.
+                if (AutoRestartEnabled && d < prev) ArmRestartClock();
             }
+        }
+
+        // UTC instant when the restart clock was last armed. Due-ness uses
+        // max(process start, armed) so enabling mid-session waits a full period.
+        public static DateTime? AutoRestartArmedUtc
+        {
+            get
+            {
+                string v = Get("AutoRestartArmedUtc");
+                DateTime dt;
+                if (v != null && DateTime.TryParse(v, null, DateTimeStyles.RoundtripKind, out dt))
+                    return dt.ToUniversalTime();
+                return null;
+            }
+        }
+
+        public static void ArmRestartClock()
+        {
+            Set("AutoRestartArmedUtc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
+        }
+
+        public static void ClearRestartArm()
+        {
+            Set("AutoRestartArmedUtc", "");
+        }
+
+        // Older settings files may have Enabled=true without an arm stamp — arm
+        // on first read so we don't instantly kill a long-running game.
+        public static void EnsureRestartArmed()
+        {
+            if (AutoRestartEnabled && AutoRestartArmedUtc == null)
+                ArmRestartClock();
+        }
+
+        static int ClampDays(int d)
+        {
+            if (d < 1) return 1;
+            if (d > 30) return 30;
+            return d;
         }
 
         static bool GetBool(string key, bool fallback)

@@ -264,14 +264,7 @@ namespace TbhCompanion
                 int btm = c.Bottom;
                 if (btm > bottom) bottom = btm;
             }
-            int contentH = bottom + Sc(16);
-            // Two-column content width (or single column for presence-only).
-            int contentW = Sc(Col1X + ColW + PadX);
-            int minW = Math.Min(contentW, Math.Max(1, _scroll.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 1));
-            _scroll.AutoScrollMinSize = new Size(minW, contentH);
-            _scroll.HorizontalScroll.Maximum = 0;
-            _scroll.HorizontalScroll.Enabled = false;
-            _scroll.HorizontalScroll.Visible = false;
+            _scroll.SetScrollContentSize(Sc(Col1X + ColW + PadX), bottom + Sc(16));
         }
 
         // Keeps the last row clear of the bottom edge.
@@ -301,11 +294,7 @@ namespace TbhCompanion
 
             y = AddSectionHeader("Discord Presence", Col0X, y);
             y = AddToggleRow("Show stage on Discord", Col0X, ref _presenceToggle, toggleX, y);
-            _presenceToggle.Checked = _presenceEnabled == null || _presenceEnabled();
-            _presenceToggle.CheckedChanged += delegate
-            {
-                if (_setPresenceEnabled != null) _setPresenceEnabled(_presenceToggle.Checked);
-            };
+            WirePresenceToggle();
             y = AddSectionDivider(Col0X, ColW, y);
 
             y = AddRestartSection(Col0X, ColW, y, toggleX, fieldX, fieldW);
@@ -332,11 +321,7 @@ namespace TbhCompanion
             int f0 = Col0X + ColW - fieldW;
             y0 = AddSectionHeader("Discord Presence", Col0X, y0);
             y0 = AddToggleRow("Show stage on Discord", Col0X, ref _presenceToggle, t0, y0);
-            _presenceToggle.Checked = _presenceEnabled == null || _presenceEnabled();
-            _presenceToggle.CheckedChanged += delegate
-            {
-                if (_setPresenceEnabled != null) _setPresenceEnabled(_presenceToggle.Checked);
-            };
+            WirePresenceToggle();
             y0 = AddSectionDivider(Col0X, ColW, y0);
 
             y0 = AddRestartSection(Col0X, ColW, y0, t0, f0, fieldW);
@@ -438,14 +423,25 @@ namespace TbhCompanion
             _restartDays.Enabled = _autoRestart.Checked;
             _autoRestart.CheckedChanged += delegate
             {
+                // Setter arms/clears the restart clock (no instant kill on enable).
                 AppSettings.AutoRestartEnabled = _autoRestart.Checked;
                 _restartDays.Enabled = _autoRestart.Checked;
             };
             _restartDays.ValueChanged += delegate
             {
+                // Tightening days re-arms via the setter.
                 AppSettings.AutoRestartDays = (int)_restartDays.Value;
             };
             return AddSectionDivider(colX, colW, y);
+        }
+
+        void WirePresenceToggle()
+        {
+            _presenceToggle.Checked = _presenceEnabled == null || _presenceEnabled();
+            _presenceToggle.CheckedChanged += delegate
+            {
+                if (_setPresenceEnabled != null) _setPresenceEnabled(_presenceToggle.Checked);
+            };
         }
 
         int AddSectionDivider(int colX, int colW, int y)
@@ -915,70 +911,6 @@ namespace TbhCompanion
             for (int i = 0; i < Recipes.Length; i++)
                 if (Recipes[i].Lo == desiredLevel) return i;
             return 0;
-        }
-    }
-
-    // AutoScroll panel that stays vertical-only.
-    sealed class VertScrollPanel : Panel
-    {
-        public VertScrollPanel()
-        {
-            AutoScroll = true;
-            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
-        }
-
-        protected override Point ScrollToControl(Control activeControl)
-        {
-            // Keep the current scroll offset (don't jump when a child takes focus).
-            return new Point(-AutoScrollPosition.X, -AutoScrollPosition.Y);
-        }
-
-        protected override void WndProc(ref Message m)
-        {
-            base.WndProc(ref m);
-            // AutoScroll re-enables HScroll after layout; stamp it back out.
-            if (HorizontalScroll.Visible)
-            {
-                HorizontalScroll.Value = 0;
-                HorizontalScroll.Visible = false;
-            }
-        }
-    }
-
-    // Redirect WM_MOUSEWHEEL to the settings scroll host while the cursor is over
-    // it — WinForms otherwise delivers the wheel only to the focused control.
-    sealed class WheelRedirectFilter : IMessageFilter
-    {
-        const int WM_MOUSEWHEEL = 0x020A;
-        readonly ScrollableControl _host;
-
-        public WheelRedirectFilter(ScrollableControl host) { _host = host; }
-
-        public bool PreFilterMessage(ref Message m)
-        {
-            if (m.Msg != WM_MOUSEWHEEL) return false;
-            if (_host == null || _host.IsDisposed || !_host.IsHandleCreated) return false;
-            if (_host.AutoScrollMinSize.Height <= _host.ClientSize.Height) return false;
-
-            var form = _host.FindForm();
-            if (form == null || !form.ContainsFocus) return false;
-
-            Point screen = Control.MousePosition;
-            if (!_host.RectangleToScreen(_host.ClientRectangle).Contains(screen)) return false;
-
-            long wp = m.WParam.ToInt64();
-            int delta = (short)((wp >> 16) & 0xFFFF);
-            int step = SystemInformation.MouseWheelScrollLines * 24;
-            if (step < 1) step = 24;
-
-            int current = -_host.AutoScrollPosition.Y;
-            int max = Math.Max(0, _host.AutoScrollMinSize.Height - _host.ClientSize.Height);
-            int next = current - Math.Sign(delta) * step;
-            if (next < 0) next = 0;
-            if (next > max) next = max;
-            if (next != current)
-                _host.AutoScrollPosition = new Point(0, next);
-            return true;
         }
     }
 }

@@ -97,6 +97,9 @@ namespace TbhCompanion
         {
             _engine.Stop();
             try { _worker.Join(3000); } catch { }
+            // If a scheduled restart already closed the game, let relaunch finish
+            // so Quit cannot leave TaskBarHero dead.
+            GameRestart.WaitIdle(60000);
             _icon.Visible = false;
             _icon.Dispose();
         }
