@@ -107,9 +107,9 @@ memory.
 
 ![The Status & Settings window](docs/settings-window.png)
 
-Left rail shows live status: Discord presence (stage/difficulty) and the
-auto-synthesis loop (on/off, cycle count, interval). The right pane has the
-settings in two columns:
+Left rail shows a **Launch game** button, plus live status: Discord presence
+(stage/difficulty) and the auto-synthesis loop (on/off, cycle count, interval).
+The right pane has the settings in two columns:
 
 - **Left**
   - **Discord Presence** — *Show stage on Discord* (also on the tray menu).

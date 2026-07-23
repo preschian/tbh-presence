@@ -84,7 +84,7 @@ namespace TbhCompanion
         Label _rarityValue;
         Stepper _cycleMin, _restartDays;
         FlatDrop _desiredLevel;
-        FlatButton _saveBtn, _setupBtn, _removeBtn;
+        FlatButton _saveBtn, _setupBtn, _removeBtn, _launchBtn;
         Label _cfgNote;
 
         public StatusForm(Func<string> stageLabel, Func<bool> discordConnected, Func<string> diag,
@@ -160,6 +160,14 @@ namespace TbhCompanion
             if (Build.Synth)
                 _live.SetRow(1, "Loop", "—", "", "Off", Theme.TextMuted);
             _side.Controls.Add(_live);
+
+            // Launch sits just above the status rule.
+            const int launchH = 30;
+            _launchBtn = new FlatButton { Text = "Launch game", Fill = Theme.Accent };
+            _launchBtn.SetBounds(Sc(12), _live.Top - Sc(14 + 10 + launchH), Sc(SideW - 24), Sc(launchH));
+            _launchBtn.Click += delegate { LaunchGame(); };
+            _side.Controls.Add(_launchBtn);
+            RefreshLaunchButton();
         }
 
         void PaintSide(object sender, PaintEventArgs e)
@@ -173,7 +181,7 @@ namespace TbhCompanion
             using (var f = Theme.F(11f, FontStyle.Bold)) using (var b = new SolidBrush(Theme.TextDark))
                 g.DrawString("TBH Companion", f, b, new PointF(Sc(56), Sc(24)));
 
-            // Soft rule above the status block.
+            // Soft rule between the launch button and the status block.
             int ruleY = _live.Top - Sc(14);
             using (var pen = new Pen(Theme.Divider))
                 g.DrawLine(pen, Sc(16), ruleY, _side.Width - Sc(16), ruleY);
@@ -654,6 +662,39 @@ namespace TbhCompanion
             catch { }
         }
 
+        // ---- launch game ----
+
+        void LaunchGame()
+        {
+            if (_modOpRunning || GameRestart.IsGameRunning() || GameRestart.IsBusy)
+            {
+                RefreshLaunchButton();
+                return;
+            }
+            GameRestart.TryBeginLaunch();
+            RefreshLaunchButton();
+        }
+
+        void RefreshLaunchButton()
+        {
+            if (_launchBtn == null) return;
+            bool running = GameRestart.IsGameRunning();
+            bool launching = GameRestart.IsLaunching();
+            _launchBtn.Enabled = !running && !launching && !_modOpRunning;
+            _launchBtn.Text = running ? "Running" : launching ? "Launching…" : "Launch game";
+            _launchBtn.Invalidate();
+        }
+
+        // Dev (--shot): freeze the idle launch label so docs don't depend on a live game.
+        internal void PrepareDocsShot()
+        {
+            if (_timer != null) _timer.Stop();
+            if (_launchBtn == null) return;
+            _launchBtn.Enabled = true;
+            _launchBtn.Text = "Launch game";
+            _launchBtn.Invalidate();
+        }
+
         // ---- live status ----
 
         void UpdateStatus()
@@ -662,6 +703,8 @@ namespace TbhCompanion
             bool connected = _discordConnected != null && _discordConnected();
             string diag = _diag != null ? _diag() : null;
             bool presenceOn = _presenceEnabled == null || _presenceEnabled();
+
+            RefreshLaunchButton();
 
             if (_presenceToggle != null && _presenceToggle.Checked != presenceOn)
                 _presenceToggle.Checked = presenceOn;
