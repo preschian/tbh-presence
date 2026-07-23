@@ -38,7 +38,7 @@ namespace TbhCompanion
             "tbh-companion", "autosynth-status.json");
 
         // 16:9 window; right pane scrolls when settings exceed the viewport.
-        const int W = 640, SideW = 188, H = 360;
+        const int W = 896, SideW = 188, H = 504;
         const int PadX = 20;
         const int ScrollBarW = 16; // reserve so controls aren't covered when the bar shows
         const int MainW = W - SideW - PadX * 2 - ScrollBarW;
