@@ -37,10 +37,13 @@ namespace TbhCompanion
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "tbh-companion", "autosynth-status.json");
 
-        const int W = 640, SideW = 188, H = 660;
+        // 16:9 window; right pane scrolls when settings exceed the viewport.
+        const int W = 640, SideW = 188, H = 360;
         const int PadX = 20;
-        const int MainW = W - SideW - PadX * 2; // content width in main pane
+        const int ScrollBarW = 16; // reserve so controls aren't covered when the bar shows
+        const int MainW = W - SideW - PadX * 2 - ScrollBarW;
         const int ContentRight = PadX + MainW;
+        const int TopChrome = 40; // fixed close/drag strip above the scroll area
         const int RowH = 32;
         const int ControlH = 28;
         const int ToggleH = 24;
@@ -68,7 +71,7 @@ namespace TbhCompanion
         float BorderWidth() { return Math.Max(1f, _s); }
 
         LiveStrip _live;
-        Panel _side, _main;
+        Panel _side, _main, _scroll;
         Toggle _presenceToggle;
         Toggle _autoRestart;
         Toggle _autoLoop, _enableSynth, _autoRune, _showConsole;
@@ -96,8 +99,7 @@ namespace TbhCompanion
             Font = Theme.F(9f, FontStyle.Regular);
             BackColor = Theme.FormBg;
             try { using (var g = Graphics.FromHwnd(IntPtr.Zero)) _s = g.DpiX / 96f; } catch { _s = 1f; }
-            int height = Build.Synth ? H : 340;
-            ClientSize = new Size(Sc(W), Sc(height));
+            ClientSize = new Size(Sc(W), Sc(H));
             DoubleBuffered = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
@@ -201,11 +203,23 @@ namespace TbhCompanion
             _main.MouseUp += delegate { _dragging = false; };
             Controls.Add(_main);
 
-            if (Build.Synth)
+            // Scrollable settings body under a fixed close/drag chrome strip.
+            _scroll = new Panel
             {
-                BuildSettings();
-            }
+                BackColor = Theme.FormBg,
+                Location = new Point(0, Sc(TopChrome)),
+                Size = new Size(_main.Width, _main.Height - Sc(TopChrome)),
+                AutoScroll = true
+            };
+            _scroll.MouseDown += delegate(object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) BeginDrag(e.Location); };
+            _scroll.MouseMove += MainMouseMove;
+            _scroll.MouseUp += delegate { _dragging = false; };
+            _main.Controls.Add(_scroll);
+
+            if (Build.Synth) BuildSettings();
             else BuildPresenceOnly();
+
+            WireMouseWheel(_scroll);
         }
 
         void PaintMain(object sender, PaintEventArgs e)
@@ -222,7 +236,40 @@ namespace TbhCompanion
         void MainMouseDown(object sender, MouseEventArgs e)
         {
             if (_closeRect.Contains(e.Location)) { Close(); return; }
-            if (e.Y <= Sc(40)) BeginDrag(e.Location);
+            if (e.Y <= Sc(TopChrome)) BeginDrag(e.Location);
+        }
+
+        // Custom-painted children often swallow wheel events; forward them to the scroll panel.
+        void WireMouseWheel(Control root)
+        {
+            root.MouseWheel += OnScrollWheel;
+            foreach (Control c in root.Controls) WireMouseWheel(c);
+        }
+
+        void OnScrollWheel(object sender, MouseEventArgs e)
+        {
+            if (_scroll == null || !_scroll.VerticalScroll.Visible) return;
+            int step = SystemInformation.MouseWheelScrollLines * Sc(18);
+            if (step < 1) step = Sc(18);
+            int y = -_scroll.AutoScrollPosition.Y - Math.Sign(e.Delta) * step;
+            if (y < 0) y = 0;
+            _scroll.AutoScrollPosition = new Point(0, y);
+            var he = e as HandledMouseEventArgs;
+            if (he != null) he.Handled = true;
+        }
+
+        void AddContent(Control c) { _scroll.Controls.Add(c); }
+
+        // Keeps the last row clear of the bottom edge / scrollbar corner.
+        void EndContent(int y)
+        {
+            var pad = new Panel
+            {
+                BackColor = Theme.FormBg,
+                Location = new Point(0, Sc(y + 16)),
+                Size = new Size(1, Sc(8))
+            };
+            AddContent(pad);
         }
 
         void MainMouseMove(object sender, MouseEventArgs e)
@@ -248,6 +295,7 @@ namespace TbhCompanion
             y = AddSectionDivider(y);
 
             y = AddRestartSection(y, toggleX, fieldX, fieldW);
+            EndContent(y);
         }
 
         void BuildSettings()
@@ -298,7 +346,7 @@ namespace TbhCompanion
             for (int i = 0; i < 3; i++)
             {
                 tiles[i].SetBounds(Sc(PadX + i * (tw + gap)), Sc(y), Sc(tw), Sc(ControlH));
-                _main.Controls.Add(tiles[i]);
+                AddContent(tiles[i]);
             }
             y += ControlH + 12;
 
@@ -308,7 +356,7 @@ namespace TbhCompanion
             _seg = new SegmentBar { Value = 2 };
             _seg.SetBounds(Sc(PadX), Sc(y), Sc(MainW), Sc(8));
             _seg.ValueChanged += delegate { UpdateRarityLabel(); };
-            _main.Controls.Add(_seg);
+            AddContent(_seg);
             y += 16;
 
             var recipeLabels = new string[Recipes.Length];
@@ -319,19 +367,19 @@ namespace TbhCompanion
             _saveBtn = new FlatButton { Text = "Save", Fill = Theme.Accent };
             _saveBtn.SetBounds(Sc(PadX), Sc(y), Sc(88), Sc(30));
             _saveBtn.Click += delegate { SaveConfig(); };
-            _main.Controls.Add(_saveBtn);
+            AddContent(_saveBtn);
 
             _removeBtn = new FlatButton { Text = "Remove mods", Fill = Theme.Secondary };
             _removeBtn.SetBounds(Sc(PadX + 96), Sc(y), Sc(120), Sc(30));
             _removeBtn.Click += delegate { RunRemove(); };
             _removeBtn.Visible = false;
-            _main.Controls.Add(_removeBtn);
+            AddContent(_removeBtn);
 
             _setupBtn = new FlatButton { Text = "Install mods", Fill = Theme.Secondary };
             _setupBtn.SetBounds(Sc(PadX), Sc(y), Sc(120), Sc(30));
             _setupBtn.Click += delegate { RunSetup(); };
             _setupBtn.Visible = false;
-            _main.Controls.Add(_setupBtn);
+            AddContent(_setupBtn);
 
             _cfgNote = new Label
             {
@@ -343,8 +391,9 @@ namespace TbhCompanion
                 Font = Theme.F(8.5f, FontStyle.Regular),
                 TextAlign = ContentAlignment.MiddleLeft
             };
-            _main.Controls.Add(_cfgNote);
+            AddContent(_cfgNote);
 
+            EndContent(y + 30);
             RefreshModsRow(forceLayout: true);
         }
 
@@ -393,7 +442,7 @@ namespace TbhCompanion
             toggle = new Toggle();
             int ty = y + (ControlH - ToggleH) / 2;
             toggle.SetBounds(Sc(toggleX), Sc(ty), Sc(44), Sc(ToggleH));
-            _main.Controls.Add(toggle);
+            AddContent(toggle);
             return y + RowH;
         }
 
@@ -402,7 +451,7 @@ namespace TbhCompanion
             AddRowLabel(label, y);
             stepper = new Stepper();
             stepper.SetBounds(Sc(fieldX), Sc(y), Sc(fieldW), Sc(ControlH));
-            _main.Controls.Add(stepper);
+            AddContent(stepper);
             // Unit sits just left of the right-aligned control so edges match toggles/dropdowns.
             if (!string.IsNullOrEmpty(suffix))
                 AddMainLabel(suffix, fieldX - 26, y + (ControlH - 12) / 2, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
@@ -414,7 +463,7 @@ namespace TbhCompanion
             AddRowLabel(label, y);
             drop = new FlatDrop { Items = items, SelectedIndex = 0 };
             drop.SetBounds(Sc(fieldX), Sc(y), Sc(fieldW), Sc(ControlH));
-            _main.Controls.Add(drop);
+            AddContent(drop);
             return y + RowH;
         }
 
@@ -449,7 +498,7 @@ namespace TbhCompanion
                 Text = text, AutoSize = true, Location = new Point(Sc(x), Sc(y)),
                 ForeColor = color, BackColor = Theme.FormBg, Font = font
             };
-            _main.Controls.Add(l);
+            AddContent(l);
             return l;
         }
 
@@ -461,7 +510,7 @@ namespace TbhCompanion
                 Size = new Size(Sc(w), Sc(h)), ForeColor = color, BackColor = Theme.FormBg,
                 Font = font, TextAlign = align
             };
-            _main.Controls.Add(l);
+            AddContent(l);
             return l;
         }
 
@@ -473,7 +522,7 @@ namespace TbhCompanion
                 Location = new Point(Sc(PadX), Sc(y)),
                 Size = new Size(Sc(MainW), 1)
             };
-            _main.Controls.Add(p);
+            AddContent(p);
         }
 
         void UpdateRarityLabel()
