@@ -37,10 +37,15 @@ namespace TbhCompanion
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "tbh-companion", "autosynth-status.json");
 
-        const int W = 640, SideW = 188, H = 560;
+        // 16:9 window. Synth settings use two columns in the right pane
+        // (general / mods | runes / synthesis) so everything fits without stretch.
+        const int W = 896, SideW = 188, H = 504;
         const int PadX = 20;
-        const int MainW = W - SideW - PadX * 2; // content width in main pane
-        const int ContentRight = PadX + MainW;
+        const int ColW = 318;
+        const int ColGap = 20;
+        const int Col0X = PadX;
+        const int Col1X = PadX + ColW + ColGap;
+        const int TopChrome = 40; // fixed close/drag strip above the scroll area
         const int RowH = 32;
         const int ControlH = 28;
         const int ToggleH = 24;
@@ -69,12 +74,15 @@ namespace TbhCompanion
 
         LiveStrip _live;
         Panel _side, _main;
+        VertScrollPanel _scroll;
+        WheelRedirectFilter _wheelFilter;
         Toggle _presenceToggle;
+        Toggle _autoRestart;
         Toggle _autoLoop, _enableSynth, _autoRune, _showConsole;
         TypeTile _tEquip, _tMaterials, _tAccessories;
         SegmentBar _seg;
         Label _rarityValue;
-        Stepper _cycleMin;
+        Stepper _cycleMin, _restartDays;
         FlatDrop _desiredLevel;
         FlatButton _saveBtn, _setupBtn, _removeBtn;
         Label _cfgNote;
@@ -95,8 +103,7 @@ namespace TbhCompanion
             Font = Theme.F(9f, FontStyle.Regular);
             BackColor = Theme.FormBg;
             try { using (var g = Graphics.FromHwnd(IntPtr.Zero)) _s = g.DpiX / 96f; } catch { _s = 1f; }
-            int height = Build.Synth ? H : 260;
-            ClientSize = new Size(Sc(W), Sc(height));
+            ClientSize = new Size(Sc(W), Sc(H));
             DoubleBuffered = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
@@ -111,7 +118,12 @@ namespace TbhCompanion
             _timer = new Timer { Interval = 1000 };
             _timer.Tick += delegate { UpdateStatus(); };
             _timer.Start();
-            FormClosed += delegate { _timer.Stop(); _timer.Dispose(); if (_icon != null) _icon.Dispose(); };
+            FormClosed += delegate
+            {
+                _timer.Stop(); _timer.Dispose();
+                if (_wheelFilter != null) { Application.RemoveMessageFilter(_wheelFilter); _wheelFilter = null; }
+                if (_icon != null) _icon.Dispose();
+            };
 
             Load += delegate { ApplyRegion(); };
         }
@@ -200,11 +212,29 @@ namespace TbhCompanion
             _main.MouseUp += delegate { _dragging = false; };
             Controls.Add(_main);
 
-            if (Build.Synth)
+            // AutoScroll host for settings (two columns in the synth edition).
+            _scroll = new VertScrollPanel
             {
-                BuildSettings();
-            }
+                BackColor = Theme.FormBg,
+                Location = new Point(0, Sc(TopChrome)),
+                Size = new Size(_main.Width, _main.Height - Sc(TopChrome)),
+                AutoScroll = true
+            };
+            _scroll.MouseDown += delegate(object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) BeginDrag(e.Location); };
+            _scroll.MouseMove += MainMouseMove;
+            _scroll.MouseUp += delegate { _dragging = false; };
+            _main.Controls.Add(_scroll);
+
+            if (Build.Synth) BuildSettings();
             else BuildPresenceOnly();
+
+            FinishContent();
+            Shown += delegate { FinishContent(); };
+
+            // WinForms sends wheel to the *focused* control; redirect when the
+            // cursor is over the settings pane so scrolling always works.
+            _wheelFilter = new WheelRedirectFilter(_scroll);
+            Application.AddMessageFilter(_wheelFilter);
         }
 
         void PaintMain(object sender, PaintEventArgs e)
@@ -221,7 +251,32 @@ namespace TbhCompanion
         void MainMouseDown(object sender, MouseEventArgs e)
         {
             if (_closeRect.Contains(e.Location)) { Close(); return; }
-            if (e.Y <= Sc(40)) BeginDrag(e.Location);
+            if (e.Y <= Sc(TopChrome)) BeginDrag(e.Location);
+        }
+
+        void AddContent(Control c) { _scroll.Controls.Add(c); }
+
+        void FinishContent()
+        {
+            int bottom = 0;
+            foreach (Control c in _scroll.Controls)
+            {
+                int btm = c.Bottom;
+                if (btm > bottom) bottom = btm;
+            }
+            _scroll.SetScrollContentSize(Sc(Col1X + ColW + PadX), bottom + Sc(16));
+        }
+
+        // Keeps the last row clear of the bottom edge.
+        void EndContent(int y)
+        {
+            var pad = new Panel
+            {
+                BackColor = Theme.FormBg,
+                Location = new Point(0, Sc(y + 16)),
+                Size = new Size(1, Sc(8))
+            };
+            AddContent(pad);
         }
 
         void MainMouseMove(object sender, MouseEventArgs e)
@@ -231,153 +286,203 @@ namespace TbhCompanion
 
         void BuildPresenceOnly()
         {
-            AddMainLabel("Discord Presence", 20, 28, Theme.TextDark, Theme.F(11f, FontStyle.Bold));
-            AddMainLabel("Show your current stage on Discord", 20, 52, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
-            _presenceToggle = MakePresenceToggle(ContentRight - 44, 34);
-            _main.Controls.Add(_presenceToggle);
+            const int toggleW = 44;
+            const int fieldW = 120;
+            int toggleX = Col0X + ColW - toggleW;
+            int fieldX = Col0X + ColW - fieldW;
+            int y = 18;
+
+            y = AddSectionHeader("Discord Presence", Col0X, y);
+            y = AddToggleRow("Show stage on Discord", Col0X, ref _presenceToggle, toggleX, y);
+            WirePresenceToggle();
+            y = AddSectionDivider(Col0X, ColW, y);
+
+            y = AddRestartSection(Col0X, ColW, y, toggleX, fieldX, fieldW);
+            EndContent(y);
         }
 
         void BuildSettings()
         {
             const int toggleW = 44;
             const int fieldW = 120;
-            int toggleX = ContentRight - toggleW;
-            int fieldX = ContentRight - fieldW;
-            int y = 18;
+            int y0 = 18, y1 = 18;
 
-            // ---- Discord Presence ----
-            y = AddSectionHeader("Discord Presence", y);
-            y = AddToggleRow("Show stage on Discord", ref _presenceToggle, toggleX, y);
-            _presenceToggle.Checked = _presenceEnabled == null || _presenceEnabled();
-            _presenceToggle.CheckedChanged += delegate
+            // Soft rule between the two columns.
+            var split = new Panel
             {
-                if (_setPresenceEnabled != null) _setPresenceEnabled(_presenceToggle.Checked);
+                BackColor = Theme.Divider,
+                Location = new Point(Sc(Col1X - ColGap / 2), Sc(18)),
+                Size = new Size(Math.Max(1, Sc(1)), Sc(400))
             };
-            y = AddSectionDivider(y);
+            AddContent(split);
 
-            // ---- Enable Mods ----
-            y = AddSectionHeader("Enable Mods", y);
-            y = AddToggleRow("Auto Loop", ref _autoLoop, toggleX, y);
-            y = AddToggleRow("Show BepInEx console", ref _showConsole, toggleX, y);
-            y = AddFieldRow("Cycle interval", "min", y, fieldX, fieldW, out _cycleMin);
+            // ---- left: Discord / Restart / Mods ----
+            int t0 = Col0X + ColW - toggleW;
+            int f0 = Col0X + ColW - fieldW;
+            y0 = AddSectionHeader("Discord Presence", Col0X, y0);
+            y0 = AddToggleRow("Show stage on Discord", Col0X, ref _presenceToggle, t0, y0);
+            WirePresenceToggle();
+            y0 = AddSectionDivider(Col0X, ColW, y0);
+
+            y0 = AddRestartSection(Col0X, ColW, y0, t0, f0, fieldW);
+
+            y0 = AddSectionHeader("Enable Mods", Col0X, y0);
+            y0 = AddToggleRow("Auto Loop", Col0X, ref _autoLoop, t0, y0);
+            y0 = AddToggleRow("Show BepInEx console", Col0X, ref _showConsole, t0, y0);
+            y0 = AddFieldRow("Cycle interval", "min", Col0X, y0, f0, fieldW, out _cycleMin);
             _cycleMin.Min = 1; _cycleMin.Max = 1440; _cycleMin.Step = 1; _cycleMin.Decimals = 0; _cycleMin.Value = 5;
-            y = AddSectionDivider(y);
 
-            // ---- Runes ----
-            y = AddSectionHeader("Runes", y);
-            y = AddToggleRow("Enabled", ref _autoRune, toggleX, y);
-            y = AddSectionDivider(y);
+            // ---- right: Runes / Synthesis ----
+            int t1 = Col1X + ColW - toggleW;
+            int f1 = Col1X + ColW - fieldW;
+            y1 = AddSectionHeader("Runes", Col1X, y1);
+            y1 = AddToggleRow("Enabled", Col1X, ref _autoRune, t1, y1);
+            y1 = AddSectionDivider(Col1X, ColW, y1);
 
-            // ---- Synthesis ----
-            y = AddSectionHeader("Synthesis", y);
-            y = AddToggleRow("Enabled", ref _enableSynth, toggleX, y);
+            y1 = AddSectionHeader("Synthesis", Col1X, y1);
+            y1 = AddToggleRow("Enabled", Col1X, ref _enableSynth, t1, y1);
 
-            AddMainLabel("Types", PadX, y, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
-            y += 18;
+            AddMainLabel("Types", Col1X, y1, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
+            y1 += 18;
             _tEquip = new TypeTile { Caption = "Equipment" };
             _tMaterials = new TypeTile { Caption = "Materials" };
             _tAccessories = new TypeTile { Caption = "Accessories" };
             var tiles = new[] { _tEquip, _tMaterials, _tAccessories };
-            int gap = 8, tw = (MainW - gap * 2) / 3;
+            int gap = 6, tw = (ColW - gap * 2) / 3;
             for (int i = 0; i < 3; i++)
             {
-                tiles[i].SetBounds(Sc(PadX + i * (tw + gap)), Sc(y), Sc(tw), Sc(ControlH));
-                _main.Controls.Add(tiles[i]);
+                tiles[i].SetBounds(Sc(Col1X + i * (tw + gap)), Sc(y1), Sc(tw), Sc(ControlH));
+                AddContent(tiles[i]);
             }
-            y += ControlH + 12;
+            y1 += ControlH + 12;
 
-            AddRowLabel("Max rarity", y);
-            _rarityValue = AddMainLabelBox("Legendary", fieldX, y, fieldW, ControlH, Theme.Amber, Theme.F(9f, FontStyle.Bold), ContentAlignment.MiddleRight);
-            y += RowH;
+            AddRowLabel("Max rarity", Col1X, y1);
+            _rarityValue = AddMainLabelBox("Legendary", f1, y1, fieldW, ControlH, Theme.Amber, Theme.F(9f, FontStyle.Bold), ContentAlignment.MiddleRight);
+            y1 += RowH;
             _seg = new SegmentBar { Value = 2 };
-            _seg.SetBounds(Sc(PadX), Sc(y), Sc(MainW), Sc(8));
+            _seg.SetBounds(Sc(Col1X), Sc(y1), Sc(ColW), Sc(8));
             _seg.ValueChanged += delegate { UpdateRarityLabel(); };
-            _main.Controls.Add(_seg);
-            y += 16;
+            AddContent(_seg);
+            y1 += 16;
 
             var recipeLabels = new string[Recipes.Length];
             for (int i = 0; i < Recipes.Length; i++) recipeLabels[i] = Recipes[i].Label;
-            y = AddDropdownRow("Target level", recipeLabels, y, fieldX, fieldW, out _desiredLevel);
-            y += 14;
+            y1 = AddDropdownRow("Target level", recipeLabels, Col1X, y1, f1, fieldW, out _desiredLevel);
+
+            // Action row under both columns.
+            int y = Math.Max(y0, y1) + 18;
+            split.Height = Sc(Math.Max(40, y - 30));
 
             _saveBtn = new FlatButton { Text = "Save", Fill = Theme.Accent };
-            _saveBtn.SetBounds(Sc(PadX), Sc(y), Sc(88), Sc(30));
+            _saveBtn.SetBounds(Sc(Col0X), Sc(y), Sc(88), Sc(30));
             _saveBtn.Click += delegate { SaveConfig(); };
-            _main.Controls.Add(_saveBtn);
+            AddContent(_saveBtn);
 
             _removeBtn = new FlatButton { Text = "Remove mods", Fill = Theme.Secondary };
-            _removeBtn.SetBounds(Sc(PadX + 96), Sc(y), Sc(120), Sc(30));
+            _removeBtn.SetBounds(Sc(Col0X + 96), Sc(y), Sc(120), Sc(30));
             _removeBtn.Click += delegate { RunRemove(); };
             _removeBtn.Visible = false;
-            _main.Controls.Add(_removeBtn);
+            AddContent(_removeBtn);
 
             _setupBtn = new FlatButton { Text = "Install mods", Fill = Theme.Secondary };
-            _setupBtn.SetBounds(Sc(PadX), Sc(y), Sc(120), Sc(30));
+            _setupBtn.SetBounds(Sc(Col0X), Sc(y), Sc(120), Sc(30));
             _setupBtn.Click += delegate { RunSetup(); };
             _setupBtn.Visible = false;
-            _main.Controls.Add(_setupBtn);
+            AddContent(_setupBtn);
 
             _cfgNote = new Label
             {
                 AutoSize = false,
-                Location = new Point(Sc(PadX + 228), Sc(y)),
-                Size = new Size(Sc(MainW - 208), Sc(30)),
+                Location = new Point(Sc(Col0X + 228), Sc(y)),
+                Size = new Size(Sc(Col1X + ColW - (Col0X + 228)), Sc(30)),
                 ForeColor = Theme.TextMuted,
                 BackColor = Theme.FormBg,
                 Font = Theme.F(8.5f, FontStyle.Regular),
                 TextAlign = ContentAlignment.MiddleLeft
             };
-            _main.Controls.Add(_cfgNote);
+            AddContent(_cfgNote);
 
+            EndContent(y + 30);
             RefreshModsRow(forceLayout: true);
         }
 
-        int AddSectionHeader(string title, int y)
+        int AddSectionHeader(string title, int colX, int y)
         {
-            AddMainLabel(title, PadX, y, Theme.TextDark, Theme.F(10f, FontStyle.Bold));
+            AddMainLabel(title, colX, y, Theme.TextDark, Theme.F(10f, FontStyle.Bold));
             return y + HeaderAfter;
         }
 
-        int AddSectionDivider(int y)
+        int AddRestartSection(int colX, int colW, int y, int toggleX, int fieldX, int fieldW)
+        {
+            y = AddSectionHeader("Scheduled Restart", colX, y);
+            y = AddToggleRow("Restart after uptime", colX, ref _autoRestart, toggleX, y);
+            y = AddFieldRow("Uptime limit", "days", colX, y, fieldX, fieldW, out _restartDays);
+            _restartDays.Min = 1; _restartDays.Max = 30; _restartDays.Step = 1; _restartDays.Decimals = 0;
+            _restartDays.SetValue(AppSettings.AutoRestartDays);
+            _autoRestart.Checked = AppSettings.AutoRestartEnabled;
+            _restartDays.Enabled = _autoRestart.Checked;
+            _autoRestart.CheckedChanged += delegate
+            {
+                // Setter arms/clears the restart clock (no instant kill on enable).
+                AppSettings.AutoRestartEnabled = _autoRestart.Checked;
+                _restartDays.Enabled = _autoRestart.Checked;
+            };
+            _restartDays.ValueChanged += delegate
+            {
+                // Tightening days re-arms via the setter.
+                AppSettings.AutoRestartDays = (int)_restartDays.Value;
+            };
+            return AddSectionDivider(colX, colW, y);
+        }
+
+        void WirePresenceToggle()
+        {
+            _presenceToggle.Checked = _presenceEnabled == null || _presenceEnabled();
+            _presenceToggle.CheckedChanged += delegate
+            {
+                if (_setPresenceEnabled != null) _setPresenceEnabled(_presenceToggle.Checked);
+            };
+        }
+
+        int AddSectionDivider(int colX, int colW, int y)
         {
             y += 6;
-            AddMainDivider(y);
+            AddMainDivider(colX, colW, y);
             return y + SectionGap;
         }
 
-        void AddRowLabel(string label, int y)
+        void AddRowLabel(string label, int colX, int y)
         {
-            AddMainLabel(label, PadX, y + (ControlH - 14) / 2, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
+            AddMainLabel(label, colX, y + (ControlH - 14) / 2, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
         }
 
-        int AddToggleRow(string label, ref Toggle toggle, int toggleX, int y)
+        int AddToggleRow(string label, int colX, ref Toggle toggle, int toggleX, int y)
         {
-            AddRowLabel(label, y);
+            AddRowLabel(label, colX, y);
             toggle = new Toggle();
             int ty = y + (ControlH - ToggleH) / 2;
             toggle.SetBounds(Sc(toggleX), Sc(ty), Sc(44), Sc(ToggleH));
-            _main.Controls.Add(toggle);
+            AddContent(toggle);
             return y + RowH;
         }
 
-        int AddFieldRow(string label, string suffix, int y, int fieldX, int fieldW, out Stepper stepper)
+        int AddFieldRow(string label, string suffix, int colX, int y, int fieldX, int fieldW, out Stepper stepper)
         {
-            AddRowLabel(label, y);
+            AddRowLabel(label, colX, y);
             stepper = new Stepper();
             stepper.SetBounds(Sc(fieldX), Sc(y), Sc(fieldW), Sc(ControlH));
-            _main.Controls.Add(stepper);
-            // Unit sits just left of the right-aligned control so edges match toggles/dropdowns.
+            AddContent(stepper);
             if (!string.IsNullOrEmpty(suffix))
                 AddMainLabel(suffix, fieldX - 26, y + (ControlH - 12) / 2, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
             return y + RowH;
         }
 
-        int AddDropdownRow(string label, string[] items, int y, int fieldX, int fieldW, out FlatDrop drop)
+        int AddDropdownRow(string label, string[] items, int colX, int y, int fieldX, int fieldW, out FlatDrop drop)
         {
-            AddRowLabel(label, y);
+            AddRowLabel(label, colX, y);
             drop = new FlatDrop { Items = items, SelectedIndex = 0 };
             drop.SetBounds(Sc(fieldX), Sc(y), Sc(fieldW), Sc(ControlH));
-            _main.Controls.Add(drop);
+            AddContent(drop);
             return y + RowH;
         }
 
@@ -391,31 +496,20 @@ namespace TbhCompanion
             _modsLayoutReady = true;
             _modsPresent = present;
             int y = _cfgNote.Top;
+            int right = Col1X + ColW;
             if (present)
             {
-                _cfgNote.Location = new Point(Sc(PadX + 228), y);
-                _cfgNote.Size = new Size(Sc(MainW - 208), Sc(30));
+                _cfgNote.Location = new Point(Sc(Col0X + 228), y);
+                _cfgNote.Size = new Size(Sc(right - (Col0X + 228)), Sc(30));
             }
             else
             {
-                _cfgNote.Location = new Point(Sc(PadX + 128), y);
-                _cfgNote.Size = new Size(Sc(MainW - 108), Sc(30));
+                _cfgNote.Location = new Point(Sc(Col0X + 128), y);
+                _cfgNote.Size = new Size(Sc(right - (Col0X + 128)), Sc(30));
             }
         }
 
         // ---- helpers ----
-
-        Toggle MakePresenceToggle(int x, int y)
-        {
-            var t = new Toggle();
-            t.SetBounds(Sc(x), Sc(y), Sc(44), Sc(24));
-            t.Checked = _presenceEnabled == null || _presenceEnabled();
-            t.CheckedChanged += delegate
-            {
-                if (_setPresenceEnabled != null) _setPresenceEnabled(t.Checked);
-            };
-            return t;
-        }
 
         Label AddMainLabel(string text, int x, int y, Color color, Font font)
         {
@@ -424,7 +518,7 @@ namespace TbhCompanion
                 Text = text, AutoSize = true, Location = new Point(Sc(x), Sc(y)),
                 ForeColor = color, BackColor = Theme.FormBg, Font = font
             };
-            _main.Controls.Add(l);
+            AddContent(l);
             return l;
         }
 
@@ -436,19 +530,19 @@ namespace TbhCompanion
                 Size = new Size(Sc(w), Sc(h)), ForeColor = color, BackColor = Theme.FormBg,
                 Font = font, TextAlign = align
             };
-            _main.Controls.Add(l);
+            AddContent(l);
             return l;
         }
 
-        void AddMainDivider(int y)
+        void AddMainDivider(int colX, int colW, int y)
         {
             var p = new Panel
             {
                 BackColor = Theme.Divider,
-                Location = new Point(Sc(PadX), Sc(y)),
-                Size = new Size(Sc(MainW), 1)
+                Location = new Point(Sc(colX), Sc(y)),
+                Size = new Size(Sc(colW), 1)
             };
-            _main.Controls.Add(p);
+            AddContent(p);
         }
 
         void UpdateRarityLabel()

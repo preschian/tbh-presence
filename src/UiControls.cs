@@ -430,4 +430,81 @@ namespace TbhCompanion
             }
         }
     }
+
+    // AutoScroll panel that stays vertical-only (AutoScroll keeps resurrecting
+    // a horizontal bar when the vertical one narrows the client).
+    sealed class VertScrollPanel : Panel
+    {
+        public VertScrollPanel()
+        {
+            AutoScroll = true;
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+        }
+
+        public void SetScrollContentSize(int contentWidth, int contentHeight)
+        {
+            int w = Math.Max(1, Math.Min(contentWidth,
+                ClientSize.Width > 0
+                    ? ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 1
+                    : contentWidth));
+            AutoScrollMinSize = new Size(w, Math.Max(0, contentHeight));
+            SuppressHorizontal();
+        }
+
+        protected override Point ScrollToControl(Control activeControl)
+        {
+            return new Point(-AutoScrollPosition.X, -AutoScrollPosition.Y);
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            SuppressHorizontal();
+        }
+
+        void SuppressHorizontal()
+        {
+            if (HorizontalScroll.Value != 0) HorizontalScroll.Value = 0;
+            HorizontalScroll.Maximum = 0;
+            HorizontalScroll.Enabled = false;
+            HorizontalScroll.Visible = false;
+        }
+    }
+
+    // Redirect WM_MOUSEWHEEL to a scroll host while the cursor is over it —
+    // WinForms otherwise delivers the wheel only to the focused control.
+    sealed class WheelRedirectFilter : IMessageFilter
+    {
+        const int WM_MOUSEWHEEL = 0x020A;
+        readonly ScrollableControl _host;
+
+        public WheelRedirectFilter(ScrollableControl host) { _host = host; }
+
+        public bool PreFilterMessage(ref Message m)
+        {
+            if (m.Msg != WM_MOUSEWHEEL) return false;
+            if (_host == null || _host.IsDisposed || !_host.IsHandleCreated) return false;
+            if (_host.AutoScrollMinSize.Height <= _host.ClientSize.Height) return false;
+
+            var form = _host.FindForm();
+            if (form == null || !form.ContainsFocus) return false;
+
+            Point screen = Control.MousePosition;
+            if (!_host.RectangleToScreen(_host.ClientRectangle).Contains(screen)) return false;
+
+            long wp = m.WParam.ToInt64();
+            int delta = (short)((wp >> 16) & 0xFFFF);
+            int step = SystemInformation.MouseWheelScrollLines * 24;
+            if (step < 1) step = 24;
+
+            int current = -_host.AutoScrollPosition.Y;
+            int max = Math.Max(0, _host.AutoScrollMinSize.Height - _host.ClientSize.Height);
+            int next = current - Math.Sign(delta) * step;
+            if (next < 0) next = 0;
+            if (next > max) next = max;
+            if (next != current)
+                _host.AutoScrollPosition = new Point(0, next);
+            return true;
+        }
+    }
 }

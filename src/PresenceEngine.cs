@@ -112,6 +112,22 @@ namespace TbhCompanion
 
                         while (_running && !proc.HasExited)
                         {
+                            // Lifecycle handoff: clears Discord, queues close/relaunch
+                            // off this thread, then we detach and wait for the new process.
+                            if (GameRestart.TryRestartIfDue(proc,
+                                delegate
+                                {
+                                    if (discord.Connected && lastSent != "")
+                                    {
+                                        try { discord.ClearActivity(); lastSent = ""; } catch { discord.Dispose(); }
+                                    }
+                                },
+                                Status,
+                                delegate { return _running; }))
+                            {
+                                break;
+                            }
+
                             if (PresenceEnabled)
                             {
                                 if (!discord.Connected && (DateTime.Now - lastDiscordTry).TotalSeconds >= 30)
