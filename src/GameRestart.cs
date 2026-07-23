@@ -20,6 +20,30 @@ namespace TbhCompanion
 
         public static bool IsBusy { get { return _busy != 0; } }
 
+        public static bool IsGameRunning() { return FindGame() != null; }
+
+        // Open TaskBarHero via Steam, falling back to the exe. Returns false if
+        // the game is already running or neither path could be started.
+        public static bool TryLaunch()
+        {
+            if (FindGame() != null) return false;
+
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "steam://rungameid/" + SteamAppId,
+                    UseShellExecute = true
+                });
+                return true;
+            }
+            catch { }
+
+            string dir = AutoSynthDeploy.FindGameDir();
+            if (dir == null) return false;
+            return LaunchExe(Path.Combine(dir, "TaskBarHero.exe"), null);
+        }
+
         // Block until an in-flight restart finishes (tray shutdown).
         public static void WaitIdle(int timeoutMs)
         {
