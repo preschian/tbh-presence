@@ -18,7 +18,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.27.3";
+    internal const string Version = "0.27.4";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -166,9 +166,12 @@ public class AutoSynthBehaviour : MonoBehaviour
 {
     private enum LoopMode { Off, Armed, OneShot }
     private enum Phase { Idle, Fill, Synth, Clear, Chest, Rune }
+    private enum CycleStep { Cube, Chest, Rune }
 
     private LoopMode _mode;
     private Phase _phase;
+    private CycleStep[] _steps = Array.Empty<CycleStep>();
+    private int _stepIndex;
     private int _cycles;
     private bool _recipeSelected;
     private int _recipeAttempts;
@@ -314,23 +317,12 @@ public class AutoSynthBehaviour : MonoBehaviour
         _nextTick = 0f;
         _nextOpenAttempt = 0f;
         _nextStatusWrite = 0f;
-        if (AutoSynthPlugin.EnableSynthesis)
-            _phase = Phase.Fill;
-        else if (AutoSynthPlugin.AutoOpenChest)
-        {
-            _cycles++;
-            StartChestPhase(true);
-        }
-        else if (AutoSynthPlugin.AutoUpgradeRune)
-        {
-            _cycles++;
-            StartRunePhase(true);
-        }
-        else
+        _steps = EnabledSteps();
+        _stepIndex = 0;
+        if (_steps.Length == 0)
         {
             AutoSynthPlugin.Logger.LogWarning(
                 "cycle skipped: EnableSynthesis, AutoOpenChest, and AutoUpgradeRune are all off");
-            // Stay Idle and retry after the normal gap (config may flip mid-session).
             _phase = Phase.Idle;
             if (_mode == LoopMode.OneShot)
             {
@@ -342,7 +334,49 @@ public class AutoSynthBehaviour : MonoBehaviour
                 _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterClearDelay;
             else
                 _nextTick = 0f;
+            return;
         }
+        // Cube increments _cycles on Clear; chest/rune-only cycles increment here.
+        if (_steps[0] != CycleStep.Cube)
+            _cycles++;
+        StartStep(_steps[0], true);
+    }
+
+    static CycleStep[] EnabledSteps()
+    {
+        var list = new System.Collections.Generic.List<CycleStep>(3);
+        if (AutoSynthPlugin.EnableSynthesis) list.Add(CycleStep.Cube);
+        if (AutoSynthPlugin.AutoOpenChest) list.Add(CycleStep.Chest);
+        if (AutoSynthPlugin.AutoUpgradeRune) list.Add(CycleStep.Rune);
+        return list.ToArray();
+    }
+
+    void StartStep(CycleStep step, bool loud)
+    {
+        switch (step)
+        {
+            case CycleStep.Cube:
+                _phase = Phase.Fill;
+                _nextTick = 0f;
+                break;
+            case CycleStep.Chest:
+                StartChestPhase(loud);
+                break;
+            case CycleStep.Rune:
+                StartRunePhase(loud);
+                break;
+        }
+    }
+
+    void AdvanceAfterStep(bool loud, string detailIfEnd)
+    {
+        _stepIndex++;
+        if (_stepIndex >= _steps.Length)
+        {
+            EndCycleAndScheduleNext(loud, detailIfEnd);
+            return;
+        }
+        StartStep(_steps[_stepIndex], loud);
     }
 
     void StartChestPhase(bool loud)
@@ -359,22 +393,6 @@ public class AutoSynthBehaviour : MonoBehaviour
         _phase = Phase.Rune;
         _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
         if (loud) AutoSynthPlugin.Logger.LogInfo($"cycle {_cycles}: starting rune phase");
-    }
-
-    void EnterChestOrRuneOrEnd(bool loud, string detailIfEnd)
-    {
-        if (AutoSynthPlugin.AutoOpenChest)
-            StartChestPhase(loud);
-        else
-            EnterRuneOrEnd(loud, detailIfEnd);
-    }
-
-    void EnterRuneOrEnd(bool loud, string detailIfEnd)
-    {
-        if (AutoSynthPlugin.AutoUpgradeRune)
-            StartRunePhase(loud);
-        else
-            EndCycleAndScheduleNext(loud, detailIfEnd);
     }
 
     void EndCycleAndScheduleNext(bool loud, string detail)
@@ -412,7 +430,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                 if (result == ChestOpenRunner.TickResult.Done)
                 {
                     _nextStatusWrite = 0f;
-                    EnterRuneOrEnd(loud || _chests.LastOpens > 0,
+                    AdvanceAfterStep(loud || _chests.LastOpens > 0,
                         "chest opens this cycle: " + _chests.LastOpens);
                 }
                 else
@@ -427,7 +445,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                 if (result == RuneUpgradeRunner.TickResult.Done)
                 {
                     _nextStatusWrite = 0f;
-                    EndCycleAndScheduleNext(loud || _runes.LastUpgrades > 0,
+                    AdvanceAfterStep(loud || _runes.LastUpgrades > 0,
                         "rune upgrades this cycle: " + _runes.LastUpgrades);
                 }
                 else
@@ -497,7 +515,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                     ClickTrash(cube.m_trashToggleBtn, cubeLoud);
                     _cycles++;
                     _typeSelected = false;
-                    EnterChestOrRuneOrEnd(cubeLoud, null);
+                    AdvanceAfterStep(cubeLoud, null);
                     break;
             }
         }

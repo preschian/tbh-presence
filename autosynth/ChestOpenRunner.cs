@@ -7,11 +7,10 @@ using UnityEngine.EventSystems;
 
 namespace TbhAutoSynth;
 
-// Owns the Chest phase. Prefers bulk open when the matching account-status
-// rune is unlocked:
-//   OpenAllTypeChestAllAtOnce  -> InputManager open-all (Space)
-//   OpenOneTypeChestAllAtOnce  -> right-click each StageBox once (Rune of Opening)
-//   otherwise                  -> left-click one chest at a time
+// Owns the Chest phase. One scanner + a small open policy:
+//   AllTypesKey  -> InputManager open-all (Space), retry while counts remain
+//   OneTypeRight -> right-click each StageBox once (Rune of Opening)
+//   SingleLeft   -> left-click one chest at a time
 // StageBox sits on the stage HUD and is not covered by Cube/Rune panels.
 internal sealed class ChestOpenRunner
 {
@@ -19,11 +18,15 @@ internal sealed class ChestOpenRunner
 
     private enum OpenMode { SingleLeft, OneTypeRight, AllTypesKey }
 
+    private const int StaleAbort = 3;
+    private const int KeySettleTicks = 4;
+    private const int KeyMaxRetries = 2;
+
     private static float PhaseBudgetSeconds(OpenMode mode)
     {
         float perOpen = Math.Max(1f, AutoSynthPlugin.AfterChestOpenDelay) + 0.5f;
         if (mode == OpenMode.AllTypesKey)
-            return perOpen * 3f + 10f;
+            return perOpen * (1 + KeyMaxRetries) * KeySettleTicks + 15f;
         if (mode == OpenMode.OneTypeRight)
             return 3f * perOpen + 15f;
         return AutoSynthPlugin.MaxChestOpensPerCycle * perOpen + 15f;
@@ -32,42 +35,48 @@ internal sealed class ChestOpenRunner
     private UI_Stage _stageUi;
     private float _phaseEnteredAt;
     private int _opensThisCycle;
-    private int _emptyPasses;
     private int _index;
     private OpenMode _mode;
-    private bool _allKeyFired;
-    private int _allKeySettleTicks;
-    private readonly bool[] _bulkClicked = new bool[3];
-    private readonly int[] _staleBySlot = new int[3];
-    private readonly int[] _countAtClick = { -1, -1, -1 };
+    private bool _keyFired;
+    private int _keyRetries;
+    private int _keySettleTicks;
+    private readonly bool[] _slotDone = new bool[3];
+    private readonly int[] _staleFails = new int[3];
+    private readonly int[] _countBeforeClick = { -1, -1, -1 };
 
     internal int OpensThisCycle => _opensThisCycle;
     internal int LastOpens { get; private set; }
 
     internal void BeginPhase()
     {
-        _opensThisCycle = 0;
-        _emptyPasses = 0;
-        _index = 0;
+        ClearState();
         _phaseEnteredAt = Time.unscaledTime;
-        _stageUi = null;
-        _allKeyFired = false;
-        _allKeySettleTicks = 0;
         _mode = DetectMode();
-        for (int i = 0; i < 3; i++)
-        {
-            _bulkClicked[i] = false;
-            _staleBySlot[i] = 0;
-            _countAtClick[i] = -1;
-        }
         AutoSynthPlugin.Logger.LogInfo("chest phase mode: " + ModeLabel(_mode));
     }
 
+    // Clear counters without DetectMode / logging (F8 / session reset).
     internal void ResetSession()
     {
-        BeginPhase();
+        ClearState();
         LastOpens = 0;
         _stageUi = null;
+    }
+
+    private void ClearState()
+    {
+        _opensThisCycle = 0;
+        _index = 0;
+        _keyFired = false;
+        _keyRetries = 0;
+        _keySettleTicks = 0;
+        _stageUi = null;
+        for (int i = 0; i < 3; i++)
+        {
+            _slotDone[i] = false;
+            _staleFails[i] = 0;
+            _countBeforeClick[i] = -1;
+        }
     }
 
     private static OpenMode DetectMode()
@@ -124,26 +133,39 @@ internal sealed class ChestOpenRunner
 
         if (_mode == OpenMode.AllTypesKey)
             return TickAllTypesKey(boxes, loud, ref nextDelay);
-        if (_mode == OpenMode.OneTypeRight)
-            return TickOneTypeRight(boxes, loud, ref nextDelay);
-        return TickSingleLeft(boxes, loud, ref nextDelay);
+
+        bool onePerSlot = _mode == OpenMode.OneTypeRight;
+        var button = onePerSlot
+            ? PointerEventData.InputButton.Right
+            : PointerEventData.InputButton.Left;
+        return TickSlots(boxes, button, onePerSlot, loud, ref nextDelay);
     }
 
     private TickResult TickAllTypesKey(StageBox[] boxes, bool loud, ref float nextDelay)
     {
         int remaining = TotalCount(boxes);
-        if (!_allKeyFired)
+        if (!_keyFired)
         {
             if (remaining == 0)
                 return Finish(loud);
             if (!GameInterop.TryInvokeOpenAllBoxes())
             {
-                AutoSynthPlugin.Logger.LogWarning(
-                    "chest phase: open-all key unavailable — falling back to right-click");
-                _mode = OpenMode.OneTypeRight;
-                return TickOneTypeRight(boxes, loud, ref nextDelay);
+                // Space unlock ≠ right-click unlock — only fall back to the privilege held.
+                if (GameInterop.HasAccountStatus(EAccountStatus.OpenOneTypeChestAllAtOnce))
+                {
+                    AutoSynthPlugin.Logger.LogWarning(
+                        "chest phase: open-all key unavailable — falling back to right-click");
+                    _mode = OpenMode.OneTypeRight;
+                }
+                else
+                {
+                    AutoSynthPlugin.Logger.LogWarning(
+                        "chest phase: open-all key unavailable — falling back to left-click");
+                    _mode = OpenMode.SingleLeft;
+                }
+                return Tick(loud, out nextDelay);
             }
-            _allKeyFired = true;
+            _keyFired = true;
             _opensThisCycle += Math.Max(1, remaining);
             if (loud)
                 AutoSynthPlugin.Logger.LogInfo(
@@ -152,94 +174,100 @@ internal sealed class ChestOpenRunner
             return TickResult.InProgress;
         }
 
-        _allKeySettleTicks++;
-        if (remaining <= 0 || _allKeySettleTicks >= 3)
+        if (remaining <= 0)
             return Finish(loud);
-        nextDelay = Math.Max(nextDelay, 1.5f);
-        return TickResult.InProgress;
+
+        _keySettleTicks++;
+        if (_keySettleTicks < KeySettleTicks)
+        {
+            nextDelay = Math.Max(nextDelay, 1.5f);
+            return TickResult.InProgress;
+        }
+
+        // Still remaining after settle — retry the key a few times before giving up.
+        if (_keyRetries < KeyMaxRetries)
+        {
+            _keyRetries++;
+            _keySettleTicks = 0;
+            if (GameInterop.TryInvokeOpenAllBoxes())
+            {
+                if (loud)
+                    AutoSynthPlugin.Logger.LogInfo(
+                        $"chest open-all retry {_keyRetries}/{KeyMaxRetries} (remaining≈{remaining})");
+                nextDelay = Math.Max(nextDelay, 2.5f);
+                return TickResult.InProgress;
+            }
+        }
+
+        AutoSynthPlugin.Logger.LogWarning(
+            $"chest phase: open-all left ≈{remaining} chest(s) after retries — ending phase");
+        return Finish(loud);
     }
 
-    private TickResult TickOneTypeRight(StageBox[] boxes, bool loud, ref float nextDelay)
+    // Shared scanner for OneTypeRight and SingleLeft. onePerSlot=true means one
+    // click drains the whole stack (right-click rune); false means one chest each.
+    private TickResult TickSlots(StageBox[] boxes, PointerEventData.InputButton button,
+        bool onePerSlot, bool loud, ref float nextDelay)
     {
-        bool anyPending = false;
+        bool anyWork = false;
         for (int n = 0; n < boxes.Length; n++)
         {
             int i = (_index + n) % boxes.Length;
-            if (_bulkClicked[i]) continue;
+            if (_slotDone[i] || _staleFails[i] >= StaleAbort) continue;
+
             var box = boxes[i];
-            if (!SlotHasChests(box, out string why))
+            NotePriorClickResult(i, box);
+
+            if (_slotDone[i] || _staleFails[i] >= StaleAbort) continue;
+            if (!SlotOpenable(box, out string why))
             {
-                _bulkClicked[i] = true; // nothing to do for this type
+                if (onePerSlot) _slotDone[i] = true;
                 if (loud && why != null && why != "inactive")
                     AutoSynthPlugin.Logger.LogInfo($"chest skip {Label(box)}: {why}");
                 continue;
             }
-            anyPending = true;
+
+            anyWork = true;
             _index = (i + 1) % boxes.Length;
-            int before = Math.Max(1, GameInterop.BoxCount(box.m_boxType));
-            if (TryClickOpen(box, PointerEventData.InputButton.Right, loud))
+            int before = GameInterop.BoxCount(box.m_boxType);
+            if (!TryClickOpen(box, button, loud))
             {
-                _bulkClicked[i] = true;
-                _opensThisCycle += before;
-                nextDelay = Math.Max(nextDelay, OpenDelay(box));
-                return TickResult.InProgress;
+                if (onePerSlot) _slotDone[i] = true;
+                continue;
             }
-            _bulkClicked[i] = true; // don't spin forever on a failed detector
+
+            _opensThisCycle += onePerSlot ? Math.Max(1, before) : 1;
+            _countBeforeClick[i] = before;
+            if (onePerSlot) _slotDone[i] = true;
+            nextDelay = Math.Max(nextDelay, OpenDelay(box));
+            return TickResult.InProgress;
         }
 
-        if (!anyPending)
+        if (!anyWork)
             return Finish(loud);
-
-        _emptyPasses++;
-        if (_emptyPasses >= 3) return Finish(loud);
         nextDelay = 1.5f;
         return TickResult.InProgress;
     }
 
-    private TickResult TickSingleLeft(StageBox[] boxes, bool loud, ref float nextDelay)
+    // After a prior click, compare live count. Pure SlotOpenable stays free of this.
+    private void NotePriorClickResult(int slot, StageBox box)
     {
-        bool anyRemaining = false;
-        for (int n = 0; n < boxes.Length; n++)
+        if (_countBeforeClick[slot] < 0 || box == null) return;
+        int now = GameInterop.BoxCount(box.m_boxType);
+        if (now < 0) { _countBeforeClick[slot] = -1; return; }
+
+        if (now < _countBeforeClick[slot])
         {
-            int i = (_index + n) % boxes.Length;
-            var box = boxes[i];
-            if (!HasChestsSingle(box, i, out string whySkip))
-            {
-                if (loud && whySkip != null)
-                    AutoSynthPlugin.Logger.LogInfo($"chest skip {Label(box)}: {whySkip}");
-                continue;
-            }
-            anyRemaining = true;
-            _index = (i + 1) % boxes.Length;
-            int before = GameInterop.BoxCount(box.m_boxType);
-            if (TryClickOpen(box, PointerEventData.InputButton.Left, loud))
-            {
-                _opensThisCycle++;
-                _emptyPasses = 0;
-                _countAtClick[i] = before;
-                nextDelay = Math.Max(nextDelay, OpenDelay(box));
-                return TickResult.InProgress;
-            }
+            _staleFails[slot] = 0;
+            _countBeforeClick[slot] = -1;
+            return;
         }
 
-        if (!anyRemaining)
-        {
-            _emptyPasses++;
-            if (_emptyPasses >= 2 || _opensThisCycle > 0)
-                return Finish(loud);
-            nextDelay = 1.0f;
-            return TickResult.InProgress;
-        }
-
-        _emptyPasses++;
-        if (_emptyPasses >= 3)
-        {
-            AutoSynthPlugin.Logger.LogWarning(
-                "chest phase: open clicks failing — ending phase");
-            return Finish(loud);
-        }
-        nextDelay = 1.5f;
-        return TickResult.InProgress;
+        // Count did not drop — click was ineffective for this accessor/UI state.
+        _staleFails[slot]++;
+        _countBeforeClick[slot] = -1;
+        if (_staleFails[slot] >= StaleAbort)
+            _slotDone[slot] = true;
     }
 
     private TickResult Finish(bool loud)
@@ -266,15 +294,16 @@ internal sealed class ChestOpenRunner
     private static int TotalCount(StageBox[] boxes)
     {
         int sum = 0;
-        bool any = false;
+        bool anyUnknown = false;
         foreach (var box in boxes)
         {
-            if (!SlotHasChests(box, out _)) continue;
+            if (!SlotOpenable(box, out _)) continue;
             int c = GameInterop.BoxCount(box.m_boxType);
-            if (c > 0) { sum += c; any = true; }
-            else if (c < 0) any = true; // unknown but looks openable
+            if (c > 0) sum += c;
+            else if (c < 0) anyUnknown = true;
         }
-        return any && sum == 0 ? 1 : sum;
+        if (sum > 0) return sum;
+        return anyUnknown ? 1 : 0;
     }
 
     private static string Label(StageBox box)
@@ -293,7 +322,8 @@ internal sealed class ChestOpenRunner
         catch { return box.name ?? "StageBox"; }
     }
 
-    private static bool SlotHasChests(StageBox box, out string whySkip)
+    // Pure openability check — no mutation of stale/done state.
+    private static bool SlotOpenable(StageBox box, out string whySkip)
     {
         whySkip = null;
         if (box == null || !box.gameObject.activeInHierarchy)
@@ -313,43 +343,19 @@ internal sealed class ChestOpenRunner
         catch { }
 
         int count = GameInterop.BoxCount(box.m_boxType);
+        if (count > 0) return true;
         if (count == 0)
         {
             whySkip = "count=0";
             return false;
         }
-        if (count > 0) return true;
 
+        // Unknown (-1): allow a click if the detector is live.
         var detector = box.m_clickDetector;
         if (detector == null || !detector.gameObject.activeInHierarchy)
         {
             whySkip = "click detector missing";
             return false;
-        }
-        return true;
-    }
-
-    private bool HasChestsSingle(StageBox box, int slot, out string whySkip)
-    {
-        if (!SlotHasChests(box, out whySkip))
-            return false;
-        if (_staleBySlot[slot] >= 3)
-        {
-            whySkip = "count not decreasing after clicks";
-            return false;
-        }
-
-        int count = GameInterop.BoxCount(box.m_boxType);
-        if (_countAtClick[slot] >= 0 && count >= 0 && count >= _countAtClick[slot])
-        {
-            _staleBySlot[slot]++;
-            whySkip = $"stale count={count} (was {_countAtClick[slot]})";
-            return _staleBySlot[slot] < 3 && count > 0;
-        }
-        if (_countAtClick[slot] >= 0 && count >= 0 && count < _countAtClick[slot])
-        {
-            _staleBySlot[slot] = 0;
-            _countAtClick[slot] = -1;
         }
         return true;
     }

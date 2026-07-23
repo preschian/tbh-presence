@@ -247,7 +247,7 @@ by committing the binary.
 **Auto-synthesis plugin** (`autosynth/`, BepInEx, built with the .NET SDK):
 
 - `Plugin.cs` — cycle orchestrator (Cube → Chest → Rune); usage/config in `autosynth/README.md`.
-- `ChestOpenRunner.cs` — StageBox chest-open phase (`UI_Stage` / `StageBox.m_boxButton`).
+- `ChestOpenRunner.cs` — StageBox chest-open phase (`UI_Stage` / `StageBox.m_clickDetector`).
 - `RuneUpgradeRunner.cs` — rune upgrade phase.
 - `GameInterop.cs` — signature-based access to obfuscated members (including box counts).
 

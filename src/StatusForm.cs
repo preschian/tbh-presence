@@ -715,11 +715,16 @@ namespace TbhCompanion
 
                 Color synthDot = auto ? Theme.Green : Theme.TextMuted;
                 string synthState = auto ? "On" : "Off";
-                string detail = "every " + cycMin + " min";
-                if (lastRunes > 0) detail = lastRunes + " runes · " + detail;
-                if (lastChests > 0) detail = lastChests + " chests · " + detail;
-                else if (lastRunes == 0 && !synthOn && chestOn) detail = "chests · " + detail;
-                else if (lastRunes == 0 && !synthOn && runeOn) detail = "runes · " + detail;
+                var bits = new List<string>();
+                if (lastChests > 0) bits.Add(lastChests + " chests");
+                if (lastRunes > 0) bits.Add(lastRunes + " runes");
+                if (bits.Count == 0 && !synthOn)
+                {
+                    if (chestOn) bits.Add("chests");
+                    else if (runeOn) bits.Add("runes");
+                }
+                bits.Add("every " + cycMin + " min");
+                string detail = string.Join(" · ", bits.ToArray());
                 _live.SetRow(1, "Loop",
                     cycles + " cycles",
                     detail,

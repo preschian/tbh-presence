@@ -217,9 +217,13 @@ internal static class GameInterop
         catch { return null; }
     }
 
-    // Current chest count for a box type, or -1 if unknown. Several Int32(EBoxType)
-    // methods exist (live count vs caps); pick the accessor whose NORMAL+BOSS+ACTBOSS
-    // sum is smallest among plausible 0..500 readings — live counts beat flat caps.
+    // Current chest count for a box type, or -1 if unknown.
+    // Several Int32(EBoxType) methods exist (live count vs caps / free slots).
+    // Rule: among candidates in 0..500, prefer the smallest sum that is still
+    // strictly positive on at least one type (live stacks beat flat caps, and
+    // beat "free/remaining slots" which can read 0 when the stash is full).
+    // If every candidate sums to 0, leave unlearned so callers get -1 and can
+    // fall back to the StageBox click detector.
     internal static int BoxCount(EBoxType type)
     {
         try
@@ -230,10 +234,39 @@ internal static class GameInterop
             if (_mBoxCountLearned == null)
                 _mBoxCountLearned = LearnBoxCountMethod(inv);
             if (_mBoxCountLearned == null) return -1;
-            try { return (int)_mBoxCountLearned.Invoke(inv, new object[] { type }); }
+            int n;
+            try { n = (int)_mBoxCountLearned.Invoke(inv, new object[] { type }); }
             catch { _mBoxCountLearned = null; return -1; }
+            if (n < 0 || n > 500) return -1;
+            // Sticky wrong learn (e.g. free-slots accessor locked in at capacity):
+            // if learned says 0 but another candidate reports >0, forget and use it.
+            if (n == 0)
+            {
+                int alt = ProbePositiveCount(inv, type);
+                if (alt > 0)
+                {
+                    _mBoxCountLearned = null;
+                    return alt;
+                }
+            }
+            return n;
         }
         catch { return -1; }
+    }
+
+    static int ProbePositiveCount(object inv, EBoxType type)
+    {
+        int best = 0;
+        foreach (var m in _mBoxCount)
+        {
+            try
+            {
+                int n = (int)m.Invoke(inv, new object[] { type });
+                if (n > best && n <= 500) best = n;
+            }
+            catch { }
+        }
+        return best;
     }
 
     static MethodInfo LearnBoxCountMethod(object inv)
@@ -241,10 +274,13 @@ internal static class GameInterop
         var types = new[] { EBoxType.NORMAL, EBoxType.BOSS, EBoxType.ACTBOSS };
         MethodInfo best = null;
         int bestSum = int.MaxValue;
+        int bestSpread = -1;
         foreach (var m in _mBoxCount)
         {
             int sum = 0;
+            int min = int.MaxValue, max = int.MinValue;
             bool ok = true;
+            bool anyPositive = false;
             foreach (var t in types)
             {
                 try
@@ -252,11 +288,20 @@ internal static class GameInterop
                     int n = (int)m.Invoke(inv, new object[] { t });
                     if (n < 0 || n > 500) { ok = false; break; }
                     sum += n;
+                    if (n > 0) anyPositive = true;
+                    if (n < min) min = n;
+                    if (n > max) max = n;
                 }
                 catch { ok = false; break; }
             }
-            if (!ok) continue;
-            if (sum < bestSum) { bestSum = sum; best = m; }
+            if (!ok || !anyPositive) continue;
+            int spread = max - min;
+            if (sum < bestSum || (sum == bestSum && spread > bestSpread))
+            {
+                bestSum = sum;
+                bestSpread = spread;
+                best = m;
+            }
         }
         if (best != null)
             AutoSynthPlugin.Logger.LogInfo($"interop: learned box-count method {best.Name}");
