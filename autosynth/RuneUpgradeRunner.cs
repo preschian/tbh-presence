@@ -280,10 +280,10 @@ internal sealed class RuneUpgradeRunner
         var btn = RuneMenuButton();
         if (btn == null || !btn.gameObject.activeInHierarchy)
         {
-            // Content row hidden (Tab menu closed) — open it before the Rune click.
+            // Content row hidden — click stage-HUD Show Main before the Rune click.
             if (GameInterop.OpenMainMenu())
                 AutoSynthPlugin.Logger.LogInfo(
-                    "auto-open: opened main menu (Rune menu button " +
+                    "auto-open: clicked Show Main (Rune menu button " +
                     (btn == null ? "null" : "inactive") + ")");
             if (++_openFails == 3)
                 AutoSynthPlugin.Logger.LogWarning(

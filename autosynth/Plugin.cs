@@ -18,7 +18,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.28.6";
+    internal const string Version = "0.28.7";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -429,7 +429,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                 return;
             }
 
-            // Before Cube/Chest/Rune: open the Tab menu once if it was closed.
+            // Before Cube/Chest/Rune: open the main menu once if it was closed.
             if (!_menuEnsuredThisCycle)
             {
                 if (EnsureMainMenuOpen())
@@ -861,9 +861,9 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
         return GameInterop.FindMenuToggle("Cube");
     }
 
-    // At cycle start only: if the Tab menu/HUD is closed, press Tab once (10s throttle)
-    // and wait until the content row is visible. After a few tries, proceed anyway so
-    // Cube/Rune auto-open can surface their own warnings.
+    // At cycle start: if the main menu/HUD is closed, click the stage-HUD Show Main
+    // button (next to auto-retry). After a few tries, proceed anyway so Cube/Rune
+    // auto-open can surface their own warnings.
     private bool EnsureMainMenuOpen()
     {
         if (GameInterop.IsMainMenuOpen())
@@ -875,8 +875,8 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
         if (_menuOpenAttempts >= maxAttempts)
         {
             AutoSynthPlugin.Logger.LogWarning(
-                "auto-open menu: Tab did not open the main menu after " + maxAttempts +
-                " attempts; continuing — open it yourself with Tab if needed");
+                "auto-open menu: Show Main did not open the menu after " + maxAttempts +
+                " attempts; continuing — open it yourself if needed");
             return true;
         }
         if (Time.unscaledTime < _nextMenuOpenAttempt) return false;
@@ -884,10 +884,10 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
         _menuOpenAttempts++;
         if (GameInterop.OpenMainMenu())
             AutoSynthPlugin.Logger.LogInfo(
-                $"auto-open menu: open attempt {_menuOpenAttempts}/{maxAttempts}");
+                $"auto-open menu: Show Main click {_menuOpenAttempts}/{maxAttempts}");
         else if (_menuOpenAttempts == 1)
             AutoSynthPlugin.Logger.LogWarning(
-                "auto-open menu: failed to open; will retry");
+                "auto-open menu: failed to click Show Main; will retry");
         return false;
     }
 
@@ -895,8 +895,7 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
     // is due. Throttled: if the player is using another panel we take the tab back at
     // most once every 10s instead of every tick, and the loop is idle between cycles
     // anyway, so this only fires when there is actually work to do.
-    // When the whole content row is hidden (Tab menu closed), press Tab first; the Cube
-    // button click follows on a later tick once the row is visible again.
+    // When the content row is hidden, show Cube via UIManager or click Show Main first.
     private void TryOpenCube()
     {
         if (!AutoSynthPlugin.AutoOpenCube) return;
@@ -906,8 +905,6 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
         var btn = CubeMenuButton();
         if (btn == null || !btn.gameObject.activeInHierarchy)
         {
-            // Menu chrome hidden (Tab closed): show Cube via UIManager first (same path
-            // Tab uses internally). Fall back to Tab shortcut / keybd if needed.
             var cubeUi = GameInterop.FindCubeUi();
             if (cubeUi != null && GameInterop.TryShowUiPanel(cubeUi))
             {
@@ -979,6 +976,7 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
             {
                 AutoSynthPlugin.Logger.LogInfo(
                     $"dump: cubeOpen={cube.gameObject.activeInHierarchy} " +
+                    $"showMainBtn={Describe(GameInterop.FindShowMainButton())} " +
                     $"cubeMenuBtn={Describe(CubeMenuButton())} " +
                     $"autoFillBtn={Describe(cube.m_synthesisAutoFillButton)} " +
                     $"autoFillToggle={Describe(cube.toggleButton_AutoFill)} " +
