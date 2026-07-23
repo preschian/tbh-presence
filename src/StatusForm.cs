@@ -38,12 +38,11 @@ namespace TbhCompanion
             "tbh-companion", "autosynth-status.json");
 
         // 16:9 window; right pane scrolls when settings exceed the viewport.
+        // Settings column stays ~original width so controls don't stretch across
+        // the wider window (that looked sparse / messy).
         const int W = 896, SideW = 188, H = 504;
         const int PadX = 20;
-        // Reserve a full system scrollbar width so the vertical bar never pushes
-        // content sideways (that is what triggers the unwanted horizontal bar).
-        const int ScrollBarW = 20;
-        const int MainW = W - SideW - PadX * 2 - ScrollBarW;
+        const int MainW = 420;
         const int ContentRight = PadX + MainW;
         const int TopChrome = 40; // fixed close/drag strip above the scroll area
         const int RowH = 32;
@@ -73,8 +72,9 @@ namespace TbhCompanion
         float BorderWidth() { return Math.Max(1f, _s); }
 
         LiveStrip _live;
-        Panel _side, _main, _scroll, _content;
-        VScrollBar _vbar;
+        Panel _side, _main;
+        VertScrollPanel _scroll;
+        WheelRedirectFilter _wheelFilter;
         Toggle _presenceToggle;
         Toggle _autoRestart;
         Toggle _autoLoop, _enableSynth, _autoRune, _showConsole;
@@ -117,7 +117,12 @@ namespace TbhCompanion
             _timer = new Timer { Interval = 1000 };
             _timer.Tick += delegate { UpdateStatus(); };
             _timer.Start();
-            FormClosed += delegate { _timer.Stop(); _timer.Dispose(); if (_icon != null) _icon.Dispose(); };
+            FormClosed += delegate
+            {
+                _timer.Stop(); _timer.Dispose();
+                if (_wheelFilter != null) { Application.RemoveMessageFilter(_wheelFilter); _wheelFilter = null; }
+                if (_icon != null) _icon.Dispose();
+            };
 
             Load += delegate { ApplyRegion(); };
         }
@@ -206,41 +211,30 @@ namespace TbhCompanion
             _main.MouseUp += delegate { _dragging = false; };
             Controls.Add(_main);
 
-            // Scrollable settings body under a fixed close/drag chrome strip.
-            // Manual VScrollBar (not AutoScroll) — AutoScroll also creates an
-            // unwanted horizontal bar when the vertical one narrows the client.
-            _scroll = new Panel
+            // AutoScroll host. Settings stay in a fixed-width column (MainW) so the
+            // wide 16:9 window doesn't stretch controls; vertical bar only.
+            _scroll = new VertScrollPanel
             {
                 BackColor = Theme.FormBg,
                 Location = new Point(0, Sc(TopChrome)),
-                Size = new Size(_main.Width, _main.Height - Sc(TopChrome))
+                Size = new Size(_main.Width, _main.Height - Sc(TopChrome)),
+                AutoScroll = true
             };
             _scroll.MouseDown += delegate(object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) BeginDrag(e.Location); };
             _scroll.MouseMove += MainMouseMove;
             _scroll.MouseUp += delegate { _dragging = false; };
             _main.Controls.Add(_scroll);
 
-            _vbar = new VScrollBar { Visible = false, TabStop = false };
-            _vbar.Scroll += delegate { SyncContentScroll(); };
-            _scroll.Controls.Add(_vbar);
-
-            _content = new Panel
-            {
-                BackColor = Theme.FormBg,
-                Location = Point.Empty,
-                Size = new Size(_scroll.Width, 1)
-            };
-            _content.MouseDown += delegate(object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) BeginDrag(e.Location); };
-            _content.MouseMove += MainMouseMove;
-            _content.MouseUp += delegate { _dragging = false; };
-            _scroll.Controls.Add(_content);
-
             if (Build.Synth) BuildSettings();
             else BuildPresenceOnly();
 
             FinishContent();
-            WireMouseWheel(_scroll);
-            WireMouseWheel(_content);
+            Shown += delegate { FinishContent(); };
+
+            // WinForms sends wheel to the *focused* control; redirect when the
+            // cursor is over the settings pane so scrolling always works.
+            _wheelFilter = new WheelRedirectFilter(_scroll);
+            Application.AddMessageFilter(_wheelFilter);
         }
 
         void PaintMain(object sender, PaintEventArgs e)
@@ -260,78 +254,26 @@ namespace TbhCompanion
             if (e.Y <= Sc(TopChrome)) BeginDrag(e.Location);
         }
 
-        // Custom-painted children often swallow wheel events; forward them vertically.
-        void WireMouseWheel(Control root)
-        {
-            root.MouseWheel += OnScrollWheel;
-            foreach (Control c in root.Controls) WireMouseWheel(c);
-        }
+        void AddContent(Control c) { _scroll.Controls.Add(c); }
 
-        void OnScrollWheel(object sender, MouseEventArgs e)
-        {
-            if (_vbar == null || !_vbar.Visible) return;
-            int step = SystemInformation.MouseWheelScrollLines * Sc(18);
-            if (step < 1) step = Sc(18);
-            int max = VScrollMax();
-            int v = _vbar.Value - Math.Sign(e.Delta) * step;
-            if (v < 0) v = 0;
-            if (v > max) v = max;
-            _vbar.Value = v;
-            SyncContentScroll();
-            var he = e as HandledMouseEventArgs;
-            if (he != null) he.Handled = true;
-        }
-
-        void AddContent(Control c) { _content.Controls.Add(c); }
-
-        // Size the inner panel to its children and wire the vertical scrollbar only.
         void FinishContent()
         {
             int bottom = 0;
-            foreach (Control c in _content.Controls)
+            foreach (Control c in _scroll.Controls)
             {
-                int b = c.Bottom;
-                if (b > bottom) bottom = b;
+                int btm = c.Bottom;
+                if (btm > bottom) bottom = btm;
             }
-            int contentH = bottom + Sc(8);
-            int viewH = _scroll.ClientSize.Height;
-            int barW = SystemInformation.VerticalScrollBarWidth;
-            bool needBar = contentH > viewH;
-            int contentW = needBar ? Math.Max(1, _scroll.ClientSize.Width - barW) : _scroll.ClientSize.Width;
-
-            _content.Size = new Size(contentW, contentH);
-            _content.Location = new Point(0, 0);
-
-            if (!needBar)
-            {
-                _vbar.Visible = false;
-                _vbar.Value = 0;
-                return;
-            }
-
-            _vbar.SetBounds(_scroll.ClientSize.Width - barW, 0, barW, viewH);
-            _vbar.Minimum = 0;
-            _vbar.LargeChange = Math.Max(1, viewH);
-            _vbar.SmallChange = Math.Max(1, Sc(24));
-            // WinForms: usable range is Maximum - LargeChange + 1.
-            _vbar.Maximum = Math.Max(0, contentH - viewH) + _vbar.LargeChange - 1;
-            _vbar.Value = 0;
-            _vbar.Visible = true;
-            _scroll.Controls.SetChildIndex(_vbar, 0);
+            int contentH = bottom + Sc(16);
+            // Keep min-width well under the viewport so AutoScroll never asks for HScroll.
+            int minW = Math.Min(Sc(PadX * 2 + MainW), Math.Max(1, _scroll.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 1));
+            _scroll.AutoScrollMinSize = new Size(minW, contentH);
+            _scroll.HorizontalScroll.Maximum = 0;
+            _scroll.HorizontalScroll.Enabled = false;
+            _scroll.HorizontalScroll.Visible = false;
         }
 
-        int VScrollMax()
-        {
-            return Math.Max(0, _vbar.Maximum - _vbar.LargeChange + 1);
-        }
-
-        void SyncContentScroll()
-        {
-            if (_content == null || _vbar == null) return;
-            _content.Top = -_vbar.Value;
-        }
-
-        // Keeps the last row clear of the bottom edge / scrollbar corner.
+        // Keeps the last row clear of the bottom edge.
         void EndContent(int y)
         {
             var pad = new Panel
@@ -964,6 +906,70 @@ namespace TbhCompanion
             for (int i = 0; i < Recipes.Length; i++)
                 if (Recipes[i].Lo == desiredLevel) return i;
             return 0;
+        }
+    }
+
+    // AutoScroll panel that stays vertical-only.
+    sealed class VertScrollPanel : Panel
+    {
+        public VertScrollPanel()
+        {
+            AutoScroll = true;
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+        }
+
+        protected override Point ScrollToControl(Control activeControl)
+        {
+            // Keep the current scroll offset (don't jump when a child takes focus).
+            return new Point(-AutoScrollPosition.X, -AutoScrollPosition.Y);
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            // AutoScroll re-enables HScroll after layout; stamp it back out.
+            if (HorizontalScroll.Visible)
+            {
+                HorizontalScroll.Value = 0;
+                HorizontalScroll.Visible = false;
+            }
+        }
+    }
+
+    // Redirect WM_MOUSEWHEEL to the settings scroll host while the cursor is over
+    // it — WinForms otherwise delivers the wheel only to the focused control.
+    sealed class WheelRedirectFilter : IMessageFilter
+    {
+        const int WM_MOUSEWHEEL = 0x020A;
+        readonly ScrollableControl _host;
+
+        public WheelRedirectFilter(ScrollableControl host) { _host = host; }
+
+        public bool PreFilterMessage(ref Message m)
+        {
+            if (m.Msg != WM_MOUSEWHEEL) return false;
+            if (_host == null || _host.IsDisposed || !_host.IsHandleCreated) return false;
+            if (_host.AutoScrollMinSize.Height <= _host.ClientSize.Height) return false;
+
+            var form = _host.FindForm();
+            if (form == null || !form.ContainsFocus) return false;
+
+            Point screen = Control.MousePosition;
+            if (!_host.RectangleToScreen(_host.ClientRectangle).Contains(screen)) return false;
+
+            long wp = m.WParam.ToInt64();
+            int delta = (short)((wp >> 16) & 0xFFFF);
+            int step = SystemInformation.MouseWheelScrollLines * 24;
+            if (step < 1) step = 24;
+
+            int current = -_host.AutoScrollPosition.Y;
+            int max = Math.Max(0, _host.AutoScrollMinSize.Height - _host.ClientSize.Height);
+            int next = current - Math.Sign(delta) * step;
+            if (next < 0) next = 0;
+            if (next > max) next = max;
+            if (next != current)
+                _host.AutoScrollPosition = new Point(0, next);
+            return true;
         }
     }
 }
