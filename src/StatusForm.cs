@@ -40,7 +40,9 @@ namespace TbhCompanion
         // 16:9 window; right pane scrolls when settings exceed the viewport.
         const int W = 896, SideW = 188, H = 504;
         const int PadX = 20;
-        const int ScrollBarW = 16; // reserve so controls aren't covered when the bar shows
+        // Reserve a full system scrollbar width so the vertical bar never pushes
+        // content sideways (that is what triggers the unwanted horizontal bar).
+        const int ScrollBarW = 20;
         const int MainW = W - SideW - PadX * 2 - ScrollBarW;
         const int ContentRight = PadX + MainW;
         const int TopChrome = 40; // fixed close/drag strip above the scroll area
@@ -71,7 +73,8 @@ namespace TbhCompanion
         float BorderWidth() { return Math.Max(1f, _s); }
 
         LiveStrip _live;
-        Panel _side, _main, _scroll;
+        Panel _side, _main, _scroll, _content;
+        VScrollBar _vbar;
         Toggle _presenceToggle;
         Toggle _autoRestart;
         Toggle _autoLoop, _enableSynth, _autoRune, _showConsole;
@@ -204,23 +207,40 @@ namespace TbhCompanion
             Controls.Add(_main);
 
             // Scrollable settings body under a fixed close/drag chrome strip.
-            // Vertical only — horizontal bar is suppressed (see VertScrollPanel).
-            _scroll = new VertScrollPanel
+            // Manual VScrollBar (not AutoScroll) — AutoScroll also creates an
+            // unwanted horizontal bar when the vertical one narrows the client.
+            _scroll = new Panel
             {
                 BackColor = Theme.FormBg,
                 Location = new Point(0, Sc(TopChrome)),
-                Size = new Size(_main.Width, _main.Height - Sc(TopChrome)),
-                AutoScroll = true
+                Size = new Size(_main.Width, _main.Height - Sc(TopChrome))
             };
             _scroll.MouseDown += delegate(object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) BeginDrag(e.Location); };
             _scroll.MouseMove += MainMouseMove;
             _scroll.MouseUp += delegate { _dragging = false; };
             _main.Controls.Add(_scroll);
 
+            _vbar = new VScrollBar { Visible = false, TabStop = false };
+            _vbar.Scroll += delegate { SyncContentScroll(); };
+            _scroll.Controls.Add(_vbar);
+
+            _content = new Panel
+            {
+                BackColor = Theme.FormBg,
+                Location = Point.Empty,
+                Size = new Size(_scroll.Width, 1)
+            };
+            _content.MouseDown += delegate(object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) BeginDrag(e.Location); };
+            _content.MouseMove += MainMouseMove;
+            _content.MouseUp += delegate { _dragging = false; };
+            _scroll.Controls.Add(_content);
+
             if (Build.Synth) BuildSettings();
             else BuildPresenceOnly();
 
+            FinishContent();
             WireMouseWheel(_scroll);
+            WireMouseWheel(_content);
         }
 
         void PaintMain(object sender, PaintEventArgs e)
@@ -240,7 +260,7 @@ namespace TbhCompanion
             if (e.Y <= Sc(TopChrome)) BeginDrag(e.Location);
         }
 
-        // Custom-painted children often swallow wheel events; forward them to the scroll panel.
+        // Custom-painted children often swallow wheel events; forward them vertically.
         void WireMouseWheel(Control root)
         {
             root.MouseWheel += OnScrollWheel;
@@ -249,17 +269,67 @@ namespace TbhCompanion
 
         void OnScrollWheel(object sender, MouseEventArgs e)
         {
-            if (_scroll == null || !_scroll.VerticalScroll.Visible) return;
+            if (_vbar == null || !_vbar.Visible) return;
             int step = SystemInformation.MouseWheelScrollLines * Sc(18);
             if (step < 1) step = Sc(18);
-            int y = -_scroll.AutoScrollPosition.Y - Math.Sign(e.Delta) * step;
-            if (y < 0) y = 0;
-            _scroll.AutoScrollPosition = new Point(0, y);
+            int max = VScrollMax();
+            int v = _vbar.Value - Math.Sign(e.Delta) * step;
+            if (v < 0) v = 0;
+            if (v > max) v = max;
+            _vbar.Value = v;
+            SyncContentScroll();
             var he = e as HandledMouseEventArgs;
             if (he != null) he.Handled = true;
         }
 
-        void AddContent(Control c) { _scroll.Controls.Add(c); }
+        void AddContent(Control c) { _content.Controls.Add(c); }
+
+        // Size the inner panel to its children and wire the vertical scrollbar only.
+        void FinishContent()
+        {
+            int bottom = 0;
+            foreach (Control c in _content.Controls)
+            {
+                int b = c.Bottom;
+                if (b > bottom) bottom = b;
+            }
+            int contentH = bottom + Sc(8);
+            int viewH = _scroll.ClientSize.Height;
+            int barW = SystemInformation.VerticalScrollBarWidth;
+            bool needBar = contentH > viewH;
+            int contentW = needBar ? Math.Max(1, _scroll.ClientSize.Width - barW) : _scroll.ClientSize.Width;
+
+            _content.Size = new Size(contentW, contentH);
+            _content.Location = new Point(0, 0);
+
+            if (!needBar)
+            {
+                _vbar.Visible = false;
+                _vbar.Value = 0;
+                return;
+            }
+
+            _vbar.SetBounds(_scroll.ClientSize.Width - barW, 0, barW, viewH);
+            _vbar.Minimum = 0;
+            _vbar.LargeChange = Math.Max(1, viewH);
+            _vbar.SmallChange = Math.Max(1, Sc(24));
+            // WinForms: usable range is Maximum - LargeChange + 1.
+            _vbar.Maximum = Math.Max(0, contentH - viewH) + _vbar.LargeChange - 1;
+            _vbar.Value = 0;
+            _vbar.Visible = true;
+            _scroll.Controls.SetChildIndex(_vbar, 0);
+        }
+
+        int VScrollMax()
+        {
+            return Math.Max(0, _vbar.Maximum - _vbar.LargeChange + 1);
+        }
+
+        void SyncContentScroll()
+        {
+            if (_content == null || _vbar == null) return;
+            _content.Top = -_vbar.Value;
+        }
 
         // Keeps the last row clear of the bottom edge / scrollbar corner.
         void EndContent(int y)
@@ -894,50 +964,6 @@ namespace TbhCompanion
             for (int i = 0; i < Recipes.Length; i++)
                 if (Recipes[i].Lo == desiredLevel) return i;
             return 0;
-        }
-    }
-
-    // AutoScroll panel that never shows a horizontal bar. WinForms otherwise adds
-    // one when the vertical scrollbar narrows the client and a child clips by a
-    // few pixels (or when focus-scroll shifts X).
-    sealed class VertScrollPanel : Panel
-    {
-        public VertScrollPanel()
-        {
-            AutoScroll = true;
-            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
-        }
-
-        protected override Point ScrollToControl(Control activeControl)
-        {
-            // Keep X pinned; only allow vertical auto-scroll-into-view.
-            var pt = base.ScrollToControl(activeControl);
-            return new Point(0, pt.Y);
-        }
-
-        protected override void OnLayout(LayoutEventArgs levent)
-        {
-            base.OnLayout(levent);
-            SuppressHorizontal();
-        }
-
-        protected override void OnSizeChanged(EventArgs e)
-        {
-            base.OnSizeChanged(e);
-            SuppressHorizontal();
-        }
-
-        void SuppressHorizontal()
-        {
-            if (HorizontalScroll.Visible || HorizontalScroll.Enabled || HorizontalScroll.Value != 0)
-            {
-                HorizontalScroll.Value = 0;
-                HorizontalScroll.Enabled = false;
-                HorizontalScroll.Visible = false;
-            }
-            // Cap min-size width so AutoScroll stops requesting HScroll.
-            if (AutoScrollMinSize.Width != 0)
-                AutoScrollMinSize = new Size(0, AutoScrollMinSize.Height);
         }
     }
 }
