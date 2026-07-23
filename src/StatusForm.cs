@@ -37,7 +37,7 @@ namespace TbhCompanion
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "tbh-companion", "autosynth-status.json");
 
-        const int W = 640, SideW = 188, H = 560;
+        const int W = 640, SideW = 188, H = 660;
         const int PadX = 20;
         const int MainW = W - SideW - PadX * 2; // content width in main pane
         const int ContentRight = PadX + MainW;
@@ -70,11 +70,12 @@ namespace TbhCompanion
         LiveStrip _live;
         Panel _side, _main;
         Toggle _presenceToggle;
+        Toggle _autoRestart;
         Toggle _autoLoop, _enableSynth, _autoRune, _showConsole;
         TypeTile _tEquip, _tMaterials, _tAccessories;
         SegmentBar _seg;
         Label _rarityValue;
-        Stepper _cycleMin;
+        Stepper _cycleMin, _restartDays;
         FlatDrop _desiredLevel;
         FlatButton _saveBtn, _setupBtn, _removeBtn;
         Label _cfgNote;
@@ -95,7 +96,7 @@ namespace TbhCompanion
             Font = Theme.F(9f, FontStyle.Regular);
             BackColor = Theme.FormBg;
             try { using (var g = Graphics.FromHwnd(IntPtr.Zero)) _s = g.DpiX / 96f; } catch { _s = 1f; }
-            int height = Build.Synth ? H : 260;
+            int height = Build.Synth ? H : 340;
             ClientSize = new Size(Sc(W), Sc(height));
             DoubleBuffered = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
@@ -231,10 +232,22 @@ namespace TbhCompanion
 
         void BuildPresenceOnly()
         {
-            AddMainLabel("Discord Presence", 20, 28, Theme.TextDark, Theme.F(11f, FontStyle.Bold));
-            AddMainLabel("Show your current stage on Discord", 20, 52, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
-            _presenceToggle = MakePresenceToggle(ContentRight - 44, 34);
-            _main.Controls.Add(_presenceToggle);
+            const int toggleW = 44;
+            const int fieldW = 120;
+            int toggleX = ContentRight - toggleW;
+            int fieldX = ContentRight - fieldW;
+            int y = 18;
+
+            y = AddSectionHeader("Discord Presence", y);
+            y = AddToggleRow("Show stage on Discord", ref _presenceToggle, toggleX, y);
+            _presenceToggle.Checked = _presenceEnabled == null || _presenceEnabled();
+            _presenceToggle.CheckedChanged += delegate
+            {
+                if (_setPresenceEnabled != null) _setPresenceEnabled(_presenceToggle.Checked);
+            };
+            y = AddSectionDivider(y);
+
+            y = AddRestartSection(y, toggleX, fieldX, fieldW);
         }
 
         void BuildSettings()
@@ -254,6 +267,9 @@ namespace TbhCompanion
                 if (_setPresenceEnabled != null) _setPresenceEnabled(_presenceToggle.Checked);
             };
             y = AddSectionDivider(y);
+
+            // ---- Scheduled Restart (companion setting; applies immediately) ----
+            y = AddRestartSection(y, toggleX, fieldX, fieldW);
 
             // ---- Enable Mods ----
             y = AddSectionHeader("Enable Mods", y);
@@ -338,6 +354,27 @@ namespace TbhCompanion
             return y + HeaderAfter;
         }
 
+        int AddRestartSection(int y, int toggleX, int fieldX, int fieldW)
+        {
+            y = AddSectionHeader("Scheduled Restart", y);
+            y = AddToggleRow("Restart after uptime", ref _autoRestart, toggleX, y);
+            y = AddFieldRow("Uptime limit", "days", y, fieldX, fieldW, out _restartDays);
+            _restartDays.Min = 1; _restartDays.Max = 30; _restartDays.Step = 1; _restartDays.Decimals = 0;
+            _restartDays.SetValue(AppSettings.AutoRestartDays);
+            _autoRestart.Checked = AppSettings.AutoRestartEnabled;
+            _restartDays.Enabled = _autoRestart.Checked;
+            _autoRestart.CheckedChanged += delegate
+            {
+                AppSettings.AutoRestartEnabled = _autoRestart.Checked;
+                _restartDays.Enabled = _autoRestart.Checked;
+            };
+            _restartDays.ValueChanged += delegate
+            {
+                AppSettings.AutoRestartDays = (int)_restartDays.Value;
+            };
+            return AddSectionDivider(y);
+        }
+
         int AddSectionDivider(int y)
         {
             y += 6;
@@ -404,18 +441,6 @@ namespace TbhCompanion
         }
 
         // ---- helpers ----
-
-        Toggle MakePresenceToggle(int x, int y)
-        {
-            var t = new Toggle();
-            t.SetBounds(Sc(x), Sc(y), Sc(44), Sc(24));
-            t.Checked = _presenceEnabled == null || _presenceEnabled();
-            t.CheckedChanged += delegate
-            {
-                if (_setPresenceEnabled != null) _setPresenceEnabled(t.Checked);
-            };
-            return t;
-        }
 
         Label AddMainLabel(string text, int x, int y, Color color, Font font)
         {

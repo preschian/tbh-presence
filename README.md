@@ -113,6 +113,9 @@ settings, grouped by section:
 
 - **Discord Presence** — *Show stage on Discord* (also on the tray menu).
   Applies instantly and is remembered next launch.
+- **Scheduled Restart** — optionally close and relaunch TaskBarHero after it
+  has been open for a set number of days (1–30). Helps shed RAM on long idle
+  sessions. Applies instantly; off by default.
 - **Enable Mods**
   - **Auto Loop** — arms the loop when the game starts, and syncs the running
     loop when you save. F8 still toggles the live loop in-game without changing

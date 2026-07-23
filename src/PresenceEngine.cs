@@ -112,6 +112,17 @@ namespace TbhCompanion
 
                         while (_running && !proc.HasExited)
                         {
+                            if (GameRestart.IsDue(proc))
+                            {
+                                // Clear Discord before killing so the profile doesn't stick.
+                                if (discord.Connected && lastSent != "")
+                                {
+                                    try { discord.ClearActivity(); lastSent = ""; } catch { discord.Dispose(); }
+                                }
+                                GameRestart.TryRestart(proc, Status);
+                                break;
+                            }
+
                             if (PresenceEnabled)
                             {
                                 if (!discord.Connected && (DateTime.Now - lastDiscordTry).TotalSeconds >= 30)
