@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using TaskbarHero;
 using TaskbarHero.Data;
+using TaskbarHero.StatusSystem;
 using TaskbarHero.UI;
 using TaskbarHero.UI.Rune;
 using TS;
@@ -23,6 +24,12 @@ internal static class GameInterop
     static MethodInfo _mRuneTooltipBind, _mSubRecipeOpen, _mSubRecipeLearned;
     static MethodInfo[] _mRuneLevelInfo, _mSubRecipeActions;
     static Type _dbType;
+    static Type _boxInvType;
+    static PropertyInfo _pBoxInvSingleton;
+    static PropertyInfo _pAccountStatus;
+    static MethodInfo[] _mBoxCount;
+    static MethodInfo _mBoxCountLearned;
+    static MethodInfo _mAccountStatusValue;
     static bool _runeMenuFallbackLogged;
 
     const BindingFlags DeclInstance =
@@ -159,6 +166,139 @@ internal static class GameInterop
         return null;
     }
 
+    // Box inventory singleton (currently `yx`): static self-property + instance
+    // Int32(EBoxType) / OpenBoxStats(EBoxType). Names reshuffle each patch.
+    static void ResolveBoxInventory()
+    {
+        _boxInvType = null;
+        _pBoxInvSingleton = null;
+        _pAccountStatus = null;
+        _mAccountStatusValue = null;
+        _mBoxCount = Array.Empty<MethodInfo>();
+        _mBoxCountLearned = null;
+        Type openStats = typeof(UI_Cube).Assembly.GetType("TaskbarHero.UI.OpenBoxStats");
+        Type[] types;
+        try { types = typeof(UI_Cube).Assembly.GetTypes(); }
+        catch (ReflectionTypeLoadException e) { types = e.Types; }
+        foreach (var t in types)
+        {
+            if (t == null || !typeof(UnityEngine.MonoBehaviour).IsAssignableFrom(t)) continue;
+            PropertyInfo self = null;
+            foreach (var p in t.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+            {
+                if (p.PropertyType == t && p.CanRead) { self = p; break; }
+            }
+            if (self == null) continue;
+            var counts = Methods(t, typeof(int), typeof(EBoxType));
+            if (counts.Length == 0) continue;
+            bool hasStats = false;
+            if (openStats != null)
+            {
+                foreach (var m in Methods(t, openStats, typeof(EBoxType)))
+                { hasStats = true; break; }
+            }
+            if (!hasStats && counts.Length < 2) continue;
+            _boxInvType = t;
+            _pBoxInvSingleton = self;
+            _mBoxCount = counts;
+            _pAccountStatus = OnlyProp(t, typeof(AccountStatus), false);
+            _mAccountStatusValue = PreferMethod(
+                "AccountStatus.value(EAccountStatus)",
+                Methods(typeof(AccountStatus), typeof(int), typeof(EAccountStatus)));
+            return;
+        }
+    }
+
+    static object BoxInventoryInstance()
+    {
+        Resolve();
+        if (_boxInvType == null || _pBoxInvSingleton == null) return null;
+        try { return _pBoxInvSingleton.GetValue(null); }
+        catch { return null; }
+    }
+
+    // Current chest count for a box type, or -1 if unknown. Several Int32(EBoxType)
+    // methods exist (live count vs caps); pick the accessor whose NORMAL+BOSS+ACTBOSS
+    // sum is smallest among plausible 0..500 readings — live counts beat flat caps.
+    internal static int BoxCount(EBoxType type)
+    {
+        try
+        {
+            Resolve();
+            var inv = BoxInventoryInstance();
+            if (inv == null || _mBoxCount == null || _mBoxCount.Length == 0) return -1;
+            if (_mBoxCountLearned == null)
+                _mBoxCountLearned = LearnBoxCountMethod(inv);
+            if (_mBoxCountLearned == null) return -1;
+            try { return (int)_mBoxCountLearned.Invoke(inv, new object[] { type }); }
+            catch { _mBoxCountLearned = null; return -1; }
+        }
+        catch { return -1; }
+    }
+
+    static MethodInfo LearnBoxCountMethod(object inv)
+    {
+        var types = new[] { EBoxType.NORMAL, EBoxType.BOSS, EBoxType.ACTBOSS };
+        MethodInfo best = null;
+        int bestSum = int.MaxValue;
+        foreach (var m in _mBoxCount)
+        {
+            int sum = 0;
+            bool ok = true;
+            foreach (var t in types)
+            {
+                try
+                {
+                    int n = (int)m.Invoke(inv, new object[] { t });
+                    if (n < 0 || n > 500) { ok = false; break; }
+                    sum += n;
+                }
+                catch { ok = false; break; }
+            }
+            if (!ok) continue;
+            if (sum < bestSum) { bestSum = sum; best = m; }
+        }
+        if (best != null)
+            AutoSynthPlugin.Logger.LogInfo($"interop: learned box-count method {best.Name}");
+        return best;
+    }
+
+    // AccountStatus level for a flag (e.g. OpenOneTypeChestAllAtOnce). 0 / missing = locked.
+    internal static int AccountStatusValue(EAccountStatus status)
+    {
+        try
+        {
+            Resolve();
+            if (_pAccountStatus == null || _mAccountStatusValue == null) return -1;
+            var inv = BoxInventoryInstance();
+            if (inv == null) return -1;
+            var acc = _pAccountStatus.GetValue(inv) as AccountStatus;
+            if (acc == null) return -1;
+            return (int)_mAccountStatusValue.Invoke(acc, new object[] { status });
+        }
+        catch { return -1; }
+    }
+
+    internal static bool HasAccountStatus(EAccountStatus status)
+        => AccountStatusValue(status) > 0;
+
+    // Rune of Opening (higher tier): InputManager fires Space / open-all-types.
+    internal static bool TryInvokeOpenAllBoxes()
+    {
+        try
+        {
+            var im = UnityEngine.Object.FindObjectOfType<InputManager>(true);
+            if (im == null || im.OnOpenAllBoxKeyPressed == null) return false;
+            im.OnOpenAllBoxKeyPressed.Invoke();
+            return true;
+        }
+        catch (Exception e)
+        {
+            AutoSynthPlugin.Logger.LogWarning("open-all boxes invoke failed: " + e.Message);
+            return false;
+        }
+    }
+
     static void Resolve()
     {
         if (_obfResolved)
@@ -186,6 +326,7 @@ internal static class GameInterop
         _dbType = FindDbType();
         _pItemInfoData = _dbType != null ? _dbType.GetProperty("itemInfoData", DeclInstance) : null;
         _mRuneLevelInfo = Methods(_dbType, typeof(RuneLevelInfoData), typeof(int), typeof(int));
+        ResolveBoxInventory();
         string runeNodeInfos = _pRuneNodeLevelInfos.Length == 0
             ? "null"
             : string.Join(",", Array.ConvertAll(_pRuneNodeLevelInfos, p => p.Name));
@@ -198,7 +339,10 @@ internal static class GameInterop
             $"subRecipeOpen={MName(_mSubRecipeOpen)}, " +
             $"subRecipeActions=[{string.Join(",", Array.ConvertAll(_mSubRecipeActions, m => m.Name))}], " +
             $"itemDb={(_dbType != null ? _dbType.Name : "null")}, " +
-            $"runeLevelInfo=[{string.Join(",", Array.ConvertAll(_mRuneLevelInfo, m => m.Name))}]");
+            $"runeLevelInfo=[{string.Join(",", Array.ConvertAll(_mRuneLevelInfo, m => m.Name))}], " +
+            $"boxInv={(_boxInvType != null ? _boxInvType.Name : "null")}, " +
+            $"boxCount=[{string.Join(",", Array.ConvertAll(_mBoxCount ?? Array.Empty<MethodInfo>(), m => m.Name))}], " +
+            $"accountStatus={PName(_pAccountStatus)}, accountValue={MName(_mAccountStatusValue)}");
 
         if (_pRecipeType == null || _pInnerButton == null || _pIsOn == null || _pCubeItemData == null)
         {

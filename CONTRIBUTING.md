@@ -246,10 +246,13 @@ by committing the binary.
 
 **Auto-synthesis plugin** (`autosynth/`, BepInEx, built with the .NET SDK):
 
-- `Plugin.cs` — the in-game synthesis loop; usage/config in `autosynth/README.md`.
+- `Plugin.cs` — cycle orchestrator (Cube → Chest → Rune); usage/config in `autosynth/README.md`.
+- `ChestOpenRunner.cs` — StageBox chest-open phase (`UI_Stage` / `StageBox.m_boxButton`).
+- `RuneUpgradeRunner.cs` — rune upgrade phase.
+- `GameInterop.cs` — signature-based access to obfuscated members (including box counts).
 
-The plugin drives the game's real UI components (`UI_Cube`, `TS.ButtonBase`)
-and reads cube-slot item grades from the game's own item table
+The plugin drives the game's real UI components (`UI_Cube`, `StageBox`,
+`TS.ButtonBase`) and reads cube-slot item grades from the game's own item table
 (`ItemKey → GRADE` via the `bas` singleton). Gotchas when a game update breaks
 it:
 

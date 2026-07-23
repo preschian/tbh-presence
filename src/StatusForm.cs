@@ -78,7 +78,7 @@ namespace TbhCompanion
         WheelRedirectFilter _wheelFilter;
         Toggle _presenceToggle;
         Toggle _autoRestart;
-        Toggle _autoLoop, _enableSynth, _autoRune, _showConsole;
+        Toggle _autoLoop, _enableSynth, _autoChest, _autoRune, _showConsole;
         TypeTile _tEquip, _tMaterials, _tAccessories;
         SegmentBar _seg;
         Label _rarityValue;
@@ -332,9 +332,13 @@ namespace TbhCompanion
             y0 = AddFieldRow("Cycle interval", "min", Col0X, y0, f0, fieldW, out _cycleMin);
             _cycleMin.Min = 1; _cycleMin.Max = 1440; _cycleMin.Step = 1; _cycleMin.Decimals = 0; _cycleMin.Value = 5;
 
-            // ---- right: Runes / Synthesis ----
+            // ---- right: Chests / Runes / Synthesis ----
             int t1 = Col1X + ColW - toggleW;
             int f1 = Col1X + ColW - fieldW;
+            y1 = AddSectionHeader("Chests", Col1X, y1);
+            y1 = AddToggleRow("Enabled", Col1X, ref _autoChest, t1, y1);
+            y1 = AddSectionDivider(Col1X, ColW, y1);
+
             y1 = AddSectionHeader("Runes", Col1X, y1);
             y1 = AddToggleRow("Enabled", Col1X, ref _autoRune, t1, y1);
             y1 = AddSectionDivider(Col1X, ColW, y1);
@@ -704,14 +708,18 @@ namespace TbhCompanion
                 int cycles = Convert.ToInt32(d["cycles"]);
                 int cycMin = Math.Max(1, Convert.ToInt32(d["cycleIntervalSeconds"]) / 60);
                 int lastRunes = d.ContainsKey("lastRuneUpgrades") ? Convert.ToInt32(d["lastRuneUpgrades"]) : 0;
+                int lastChests = d.ContainsKey("lastChestOpens") ? Convert.ToInt32(d["lastChestOpens"]) : 0;
                 bool runeOn = d.ContainsKey("autoUpgradeRune") && (bool)d["autoUpgradeRune"];
+                bool chestOn = d.ContainsKey("autoOpenChest") && (bool)d["autoOpenChest"];
                 bool synthOn = !d.ContainsKey("enableSynthesis") || (bool)d["enableSynthesis"];
 
                 Color synthDot = auto ? Theme.Green : Theme.TextMuted;
                 string synthState = auto ? "On" : "Off";
                 string detail = "every " + cycMin + " min";
                 if (lastRunes > 0) detail = lastRunes + " runes · " + detail;
-                else if (!synthOn && runeOn) detail = "runes · " + detail;
+                if (lastChests > 0) detail = lastChests + " chests · " + detail;
+                else if (lastRunes == 0 && !synthOn && chestOn) detail = "chests · " + detail;
+                else if (lastRunes == 0 && !synthOn && runeOn) detail = "runes · " + detail;
                 _live.SetRow(1, "Loop",
                     cycles + " cycles",
                     detail,
@@ -741,7 +749,8 @@ namespace TbhCompanion
 
         void SetSettingsEnabled(bool on)
         {
-            _autoLoop.Enabled = on; _enableSynth.Enabled = on; _autoRune.Enabled = on; _seg.Enabled = on;
+            _autoLoop.Enabled = on; _enableSynth.Enabled = on; _autoChest.Enabled = on;
+            _autoRune.Enabled = on; _seg.Enabled = on;
             _tEquip.Enabled = on; _tMaterials.Enabled = on; _tAccessories.Enabled = on;
             _desiredLevel.Enabled = on; _cycleMin.Enabled = on;
             _saveBtn.Enabled = on;
@@ -762,6 +771,7 @@ namespace TbhCompanion
                 string text = File.ReadAllText(_cfgPath);
                 _autoLoop.Checked = !string.Equals(GetVal(text, "General", "AutoStart", "true"), "false", StringComparison.OrdinalIgnoreCase);
                 _enableSynth.Checked = !string.Equals(GetVal(text, "General", "EnableSynthesis", "true"), "false", StringComparison.OrdinalIgnoreCase);
+                _autoChest.Checked = !string.Equals(GetVal(text, "General", "AutoOpenChest", "false"), "false", StringComparison.OrdinalIgnoreCase);
                 _autoRune.Checked = !string.Equals(GetVal(text, "General", "AutoUpgradeRune", "false"), "false", StringComparison.OrdinalIgnoreCase);
                 int mg;
                 if (!int.TryParse(GetVal(text, "Safety", "MaxGrade", "2"), out mg) || mg < 0 || mg > 9) mg = 2;
@@ -804,8 +814,9 @@ namespace TbhCompanion
                 string text = File.ReadAllText(_cfgPath);
                 text = SetVal(text, "General", "AutoStart", _autoLoop.Checked ? "true" : "false");
                 text = SetVal(text, "General", "EnableSynthesis", _enableSynth.Checked ? "true" : "false");
+                text = SetVal(text, "General", "AutoOpenChest", _autoChest.Checked ? "true" : "false");
                 text = SetVal(text, "General", "AutoUpgradeRune", _autoRune.Checked ? "true" : "false");
-                // AutoOpenCube / AutoOpenRune / AfterFill / AfterSynthesis are not exposed in the UI — leave cfg values alone.
+                // AutoOpenCube / AutoOpenRune / AfterFill / AfterSynthesis / AfterChestOpen are not exposed in the UI — leave cfg values alone.
                 text = SetVal(text, "Safety", "MaxGrade", _seg.Value.ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "General", "DesiredLevel",
                     Recipes[Math.Max(0, Math.Min(Recipes.Length - 1, _desiredLevel.SelectedIndex))]
