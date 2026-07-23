@@ -109,28 +109,30 @@ memory.
 
 Left rail shows live status: Discord presence (stage/difficulty) and the
 auto-synthesis loop (on/off, cycle count, interval). The right pane has the
-settings, grouped by section:
+settings in two columns:
 
-- **Discord Presence** — *Show stage on Discord* (also on the tray menu).
-  Applies instantly and is remembered next launch.
-- **Scheduled Restart** — optionally close and relaunch TaskBarHero after it
-  has been open for a set number of days (1–30). Helps shed RAM on long idle
-  sessions. Applies instantly; off by default.
-- **Enable Mods**
-  - **Auto Loop** — arms the loop when the game starts, and syncs the running
-    loop when you save. F8 still toggles the live loop in-game without changing
-    this setting.
-  - **Show BepInEx console** — show/hide the log console (applies on next game
-    start).
-  - **Cycle interval** — how often a round runs (minutes).
-- **Runes** — *Enabled* turns on auto-upgrade runes in the shared cycle.
-- **Synthesis**
-  - **Enabled** — include cube synthesis in the cycle,
-  - **Types** — Equipment, Materials, Accessories (any combination; the loop
-    rotates through them),
-  - **Max rarity** (default: Legendary),
-  - **Target level** — which cube recipe bracket to use (dropdown matching the
-    in-game list: Max / `Lv.1~10` … `Lv.65~80`; default Max = highest unlocked).
+- **Left**
+  - **Discord Presence** — *Show stage on Discord* (also on the tray menu).
+    Applies instantly and is remembered next launch.
+  - **Scheduled Restart** — optionally close and relaunch TaskBarHero after it
+    has been open for a set number of days (1–30). Helps shed RAM on long idle
+    sessions. Applies instantly; off by default.
+  - **Enable Mods**
+    - **Auto Loop** — arms the loop when the game starts, and syncs the running
+      loop when you save. F8 still toggles the live loop in-game without changing
+      this setting.
+    - **Show BepInEx console** — show/hide the log console (applies on next game
+      start).
+    - **Cycle interval** — how often a round runs (minutes).
+- **Right**
+  - **Runes** — *Enabled* turns on auto-upgrade runes in the shared cycle.
+  - **Synthesis**
+    - **Enabled** — include cube synthesis in the cycle,
+    - **Types** — Equipment, Materials, Accessories (any combination; the loop
+      rotates through them),
+    - **Max rarity** (default: Legendary),
+    - **Target level** — which cube recipe bracket to use (dropdown matching the
+      in-game list: Max / `Lv.1~10` … `Lv.65~80`; default Max = highest unlocked).
 
 Press **Save** — with a current plugin, loop settings reach the running game
 within ~10 seconds. If the game is still on an older plugin, restart the game
