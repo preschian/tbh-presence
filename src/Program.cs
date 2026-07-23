@@ -52,6 +52,8 @@ namespace TbhCompanion
                         form.Location = new System.Drawing.Point(-3000, -3000);
                         form.Show();
                         for (int k = 0; k < 8; k++) { Application.DoEvents(); System.Threading.Thread.Sleep(60); }
+                        form.PrepareDocsShot();
+                        Application.DoEvents();
                         var bmp = new System.Drawing.Bitmap(form.Width, form.Height);
                         form.DrawToBitmap(bmp, new System.Drawing.Rectangle(0, 0, form.Width, form.Height));
                         bmp.Save(shotPath);

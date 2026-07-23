@@ -5,9 +5,9 @@ using System.Threading;
 
 namespace TbhCompanion
 {
-    // Closes and relaunches TaskBarHero after a configurable uptime, so long
-    // idle sessions can shed accumulated RAM. Opt-in via AppSettings.
-    // Heavy work runs on a background thread so the presence loop stays responsive.
+    // TaskBarHero process lifecycle: user launch, and optional scheduled
+    // close/relaunch after a configurable uptime (AppSettings). Heavy work
+    // runs on a background thread so the presence loop stays responsive.
     static class GameRestart
     {
         const string GAME = "TaskBarHero";
@@ -16,32 +16,29 @@ namespace TbhCompanion
         const int ExeAppearSeconds = 20;
 
         static DateTime _cooldownUntilUtc = DateTime.MinValue;
-        static int _busy; // 0 idle, 1 restart in flight
+        static int _busy; // 0 idle, 1 launch/restart in flight
 
         public static bool IsBusy { get { return _busy != 0; } }
 
         public static bool IsGameRunning() { return FindGame() != null; }
 
-        // Open TaskBarHero via Steam, falling back to the exe. Returns false if
-        // the game is already running or neither path could be started.
-        public static bool TryLaunch()
+        // True while a launch/restart is in flight and the game process is not up yet.
+        public static bool IsLaunching() { return _busy != 0 && FindGame() == null; }
+
+        // Queue Steam → wait → exe fallback on a worker. Returns false if the game
+        // is already running or another launch/restart holds the busy lock.
+        public static bool TryBeginLaunch(Action<string> log = null)
         {
             if (FindGame() != null) return false;
+            if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0) return false;
 
-            try
+            string exePath = ResolveExePath(null);
+            ThreadPool.QueueUserWorkItem(delegate
             {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = "steam://rungameid/" + SteamAppId,
-                    UseShellExecute = true
-                });
-                return true;
-            }
-            catch { }
-
-            string dir = AutoSynthDeploy.FindGameDir();
-            if (dir == null) return false;
-            return LaunchExe(Path.Combine(dir, "TaskBarHero.exe"), null);
+                try { LaunchAndConfirm(exePath, log, delegate { return true; }); }
+                finally { Interlocked.Exchange(ref _busy, 0); }
+            });
+            return true;
         }
 
         // Block until an in-flight restart finishes (tray shutdown).
@@ -90,13 +87,8 @@ namespace TbhCompanion
 
             // Capture what we need — Process may dispose after the caller breaks out.
             int pid = 0;
-            string exePath = null;
-            try { if (proc != null) { pid = proc.Id; exePath = proc.MainModule.FileName; } } catch { }
-            if (exePath == null)
-            {
-                string dir = AutoSynthDeploy.FindGameDir();
-                if (dir != null) exePath = Path.Combine(dir, "TaskBarHero.exe");
-            }
+            try { if (proc != null) pid = proc.Id; } catch { }
+            string exePath = ResolveExePath(proc);
             int days = AppSettings.AutoRestartDays;
             Func<bool> alive = keepGoing ?? (delegate { return true; });
 
@@ -209,6 +201,13 @@ namespace TbhCompanion
                 return true;
             }
             catch { return false; }
+        }
+
+        static string ResolveExePath(Process proc)
+        {
+            try { if (proc != null) return proc.MainModule.FileName; } catch { }
+            string dir = AutoSynthDeploy.FindGameDir();
+            return dir != null ? Path.Combine(dir, "TaskBarHero.exe") : null;
         }
 
         static bool WaitForGame(int seconds)

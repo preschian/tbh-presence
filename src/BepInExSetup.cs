@@ -52,11 +52,7 @@ namespace TbhCompanion
             return false;
         }
 
-        public static bool GameRunning()
-        {
-            try { return System.Diagnostics.Process.GetProcessesByName("TaskBarHero").Length > 0; }
-            catch { return false; }
-        }
+        public static bool GameRunning() { return GameRestart.IsGameRunning(); }
 
         // Shared preflight for Install/Uninstall. Returns false after logging why.
         static bool TryResolveGameDir(Action<string> log, out string gameDir)

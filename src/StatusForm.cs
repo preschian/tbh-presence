@@ -86,7 +86,6 @@ namespace TbhCompanion
         FlatDrop _desiredLevel;
         FlatButton _saveBtn, _setupBtn, _removeBtn, _launchBtn;
         Label _cfgNote;
-        DateTime _launchUntilUtc = DateTime.MinValue;
 
         public StatusForm(Func<string> stageLabel, Func<bool> discordConnected, Func<string> diag,
             Func<bool> presenceEnabled, Action<bool> setPresenceEnabled)
@@ -667,16 +666,12 @@ namespace TbhCompanion
 
         void LaunchGame()
         {
-            if (GameRestart.IsGameRunning()) { RefreshLaunchButton(); return; }
-            if (!GameRestart.TryLaunch())
+            if (_modOpRunning || GameRestart.IsGameRunning() || GameRestart.IsBusy)
             {
-                MessageBox.Show(this,
-                    "Couldn't start TaskBarHero.\n\n" +
-                    "Make sure Steam is installed, or start the game once so its folder can be found.",
-                    "Launch game", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                RefreshLaunchButton();
                 return;
             }
-            _launchUntilUtc = DateTime.UtcNow.AddSeconds(45);
+            GameRestart.TryBeginLaunch();
             RefreshLaunchButton();
         }
 
@@ -684,11 +679,19 @@ namespace TbhCompanion
         {
             if (_launchBtn == null) return;
             bool running = GameRestart.IsGameRunning();
-            bool launching = !running && DateTime.UtcNow < _launchUntilUtc;
-            if (running) _launchUntilUtc = DateTime.MinValue;
-
-            _launchBtn.Enabled = !running && !launching;
+            bool launching = GameRestart.IsLaunching();
+            _launchBtn.Enabled = !running && !launching && !_modOpRunning;
             _launchBtn.Text = running ? "Running" : launching ? "Launching…" : "Launch game";
+            _launchBtn.Invalidate();
+        }
+
+        // Dev (--shot): freeze the idle launch label so docs don't depend on a live game.
+        internal void PrepareDocsShot()
+        {
+            if (_timer != null) _timer.Stop();
+            if (_launchBtn == null) return;
+            _launchBtn.Enabled = true;
+            _launchBtn.Text = "Launch game";
             _launchBtn.Invalidate();
         }
 
