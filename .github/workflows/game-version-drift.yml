@@ -22,11 +22,11 @@ name: Watch game version drift
 # 1.00.20, 1.00.17 and 1.00.12 are all untagged patches).
 #
 # De-duplication: the issue body carries the game version in an HTML comment, so
-# a drift is filed once, not twice a day until it is fixed.
+# a drift is filed once, not three times a day until it is fixed.
 
 on:
   schedule:
-    - cron: '0 0,12 * * *'   # twice a day, 00:00 and 12:00 UTC (07:00 / 19:00 WIB)
+    - cron: '0 0,8,16 * * *'   # three times a day, every 8h UTC (07:00 / 15:00 / 23:00 WIB)
   workflow_dispatch:
 
 permissions:
@@ -57,7 +57,13 @@ jobs:
             echo "::error::no v* tag found; cannot determine the tool version"
             exit 1
           fi
+          # Strip leading v and any rebuild/prerelease suffix (v3.01.01-1 → 3.01.01).
           ver=${tag#v}
+          ver=${ver%%-*}
+          if ! [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag $tag does not yield an X.Y.Z version (got '$ver')"
+            exit 1
+          fi
           num=$(awk -F. '{print $1*10000 + $2*100 + $3}' <<<"$ver")
           echo "tag=$tag ver=$ver num=$num"
           { echo "ver=$ver"; echo "num=$num"; } >> "$GITHUB_OUTPUT"
@@ -110,7 +116,7 @@ jobs:
           # Already filed for this game version? 'body // ""' guards against a
           # labelled issue with an empty body, which would abort the extraction.
           # No '|| true': if the lookup fails we must not proceed with an empty
-          # seen-set and re-file the same drift twice a day.
+          # seen-set and re-file the same drift three times a day.
           gh issue list --repo "$GITHUB_REPOSITORY" --label "$LABEL" \
             --state all --limit 200 --json body \
             --jq '.[].body // "" | capture("<!-- game-version: (?<v>[0-9.]+) -->") | .v' \
