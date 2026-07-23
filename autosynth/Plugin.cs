@@ -18,7 +18,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.27.4";
+    internal const string Version = "0.28.6";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -183,6 +183,9 @@ public class AutoSynthBehaviour : MonoBehaviour
     private float _nextTick;
     private float _nextOpenAttempt;
     private int _openFails;
+    private bool _menuEnsuredThisCycle;
+    private float _nextMenuOpenAttempt;
+    private int _menuOpenAttempts;
     private readonly ChestOpenRunner _chests;
     private readonly RuneUpgradeRunner _runes;
     private UI_Cube _cube;
@@ -317,6 +320,9 @@ public class AutoSynthBehaviour : MonoBehaviour
         _nextTick = 0f;
         _nextOpenAttempt = 0f;
         _nextStatusWrite = 0f;
+        _menuEnsuredThisCycle = false;
+        _nextMenuOpenAttempt = 0f;
+        _menuOpenAttempts = 0;
         _steps = EnabledSteps();
         _stepIndex = 0;
         if (_steps.Length == 0)
@@ -421,6 +427,18 @@ public class AutoSynthBehaviour : MonoBehaviour
             {
                 BeginCycleWork();
                 return;
+            }
+
+            // Before Cube/Chest/Rune: open the Tab menu once if it was closed.
+            if (!_menuEnsuredThisCycle)
+            {
+                if (EnsureMainMenuOpen())
+                    _menuEnsuredThisCycle = true;
+                else
+                {
+                    _nextTick = Time.unscaledTime + 1.0f;
+                    return;
+                }
             }
 
             if (_phase == Phase.Chest)
@@ -843,10 +861,42 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
         return GameInterop.FindMenuToggle("Cube");
     }
 
+    // At cycle start only: if the Tab menu/HUD is closed, press Tab once (10s throttle)
+    // and wait until the content row is visible. After a few tries, proceed anyway so
+    // Cube/Rune auto-open can surface their own warnings.
+    private bool EnsureMainMenuOpen()
+    {
+        if (GameInterop.IsMainMenuOpen())
+        {
+            _menuOpenAttempts = 0;
+            return true;
+        }
+        const int maxAttempts = 3;
+        if (_menuOpenAttempts >= maxAttempts)
+        {
+            AutoSynthPlugin.Logger.LogWarning(
+                "auto-open menu: Tab did not open the main menu after " + maxAttempts +
+                " attempts; continuing — open it yourself with Tab if needed");
+            return true;
+        }
+        if (Time.unscaledTime < _nextMenuOpenAttempt) return false;
+        _nextMenuOpenAttempt = Time.unscaledTime + 10f;
+        _menuOpenAttempts++;
+        if (GameInterop.OpenMainMenu())
+            AutoSynthPlugin.Logger.LogInfo(
+                $"auto-open menu: open attempt {_menuOpenAttempts}/{maxAttempts}");
+        else if (_menuOpenAttempts == 1)
+            AutoSynthPlugin.Logger.LogWarning(
+                "auto-open menu: failed to open; will retry");
+        return false;
+    }
+
     // The loop can only act with the Cube panel open, so open it ourselves when a cycle
     // is due. Throttled: if the player is using another panel we take the tab back at
     // most once every 10s instead of every tick, and the loop is idle between cycles
     // anyway, so this only fires when there is actually work to do.
+    // When the whole content row is hidden (Tab menu closed), press Tab first; the Cube
+    // button click follows on a later tick once the row is visible again.
     private void TryOpenCube()
     {
         if (!AutoSynthPlugin.AutoOpenCube) return;
@@ -856,8 +906,17 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
         var btn = CubeMenuButton();
         if (btn == null || !btn.gameObject.activeInHierarchy)
         {
-            // The main window is still being built for the first seconds after launch,
-            // so a few misses are normal; only speak up once it stays unavailable.
+            // Menu chrome hidden (Tab closed): show Cube via UIManager first (same path
+            // Tab uses internally). Fall back to Tab shortcut / keybd if needed.
+            var cubeUi = GameInterop.FindCubeUi();
+            if (cubeUi != null && GameInterop.TryShowUiPanel(cubeUi))
+            {
+                _cube = cubeUi;
+                _openFails = 0;
+                AutoSynthPlugin.Logger.LogInfo("auto-open: showed UI_Cube via UIManager");
+                return;
+            }
+            GameInterop.OpenMainMenu();
             if (++_openFails == 3)
                 AutoSynthPlugin.Logger.LogWarning(
                     "auto-open: Cube menu button not available " +

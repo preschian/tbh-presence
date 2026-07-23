@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using Il2CppInterop.Runtime;
+using Il2CppInterop.Runtime.InteropTypes;
 using TaskbarHero;
 using TaskbarHero.Data;
 using TaskbarHero.StatusSystem;
@@ -8,6 +12,9 @@ using TaskbarHero.UI;
 using TaskbarHero.UI.Rune;
 using TS;
 using UnityEngine;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.LowLevel;
+using Object = UnityEngine.Object;
 
 namespace TbhAutoSynth;
 
@@ -332,7 +339,7 @@ internal static class GameInterop
     {
         try
         {
-            var im = UnityEngine.Object.FindObjectOfType<InputManager>(true);
+            var im = Object.FindObjectOfType<TaskbarHero.InputManager>(true);
             if (im == null || im.OnOpenAllBoxKeyPressed == null) return false;
             im.OnOpenAllBoxKeyPressed.Invoke();
             return true;
@@ -643,6 +650,372 @@ internal static class GameInterop
         }
         return inactiveMatch;
     }
+
+    static int _tabAttempt;
+    static Type _shortcutMgrType;
+    static PropertyInfo _shortcutListProp;
+    static PropertyInfo _shortcutBindProp;
+    static PropertyInfo[] _shortcutActionProps;
+    static bool _shortcutResolveTried;
+
+    // Main content row (Stash/Stat/Cube/Rune/Portal) is visible only while the Tab
+    // menu/HUD is open. Cube is enough: the whole row hides together when Tab closes it.
+    internal static bool IsMainMenuOpen()
+    {
+        try
+        {
+            var cube = FindMenuToggle("Cube");
+            return cube != null && cube.gameObject.activeInHierarchy;
+        }
+        catch { return false; }
+    }
+
+    // Open the Tab menu/HUD when the content-row buttons are inactive.
+    // Order: Tab shortcut Action → UIManager show(ui_main) → Win32 Tab (with focus).
+    internal static bool OpenMainMenu()
+    {
+        try
+        {
+            if (IsMainMenuOpen()) return true;
+
+            if (TryInvokeTabShortcut() && IsMainMenuOpen())
+                return true;
+
+            // UI_Main is not a UI_Base; activate the chrome directly if still closed.
+            var uim = Object.FindObjectOfType<UIManager>(true);
+            if (uim != null)
+            {
+                bool activated = false;
+                if (uim.ui_main != null && !uim.ui_main.gameObject.activeInHierarchy)
+                {
+                    uim.ui_main.gameObject.SetActive(true);
+                    activated = true;
+                }
+                if (uim.canvas_Main != null && !uim.canvas_Main.gameObject.activeInHierarchy)
+                {
+                    uim.canvas_Main.gameObject.SetActive(true);
+                    activated = true;
+                }
+                if (activated)
+                {
+                    AutoSynthPlugin.Logger.LogInfo("auto-open menu: activated UI_Main/canvas_Main");
+                    if (IsMainMenuOpen()) return true;
+                }
+            }
+
+            if (TapTabKeybd() && IsMainMenuOpen())
+                return true;
+
+            _tabAttempt++;
+            if (_tabAttempt % 2 == 0 && TapTabInputSystem() && IsMainMenuOpen())
+                return true;
+
+            return IsMainMenuOpen();
+        }
+        catch (Exception e)
+        {
+            AutoSynthPlugin.Logger.LogWarning("auto-open menu failed: " + e.Message);
+            return TapTabKeybd();
+        }
+    }
+
+    // Show a panel through UIManager's void(UI_Base) helpers (hhb/… — names obfuscated).
+    // Used for Tab menu (ui_main) and for opening Cube/Rune when the menu button is hidden.
+    internal static bool TryShowUiPanel(UI_Base panel)
+    {
+        var uim = Object.FindObjectOfType<UIManager>(true);
+        return uim != null && TryShowUiPanel(uim, panel);
+    }
+
+    static bool TryShowUiPanel(UIManager uim, UI_Base panel)
+    {
+        if (uim == null || panel == null) return false;
+        if (panel.gameObject.activeInHierarchy) return true;
+
+        foreach (var m in typeof(UIManager).GetMethods(DeclInstance))
+        {
+            if (m.IsSpecialName || m.ReturnType != typeof(void)) continue;
+            var ps = m.GetParameters();
+            if (ps.Length != 1 || ps[0].ParameterType != typeof(UI_Base)) continue;
+            try
+            {
+                m.Invoke(uim, new object[] { panel });
+                AutoSynthPlugin.Logger.LogInfo(
+                    $"auto-open menu: UIManager.{m.Name}({panel.GetIl2CppType().Name})");
+                if (panel.gameObject.activeInHierarchy) return true;
+            }
+            catch (Exception e)
+            {
+                AutoSynthPlugin.Logger.LogWarning(
+                    $"auto-open menu: UIManager.{m.Name} failed: " +
+                    (e.InnerException ?? e).Message);
+            }
+        }
+
+        if (!panel.gameObject.activeInHierarchy)
+        {
+            panel.gameObject.SetActive(true);
+            AutoSynthPlugin.Logger.LogInfo(
+                $"auto-open menu: SetActive({panel.GetIl2CppType().Name})");
+        }
+        return panel.gameObject.activeInHierarchy;
+    }
+
+    internal static UI_Cube FindCubeUi()
+    {
+        try
+        {
+            var uim = Object.FindObjectOfType<UIManager>(true);
+            if (uim != null && uim.Ui_Cube != null) return uim.Ui_Cube;
+        }
+        catch { /* fall through */ }
+        return Object.FindObjectOfType<UI_Cube>(true);
+    }
+
+    // Find the MonoBehaviour shortcut table (obfuscated type) that holds
+    // List<entry> where entry has ShortcutBinding + Action callbacks; fire Tab.
+    static bool TryInvokeTabShortcut()
+    {
+        try
+        {
+            ResolveShortcutManager();
+            if (_shortcutMgrType == null || _shortcutListProp == null || _shortcutBindProp == null)
+                return false;
+
+            object mgr = GetShortcutManagerInstance();
+            if (mgr == null) return false;
+
+            var listObj = _shortcutListProp.GetValue(mgr);
+            if (listObj == null) return false;
+
+            // Il2Cpp List: Count + get_Item(int)
+            var listType = listObj.GetType();
+            var countProp = listType.GetProperty("Count");
+            var itemGetter = listType.GetMethod("get_Item", new[] { typeof(int) });
+            if (countProp == null || itemGetter == null) return false;
+            int count = (int)countProp.GetValue(listObj);
+            Type entryType = _shortcutBindProp.DeclaringType;
+            for (int i = 0; i < count; i++)
+            {
+                var entry = itemGetter.Invoke(listObj, new object[] { i });
+                if (entry == null) continue;
+                if (entry is Il2CppObjectBase iob && entryType != null)
+                {
+                    try
+                    {
+                        var cast = typeof(Il2CppObjectBase).GetMethod("Cast", Type.EmptyTypes)
+                            ?.MakeGenericMethod(entryType);
+                        if (cast != null) entry = cast.Invoke(iob, null);
+                    }
+                    catch { /* keep raw entry */ }
+                }
+
+                object bindingObj;
+                try { bindingObj = _shortcutBindProp.GetValue(entry); }
+                catch { continue; }
+                if (bindingObj == null) continue;
+                var binding = (ShortcutBinding)bindingObj;
+                if (binding.m_mainKey != KeyCode.Tab) continue;
+
+                // Only the first working Action — the entry has several callbacks and
+                // firing all of them NREs inside UI_Hero during partial UI states.
+                if (_shortcutActionProps != null)
+                {
+                    foreach (var ap in _shortcutActionProps)
+                    {
+                        object act;
+                        try { act = ap.GetValue(entry); }
+                        catch { continue; }
+                        if (act == null) continue;
+                        try
+                        {
+                            if (act is Il2CppSystem.Action il2) il2.Invoke();
+                            else
+                            {
+                                var invoke = act.GetType().GetMethod("Invoke", Type.EmptyTypes);
+                                if (invoke == null) continue;
+                                invoke.Invoke(act, null);
+                            }
+                            AutoSynthPlugin.Logger.LogInfo(
+                                $"auto-open menu: invoked Tab shortcut action ({ap.Name})");
+                            return true;
+                        }
+                        catch (Exception ex)
+                        {
+                            AutoSynthPlugin.Logger.LogWarning(
+                                $"auto-open menu: Tab action {ap.Name} failed: " +
+                                (ex.InnerException ?? ex).Message);
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            AutoSynthPlugin.Logger.LogWarning("auto-open menu: Tab shortcut invoke failed: " + e.Message);
+        }
+        return false;
+    }
+
+    static object GetShortcutManagerInstance()
+    {
+        // Prefer the nr<T> singleton static Instance props (names obfuscated).
+        for (var bt = _shortcutMgrType.BaseType; bt != null; bt = bt.BaseType)
+        {
+            foreach (var p in bt.GetProperties(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly))
+            {
+                if (p.PropertyType != _shortcutMgrType) continue;
+                try
+                {
+                    var inst = p.GetValue(null);
+                    if (inst != null) return CastToType(inst, _shortcutMgrType);
+                }
+                catch { /* try next */ }
+            }
+        }
+
+        var found = Object.FindObjectOfType(Il2CppType.From(_shortcutMgrType), true);
+        return found == null ? null : CastToType(found, _shortcutMgrType);
+    }
+
+    static object CastToType(object obj, Type target)
+    {
+        if (obj == null || target == null) return obj;
+        if (target.IsInstanceOfType(obj)) return obj;
+        if (obj is Il2CppObjectBase iob)
+        {
+            try
+            {
+                var cast = typeof(Il2CppObjectBase).GetMethod("Cast", Type.EmptyTypes)
+                    ?.MakeGenericMethod(target);
+                if (cast != null) return cast.Invoke(iob, null);
+            }
+            catch { /* fall through */ }
+        }
+        return obj;
+    }
+
+    static void ResolveShortcutManager()
+    {
+        if (_shortcutResolveTried) return;
+        _shortcutResolveTried = true;
+        try
+        {
+            foreach (var t in typeof(UIManager).Assembly.GetTypes())
+            {
+                if (t == null || !typeof(MonoBehaviour).IsAssignableFrom(t)) continue;
+                PropertyInfo listProp = null;
+                PropertyInfo bindProp = null;
+                Type entryType = null;
+                foreach (var p in t.GetProperties(DeclInstance))
+                {
+                    if (!p.PropertyType.IsGenericType) continue;
+                    var args = p.PropertyType.GetGenericArguments();
+                    if (args.Length != 1) continue;
+                    var bp = args[0].GetProperty("bfls", DeclInstance)
+                             ?? FindPropOfType(args[0], typeof(ShortcutBinding));
+                    if (bp == null) continue;
+                    listProp = p;
+                    bindProp = bp;
+                    entryType = args[0];
+                    break;
+                }
+                if (listProp == null || entryType == null) continue;
+
+                var actions = new List<PropertyInfo>();
+                foreach (var p in entryType.GetProperties(DeclInstance))
+                {
+                    // Il2CppSystem.Action or System.Action — name ends with Action / is multicast delegate
+                    if (p.PropertyType.Name == "Action" || p.PropertyType.Name.StartsWith("Action`", StringComparison.Ordinal))
+                        actions.Add(p);
+                }
+                if (actions.Count == 0) continue;
+
+                _shortcutMgrType = t;
+                _shortcutListProp = listProp;
+                _shortcutBindProp = bindProp;
+                _shortcutActionProps = actions.ToArray();
+                AutoSynthPlugin.Logger.LogInfo(
+                    $"auto-open menu: shortcut manager={t.Name}, list={listProp.Name}, actions={actions.Count}");
+                return;
+            }
+        }
+        catch (Exception e)
+        {
+            AutoSynthPlugin.Logger.LogWarning("auto-open menu: shortcut resolve failed: " + e.Message);
+        }
+    }
+
+    static PropertyInfo FindPropOfType(Type declaring, Type propType)
+    {
+        foreach (var p in declaring.GetProperties(DeclInstance))
+            if (p.PropertyType == propType) return p;
+        return null;
+    }
+
+    static bool TapTabKeybd()
+    {
+        try
+        {
+            FocusGameWindow();
+            keybd_event(VkTab, 0, 0, UIntPtr.Zero);
+            keybd_event(VkTab, 0, KeyeventfKeyup, UIntPtr.Zero);
+            AutoSynthPlugin.Logger.LogInfo("auto-open menu: pressed Tab (keybd_event)");
+            return true;
+        }
+        catch (Exception e)
+        {
+            AutoSynthPlugin.Logger.LogWarning("auto-open menu: keybd_event Tab failed: " + e.Message);
+            return false;
+        }
+    }
+
+    static void FocusGameWindow()
+    {
+        try
+        {
+            var proc = Process.GetCurrentProcess();
+            if (proc.MainWindowHandle != IntPtr.Zero)
+            {
+                ShowWindow(proc.MainWindowHandle, SwRestore);
+                SetForegroundWindow(proc.MainWindowHandle);
+            }
+        }
+        catch { /* best-effort */ }
+    }
+
+    static bool TapTabInputSystem()
+    {
+        try
+        {
+            var kb = Keyboard.current;
+            if (kb == null) return false;
+            InputSystem.QueueStateEvent(kb, new KeyboardState(Key.Tab));
+            InputSystem.Update();
+            InputSystem.QueueStateEvent(kb, new KeyboardState());
+            InputSystem.Update();
+            AutoSynthPlugin.Logger.LogInfo("auto-open menu: pressed Tab (Input System)");
+            return true;
+        }
+        catch (Exception e)
+        {
+            AutoSynthPlugin.Logger.LogWarning("auto-open menu: Input System Tab failed: " + e.Message);
+            return false;
+        }
+    }
+
+    const byte VkTab = 0x09;
+    const uint KeyeventfKeyup = 0x0002;
+    const int SwRestore = 9;
+
+    [DllImport("user32.dll")]
+    static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+    [DllImport("user32.dll")]
+    static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
     internal static Il2CppSystem.Collections.Generic.List<ItemInfoData> ItemInfoList()
     {
