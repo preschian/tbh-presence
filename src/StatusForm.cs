@@ -63,6 +63,9 @@ namespace TbhCompanion
         Point _dragOffset; bool _dragging;
         float _s = 1f;
         int Sc(double v) { return (int)Math.Round(v * _s); }
+        // Outer ring left for form-owned chrome (Inset pen needs ceil(_s) px).
+        int BorderInset() { return Math.Max(1, (int)Math.Ceiling(_s)); }
+        float BorderWidth() { return Math.Max(1f, _s); }
 
         LiveStrip _live;
         Panel _side, _main;
@@ -123,11 +126,12 @@ namespace TbhCompanion
 
         void BuildSidePanel()
         {
+            int b = BorderInset();
             _side = new Panel
             {
                 BackColor = Theme.SideBg,
-                Location = new Point(0, 0),
-                Size = new Size(Sc(SideW), Height)
+                Location = new Point(b, b),
+                Size = new Size(Sc(SideW) - b, Height - 2 * b)
             };
             _side.Paint += PaintSide;
             _side.MouseDown += SideMouseDown;
@@ -139,7 +143,7 @@ namespace TbhCompanion
             int rows = Build.Synth ? 2 : 1;
             int statusH = rows * 68 + (rows - 1) * 8;
             _live = new LiveStrip { Columns = rows };
-            _live.SetBounds(Sc(12), Height - Sc(14 + statusH), Sc(SideW - 24), Sc(statusH));
+            _live.SetBounds(Sc(12), _side.Height - Sc(14 + statusH), Sc(SideW - 24), Sc(statusH));
             _live.SetRow(0, "Presence", "—", "", "Off", Theme.TextMuted);
             if (Build.Synth)
                 _live.SetRow(1, "Loop", "—", "", "Off", Theme.TextMuted);
@@ -183,11 +187,12 @@ namespace TbhCompanion
 
         void BuildMainPane()
         {
+            int b = BorderInset();
             _main = new Panel
             {
                 BackColor = Theme.FormBg,
-                Location = new Point(Sc(SideW), 0),
-                Size = new Size(Sc(W - SideW), Height)
+                Location = new Point(Sc(SideW), b),
+                Size = new Size(Width - Sc(SideW) - b, Height - 2 * b)
             };
             _main.Paint += PaintMain;
             _main.MouseDown += MainMouseDown;
@@ -204,7 +209,7 @@ namespace TbhCompanion
 
         void PaintMain(object sender, PaintEventArgs e)
         {
-            var g = e.Graphics;
+            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
             _closeRect = new Rectangle(_main.Width - Sc(34), Sc(12), Sc(22), Sc(22));
             using (var f = Theme.F(13f, FontStyle.Regular)) using (var b = new SolidBrush(Theme.TextMuted))
             {
@@ -458,9 +463,14 @@ namespace TbhCompanion
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            int rad = Sc(12);
             var full = new Rectangle(0, 0, Width, Height);
-            Theme.FillRound(g, full, Sc(12), Theme.FormBg);
-            Theme.DrawRoundBorder(g, full, Sc(12), Theme.CardBorder, 1f);
+            Theme.FillRound(g, full, rad, Theme.FormBg);
+            // Left rail color into the form-owned border ring (panels are inset).
+            using (var p = Theme.SidePath(new Rectangle(0, 0, Sc(SideW), Height), rad, true, false))
+            using (var br = new SolidBrush(Theme.SideBg))
+                g.FillPath(br, p);
+            Theme.DrawRoundBorder(g, full, rad, Theme.CardBorder, BorderWidth());
         }
 
         protected override void OnMouseUp(MouseEventArgs e) { _dragging = false; base.OnMouseUp(e); }
