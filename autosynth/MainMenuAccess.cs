@@ -1,0 +1,74 @@
+using UnityEngine;
+
+namespace TbhAutoSynth;
+
+// Single owner for "content row (Stash/Stat/Cube/Rune/Portal) must be visible".
+// Opens via UI_Stage.button_ShowMain only — never synthesizes Tab / OS keys.
+internal static class MainMenuAccess
+{
+    internal enum Status
+    {
+        Open,      // content row is visible
+        Waiting,   // clicked recently or settling — do not click again
+        Failed,    // cannot open right now (missing button or click budget spent)
+    }
+
+    const int MaxClicks = 3;
+    const float SettleSeconds = 1.5f;
+    const float RetrySeconds = 10f;
+
+    static int _clicks;
+    static float _awaitUntil;
+    static float _nextRetryAt;
+
+    internal static void Reset()
+    {
+        _clicks = 0;
+        _awaitUntil = 0f;
+        _nextRetryAt = 0f;
+    }
+
+    internal static bool IsOpen() => GameInterop.IsMainMenuOpen();
+
+    // Honest status: Open only when the content row is actually visible.
+    // After a Show Main click, returns Waiting until settle so we never toggle it shut.
+    internal static Status Ensure(bool loud)
+    {
+        if (IsOpen())
+        {
+            Reset();
+            return Status.Open;
+        }
+
+        if (Time.unscaledTime < _awaitUntil)
+            return Status.Waiting;
+
+        if (_clicks >= MaxClicks)
+            return Status.Failed;
+
+        if (Time.unscaledTime < _nextRetryAt)
+            return Status.Waiting;
+
+        // Show Main already "on" but chrome not ready — wait, do not toggle off.
+        var showMain = GameInterop.FindShowMainButton();
+        if (showMain != null && showMain.gameObject.activeInHierarchy && GameInterop.IsOn(showMain))
+        {
+            _awaitUntil = Time.unscaledTime + SettleSeconds;
+            return Status.Waiting;
+        }
+
+        if (!GameInterop.TryClickShowMain())
+        {
+            _nextRetryAt = Time.unscaledTime + RetrySeconds;
+            return Status.Failed;
+        }
+
+        _clicks++;
+        _awaitUntil = Time.unscaledTime + SettleSeconds;
+        _nextRetryAt = Time.unscaledTime + RetrySeconds;
+        if (loud)
+            AutoSynthPlugin.Logger.LogInfo(
+                $"auto-open menu: Show Main click {_clicks}/{MaxClicks}");
+        return Status.Waiting;
+    }
+}

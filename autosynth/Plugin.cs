@@ -10,7 +10,6 @@ using TaskbarHero.Data;
 using TaskbarHero.UI;
 using TS;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace TbhAutoSynth;
@@ -18,7 +17,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.28.7";
+    internal const string Version = "0.28.8";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -183,9 +182,6 @@ public class AutoSynthBehaviour : MonoBehaviour
     private float _nextTick;
     private float _nextOpenAttempt;
     private int _openFails;
-    private bool _menuEnsuredThisCycle;
-    private float _nextMenuOpenAttempt;
-    private int _menuOpenAttempts;
     private readonly ChestOpenRunner _chests;
     private readonly RuneUpgradeRunner _runes;
     private UI_Cube _cube;
@@ -199,7 +195,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     public AutoSynthBehaviour(IntPtr ptr) : base(ptr)
     {
         _chests = new ChestOpenRunner();
-        _runes = new RuneUpgradeRunner(Click);
+        _runes = new RuneUpgradeRunner(GameInterop.Click);
     }
 
     private bool LoopRunning => _mode != LoopMode.Off;
@@ -320,9 +316,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         _nextTick = 0f;
         _nextOpenAttempt = 0f;
         _nextStatusWrite = 0f;
-        _menuEnsuredThisCycle = false;
-        _nextMenuOpenAttempt = 0f;
-        _menuOpenAttempts = 0;
+        MainMenuAccess.Reset();
         _steps = EnabledSteps();
         _stepIndex = 0;
         if (_steps.Length == 0)
@@ -427,18 +421,6 @@ public class AutoSynthBehaviour : MonoBehaviour
             {
                 BeginCycleWork();
                 return;
-            }
-
-            // Before Cube/Chest/Rune: open the main menu once if it was closed.
-            if (!_menuEnsuredThisCycle)
-            {
-                if (EnsureMainMenuOpen())
-                    _menuEnsuredThisCycle = true;
-                else
-                {
-                    _nextTick = Time.unscaledTime + 1.0f;
-                    return;
-                }
             }
 
             if (_phase == Phase.Chest)
@@ -861,68 +843,40 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
         return GameInterop.FindMenuToggle("Cube");
     }
 
-    // At cycle start: if the main menu/HUD is closed, click the stage-HUD Show Main
-    // button (next to auto-retry). After a few tries, proceed anyway so Cube/Rune
-    // auto-open can surface their own warnings.
-    private bool EnsureMainMenuOpen()
-    {
-        if (GameInterop.IsMainMenuOpen())
-        {
-            _menuOpenAttempts = 0;
-            return true;
-        }
-        const int maxAttempts = 3;
-        if (_menuOpenAttempts >= maxAttempts)
-        {
-            AutoSynthPlugin.Logger.LogWarning(
-                "auto-open menu: Show Main did not open the menu after " + maxAttempts +
-                " attempts; continuing — open it yourself if needed");
-            return true;
-        }
-        if (Time.unscaledTime < _nextMenuOpenAttempt) return false;
-        _nextMenuOpenAttempt = Time.unscaledTime + 10f;
-        _menuOpenAttempts++;
-        if (GameInterop.OpenMainMenu())
-            AutoSynthPlugin.Logger.LogInfo(
-                $"auto-open menu: Show Main click {_menuOpenAttempts}/{maxAttempts}");
-        else if (_menuOpenAttempts == 1)
-            AutoSynthPlugin.Logger.LogWarning(
-                "auto-open menu: failed to click Show Main; will retry");
-        return false;
-    }
-
     // The loop can only act with the Cube panel open, so open it ourselves when a cycle
-    // is due. Throttled: if the player is using another panel we take the tab back at
-    // most once every 10s instead of every tick, and the loop is idle between cycles
-    // anyway, so this only fires when there is actually work to do.
-    // When the content row is hidden, show Cube via UIManager or click Show Main first.
+    // is due. Throttled so we don't fight the player for the tab. When the content row
+    // is hidden, MainMenuAccess clicks Show Main (settle-safe) before the Cube button.
     private void TryOpenCube()
     {
         if (!AutoSynthPlugin.AutoOpenCube) return;
         if (Time.unscaledTime < _nextOpenAttempt) return;
-        _nextOpenAttempt = Time.unscaledTime + 10f;
 
         var btn = CubeMenuButton();
-        if (btn == null || !btn.gameObject.activeInHierarchy)
+        if (btn != null && btn.gameObject.activeInHierarchy)
         {
-            var cubeUi = GameInterop.FindCubeUi();
-            if (cubeUi != null && GameInterop.TryShowUiPanel(cubeUi))
-            {
-                _cube = cubeUi;
-                _openFails = 0;
-                AutoSynthPlugin.Logger.LogInfo("auto-open: showed UI_Cube via UIManager");
-                return;
-            }
-            GameInterop.OpenMainMenu();
-            if (++_openFails == 3)
-                AutoSynthPlugin.Logger.LogWarning(
-                    "auto-open: Cube menu button not available " +
-                    $"(button={(btn == null ? "null" : "inactive")}); " +
-                    "open the Cube panel yourself and the loop will run");
+            _nextOpenAttempt = Time.unscaledTime + 10f;
+            _openFails = 0;
+            GameInterop.Click(btn, "Cube menu button (auto-open)", true);
             return;
         }
-        _openFails = 0;
-        Click(btn, "Cube menu button (auto-open)", true);
+
+        switch (MainMenuAccess.Ensure(true))
+        {
+            case MainMenuAccess.Status.Open:
+                _nextOpenAttempt = Time.unscaledTime + 1f;
+                break;
+            case MainMenuAccess.Status.Waiting:
+                _nextOpenAttempt = Time.unscaledTime + 1f;
+                break;
+            default:
+                _nextOpenAttempt = Time.unscaledTime + 10f;
+                if (++_openFails == 3)
+                    AutoSynthPlugin.Logger.LogWarning(
+                        "auto-open: Cube menu button not available " +
+                        $"(button={(btn == null ? "null" : "inactive")}); " +
+                        "open the Cube panel yourself and the loop will run");
+                break;
+        }
     }
 
     private static void ClickTrash(CubeSlotResetButton trash, bool loud)
@@ -942,29 +896,7 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
     }
 
     private static void Click(ButtonBase button, string name, bool loud)
-    {
-        if (button == null)
-        {
-            AutoSynthPlugin.Logger.LogWarning($"{name}: null");
-            return;
-        }
-        if (!button.gameObject.activeInHierarchy)
-        {
-            if (loud) AutoSynthPlugin.Logger.LogInfo($"{name}: inactive, skipped");
-            return;
-        }
-        var ped = new PointerEventData(EventSystem.current);
-        button.OnPointerClick(ped);
-        // ButtonBase.OnPointerClick only handles hover/click effects; game logic is
-        // wired to the wrapped UnityEngine.UI.Button, so fire its onClick too.
-        var inner = GameInterop.InnerButton(button);
-        if (inner != null && inner.onClick != null)
-        {
-            inner.onClick.Invoke();
-            if (loud) AutoSynthPlugin.Logger.LogInfo($"clicked {name} (+inner onClick)");
-        }
-        else if (loud) AutoSynthPlugin.Logger.LogInfo($"clicked {name} (no inner button!)");
-    }
+        => GameInterop.Click(button, name, loud);
 
     private void DumpState()
     {

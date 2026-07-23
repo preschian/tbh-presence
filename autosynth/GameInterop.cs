@@ -646,8 +646,6 @@ internal static class GameInterop
         return inactiveMatch;
     }
 
-    static MethodInfo _mShowUiPanel;
-
     // Main content row (Stash/Stat/Cube/Rune/Portal) is visible only while the main
     // menu/HUD is open. Cube is enough: the whole row hides together when it closes.
     internal static bool IsMainMenuOpen()
@@ -660,24 +658,8 @@ internal static class GameInterop
         catch { return false; }
     }
 
-    // Open the main menu via the stage-HUD Show Main button (right of auto-retry),
-    // not Tab / OS key injection. Returns true when a click was issued (or already open).
-    internal static bool OpenMainMenu()
-    {
-        try
-        {
-            if (IsMainMenuOpen()) return true;
-            return TryClickShowMain();
-        }
-        catch (Exception e)
-        {
-            AutoSynthPlugin.Logger.LogWarning("auto-open menu failed: " + e.Message);
-            return false;
-        }
-    }
-
     // UI_Stage.button_ShowMain — stable name across patches; sits on the stage HUD
-    // next to the auto-retry control.
+    // next to the auto-retry control. Returns true only when a click was issued.
     internal static bool TryClickShowMain()
     {
         var stage = Object.FindObjectOfType<UI_Stage>(true);
@@ -694,77 +676,8 @@ internal static class GameInterop
                 (btn == null ? "null" : "inactive"));
             return false;
         }
-        ClickButtonBase(btn, "Show Main (stage HUD)");
+        Click(btn, "Show Main (stage HUD)", true);
         return true;
-    }
-
-    static void ClickButtonBase(ButtonBase button, string name)
-    {
-        var ped = new PointerEventData(EventSystem.current);
-        button.OnPointerClick(ped);
-        var inner = InnerButton(button);
-        if (inner != null && inner.onClick != null)
-        {
-            inner.onClick.Invoke();
-            AutoSynthPlugin.Logger.LogInfo($"clicked {name} (+inner onClick)");
-        }
-        else
-            AutoSynthPlugin.Logger.LogInfo($"clicked {name} (no inner button!)");
-    }
-
-    // Show a content panel through UIManager's void(UI_Base) helper (learned once).
-    internal static bool TryShowUiPanel(UI_Base panel)
-    {
-        var uim = Object.FindObjectOfType<UIManager>(true);
-        return uim != null && TryShowUiPanel(uim, panel);
-    }
-
-    static bool TryShowUiPanel(UIManager uim, UI_Base panel)
-    {
-        if (uim == null || panel == null) return false;
-        if (panel.gameObject.activeInHierarchy) return true;
-
-        if (_mShowUiPanel != null)
-        {
-            try
-            {
-                _mShowUiPanel.Invoke(uim, new object[] { panel });
-                if (panel.gameObject.activeInHierarchy) return true;
-            }
-            catch
-            {
-                _mShowUiPanel = null;
-            }
-        }
-
-        foreach (var m in typeof(UIManager).GetMethods(DeclInstance))
-        {
-            if (m.IsSpecialName || m.ReturnType != typeof(void)) continue;
-            var ps = m.GetParameters();
-            if (ps.Length != 1 || ps[0].ParameterType != typeof(UI_Base)) continue;
-            try
-            {
-                m.Invoke(uim, new object[] { panel });
-                if (!panel.gameObject.activeInHierarchy) continue;
-                _mShowUiPanel = m;
-                AutoSynthPlugin.Logger.LogInfo(
-                    $"auto-open menu: learned UIManager.{m.Name}(UI_Base)");
-                return true;
-            }
-            catch { /* try next signature match */ }
-        }
-        return false;
-    }
-
-    internal static UI_Cube FindCubeUi()
-    {
-        try
-        {
-            var uim = Object.FindObjectOfType<UIManager>(true);
-            if (uim != null && uim.Ui_Cube != null) return uim.Ui_Cube;
-        }
-        catch { /* fall through */ }
-        return Object.FindObjectOfType<UI_Cube>(true);
     }
 
     internal static ToggleButton FindShowMainButton()
@@ -775,6 +688,32 @@ internal static class GameInterop
             return stage != null ? stage.button_ShowMain : null;
         }
         catch { return null; }
+    }
+
+    // Canonical ButtonBase click (pointer + inner onClick). Used by Plugin / runners.
+    internal static void Click(ButtonBase button, string name, bool loud)
+    {
+        if (button == null)
+        {
+            AutoSynthPlugin.Logger.LogWarning($"{name}: null");
+            return;
+        }
+        if (!button.gameObject.activeInHierarchy)
+        {
+            if (loud) AutoSynthPlugin.Logger.LogInfo($"{name}: inactive, skipped");
+            return;
+        }
+        var ped = new PointerEventData(EventSystem.current);
+        button.OnPointerClick(ped);
+        // ButtonBase.OnPointerClick only handles hover/click effects; game logic is
+        // wired to the wrapped UnityEngine.UI.Button, so fire its onClick too.
+        var inner = InnerButton(button);
+        if (inner != null && inner.onClick != null)
+        {
+            inner.onClick.Invoke();
+            if (loud) AutoSynthPlugin.Logger.LogInfo($"clicked {name} (+inner onClick)");
+        }
+        else if (loud) AutoSynthPlugin.Logger.LogInfo($"clicked {name} (no inner button!)");
     }
 
     internal static Il2CppSystem.Collections.Generic.List<ItemInfoData> ItemInfoList()

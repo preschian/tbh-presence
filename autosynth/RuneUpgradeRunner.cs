@@ -278,23 +278,21 @@ internal sealed class RuneUpgradeRunner
         _nextOpenAttempt = Time.unscaledTime + 10f;
 
         var btn = RuneMenuButton();
-        if (btn == null || !btn.gameObject.activeInHierarchy)
+        if (btn != null && btn.gameObject.activeInHierarchy)
         {
-            // Content row hidden — click stage-HUD Show Main before the Rune click.
-            if (GameInterop.OpenMainMenu())
-                AutoSynthPlugin.Logger.LogInfo(
-                    "auto-open: clicked Show Main (Rune menu button " +
-                    (btn == null ? "null" : "inactive") + ")");
-            if (++_openFails == 3)
-                AutoSynthPlugin.Logger.LogWarning(
-                    "auto-open: Rune menu button not available " +
-                    $"(button={(btn == null ? "null" : "inactive")}); " +
-                    "open the Rune panel yourself and the loop will continue");
-            return true; // still counts as an attempt window
+            _openFails = 0;
+            _click(btn, "Rune menu button (auto-open)", true);
+            return true;
         }
-        _openFails = 0;
-        _click(btn, "Rune menu button (auto-open)", true);
-        return true;
+
+        // Content row hidden — same Show Main ensure path as Cube (no toggle spam).
+        var status = MainMenuAccess.Ensure(true);
+        if (status == MainMenuAccess.Status.Failed && ++_openFails == 3)
+            AutoSynthPlugin.Logger.LogWarning(
+                "auto-open: Rune menu button not available " +
+                $"(button={(btn == null ? "null" : "inactive")}); " +
+                "open the Rune panel yourself and the loop will continue");
+        return true; // attempt window used (Waiting / Failed / just opened)
     }
 
     private void ClosePanel(bool loud)
