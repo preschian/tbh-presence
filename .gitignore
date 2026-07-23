@@ -9,3 +9,6 @@ TbhCompanion-Presence.exe
 src/Version.g.cs
 autosynth/bin/
 autosynth/obj/
+
+# local dump / reverse-engineering tools (not shipped)
+.tools/

@@ -104,14 +104,16 @@ The exe caches resolved addresses in `%LOCALAPPDATA%\tbh-companion\cache.txt`
   time + class pointer) and reused directly, no scan.
 - **After a game restart** — addresses are re-resolved (the live object moved),
   but the static tables are reused, roughly halving the scan.
-- **After a game update** — the cache is invalidated (keyed on the game binary's
-  timestamp/size) and everything is rebuilt.
+- **After a game update** — the cache is invalidated (keyed on `GameAssembly.dll`
+  timestamp/size — patches often leave `TaskBarHero.exe` untouched) and
+  everything is rebuilt.
 
 Pass `--no-cache` (exe) / `-NoCache` (scripts) to force a full rescan.
 
-## Field offsets (Il2CppDumper, game build 1.01.01)
+## Field offsets (Il2CppDumper, game build 1.01.02)
 
 Object instance fields begin at `+0x10` (klass ptr `+0x0`, monitor `+0x8`).
+Unchanged from 1.01.01 (hotfix only touched Decoration / Engraving / Inscription).
 
 ```
 PlayerSaveData.commonSaveData     +0x10
@@ -136,9 +138,9 @@ StageInfoData.Act                 +0x48   (int)
 StageInfoData.StageNo             +0x4C   (int)
 StageInfoData.StageLevel          +0x50   (int)
 StageInfoData.WaveAmount          +0x54   (int)
-ux.StageCache.StageInfoData       +0x10
+ux.StageCache.StageInfoData       +0x10   (bfas)
 Il2CppClass.static_fields         +0xB8
-ux.uq static block -> StageCache  +0x88
+ux.uq static block -> StageCache  +0x88   (bfao)
 ```
 
 ### Re-dumping after a game update

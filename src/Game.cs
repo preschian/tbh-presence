@@ -75,14 +75,14 @@ namespace TbhCompanion
         const long HID_ClassType = 0x48;
         const long HSD_heroKey   = 0x10;   // HeroSaveData
         const long HSD_level     = 0x14;
-        const long UU_currentCache = 0x88; // ux.uq statics: current StageCache (bfan)
-        const long SC_infoData   = 0x10;   // ux.StageCache.bfar (StageInfoData)
+        const long UU_currentCache = 0x88; // ux.uq statics: current StageCache (bfao)
+        const long SC_infoData   = 0x10;   // ux.StageCache.bfas (StageInfoData)
         const long KLASS_staticFields = 0xB8; // Il2CppClass.static_fields
 
         static readonly string[] DIFFS = { "NORMAL", "NIGHTMARE", "HELL", "TORMENT" };
         static readonly string[] STYPES = { "NORMAL", "ACTBOSS" };
         static readonly string[] HCLASS = { "All", "Knight", "Ranger", "Sorcerer", "Priest", "Hunter", "Slayer" };
-        const int CACHE_VERSION = 7;
+        const int CACHE_VERSION = 8;
 
         readonly Mem _mem;
         readonly Process _proc;
@@ -99,11 +99,14 @@ namespace TbhCompanion
             _cachePath = cachePath;
         }
 
+        // Key the address cache on GameAssembly.dll — patches often leave
+        // TaskBarHero.exe untouched while rewriting IL2CPP (e.g. 1.01.02).
         string GameStamp()
         {
             string exe = _proc.MainModule.FileName;
-            var fi = new FileInfo(exe);
-            return exe + "|" + fi.LastWriteTimeUtc.Ticks + "|" + fi.Length;
+            string ga = Path.Combine(Path.GetDirectoryName(exe), "GameAssembly.dll");
+            var fi = new FileInfo(File.Exists(ga) ? ga : exe);
+            return fi.FullName + "|" + fi.LastWriteTimeUtc.Ticks + "|" + fi.Length;
         }
 
         string BootId()
