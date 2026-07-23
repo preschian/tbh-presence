@@ -204,7 +204,8 @@ namespace TbhCompanion
             Controls.Add(_main);
 
             // Scrollable settings body under a fixed close/drag chrome strip.
-            _scroll = new Panel
+            // Vertical only — horizontal bar is suppressed (see VertScrollPanel).
+            _scroll = new VertScrollPanel
             {
                 BackColor = Theme.FormBg,
                 Location = new Point(0, Sc(TopChrome)),
@@ -385,7 +386,7 @@ namespace TbhCompanion
             {
                 AutoSize = false,
                 Location = new Point(Sc(PadX + 228), Sc(y)),
-                Size = new Size(Sc(MainW - 208), Sc(30)),
+                Size = new Size(Sc(MainW - 228), Sc(30)),
                 ForeColor = Theme.TextMuted,
                 BackColor = Theme.FormBg,
                 Font = Theme.F(8.5f, FontStyle.Regular),
@@ -479,13 +480,15 @@ namespace TbhCompanion
             int y = _cfgNote.Top;
             if (present)
             {
+                // Keep the note flush to ContentRight so a vertical scrollbar never
+                // forces a horizontal one.
                 _cfgNote.Location = new Point(Sc(PadX + 228), y);
-                _cfgNote.Size = new Size(Sc(MainW - 208), Sc(30));
+                _cfgNote.Size = new Size(Sc(MainW - 228), Sc(30));
             }
             else
             {
                 _cfgNote.Location = new Point(Sc(PadX + 128), y);
-                _cfgNote.Size = new Size(Sc(MainW - 108), Sc(30));
+                _cfgNote.Size = new Size(Sc(MainW - 128), Sc(30));
             }
         }
 
@@ -891,6 +894,50 @@ namespace TbhCompanion
             for (int i = 0; i < Recipes.Length; i++)
                 if (Recipes[i].Lo == desiredLevel) return i;
             return 0;
+        }
+    }
+
+    // AutoScroll panel that never shows a horizontal bar. WinForms otherwise adds
+    // one when the vertical scrollbar narrows the client and a child clips by a
+    // few pixels (or when focus-scroll shifts X).
+    sealed class VertScrollPanel : Panel
+    {
+        public VertScrollPanel()
+        {
+            AutoScroll = true;
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+        }
+
+        protected override Point ScrollToControl(Control activeControl)
+        {
+            // Keep X pinned; only allow vertical auto-scroll-into-view.
+            var pt = base.ScrollToControl(activeControl);
+            return new Point(0, pt.Y);
+        }
+
+        protected override void OnLayout(LayoutEventArgs levent)
+        {
+            base.OnLayout(levent);
+            SuppressHorizontal();
+        }
+
+        protected override void OnSizeChanged(EventArgs e)
+        {
+            base.OnSizeChanged(e);
+            SuppressHorizontal();
+        }
+
+        void SuppressHorizontal()
+        {
+            if (HorizontalScroll.Visible || HorizontalScroll.Enabled || HorizontalScroll.Value != 0)
+            {
+                HorizontalScroll.Value = 0;
+                HorizontalScroll.Enabled = false;
+                HorizontalScroll.Visible = false;
+            }
+            // Cap min-size width so AutoScroll stops requesting HScroll.
+            if (AutoScrollMinSize.Width != 0)
+                AutoScrollMinSize = new Size(0, AutoScrollMinSize.Height);
         }
     }
 }
