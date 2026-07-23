@@ -18,27 +18,30 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.26.17";
+    internal const string Version = "0.27.4";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
-    private static ConfigEntry<float> _afterFillE, _afterSynthE, _cycleE, _afterRuneE;
-    private static ConfigEntry<int> _maxGradeE, _desiredLevelE, _maxRuneUpgradesE;
-    private static ConfigEntry<bool> _autoStartE, _autoOpenE, _autoRuneE, _autoOpenRuneE, _enableSynthE;
+    private static ConfigEntry<float> _afterFillE, _afterSynthE, _cycleE, _afterRuneE, _afterChestE;
+    private static ConfigEntry<int> _maxGradeE, _desiredLevelE, _maxRuneUpgradesE, _maxChestOpensE;
+    private static ConfigEntry<bool> _autoStartE, _autoOpenE, _autoRuneE, _autoOpenRuneE, _enableSynthE, _autoChestE;
 
     internal static float AfterFillDelay => _afterFillE != null ? _afterFillE.Value : 1.0f;
     internal static float AfterSynthDelay => _afterSynthE != null ? _afterSynthE.Value : 4.0f;
     internal static float AfterClearDelay => _cycleE != null ? _cycleE.Value : 300.0f;
     internal static float AfterRuneUpgradeDelay => _afterRuneE != null ? _afterRuneE.Value : 0.5f;
+    internal static float AfterChestOpenDelay => _afterChestE != null ? _afterChestE.Value : 1.5f;
     internal static int MaxGrade => _maxGradeE != null ? _maxGradeE.Value : 2;
     // 0 = highest unlocked recipe (default). >0 = exact lower-bound match, else
     // the highest unlocked bracket with lo <= DesiredLevel.
     internal static int DesiredLevel => _desiredLevelE != null ? _desiredLevelE.Value : 0;
     internal static int MaxRuneUpgradesPerCycle => _maxRuneUpgradesE != null ? _maxRuneUpgradesE.Value : 20;
+    internal static int MaxChestOpensPerCycle => _maxChestOpensE != null ? _maxChestOpensE.Value : 40;
     internal static bool AutoStart => _autoStartE == null || _autoStartE.Value;
     internal static bool AutoOpenCube => _autoOpenE == null || _autoOpenE.Value;
     internal static bool AutoUpgradeRune => _autoRuneE != null && _autoRuneE.Value;
     internal static bool AutoOpenRune => _autoOpenRuneE == null || _autoOpenRuneE.Value;
+    internal static bool AutoOpenChest => _autoChestE != null && _autoChestE.Value;
     internal static bool EnableSynthesis => _enableSynthE == null || _enableSynthE.Value;
 
     private static ConfigEntry<string> _typesE;
@@ -77,17 +80,20 @@ public class AutoSynthPlugin : BasePlugin
         if (_conf == null) return;
         try
         {
-            int mg = MaxGrade, dl = DesiredLevel, mr = MaxRuneUpgradesPerCycle;
+            int mg = MaxGrade, dl = DesiredLevel, mr = MaxRuneUpgradesPerCycle, mc = MaxChestOpensPerCycle;
             float ci = AfterClearDelay;
-            bool auto = AutoStart, open = AutoOpenCube, rune = AutoUpgradeRune, synth = EnableSynthesis;
+            bool auto = AutoStart, open = AutoOpenCube, rune = AutoUpgradeRune, synth = EnableSynthesis,
+                chest = AutoOpenChest;
             _conf.Reload();
             if (mg != MaxGrade || dl != DesiredLevel || ci != AfterClearDelay || auto != AutoStart
                 || open != AutoOpenCube || rune != AutoUpgradeRune || synth != EnableSynthesis
-                || mr != MaxRuneUpgradesPerCycle)
+                || chest != AutoOpenChest || mr != MaxRuneUpgradesPerCycle || mc != MaxChestOpensPerCycle)
                 Logger.LogInfo($"config reloaded: MaxGrade={MaxGrade}, DesiredLevel={DesiredLevel}, " +
                                $"CycleIntervalSeconds={AfterClearDelay}, AutoStart={AutoStart}, " +
-                               $"EnableSynthesis={EnableSynthesis}, AutoUpgradeRune={AutoUpgradeRune}, " +
-                               $"MaxRuneUpgradesPerCycle={MaxRuneUpgradesPerCycle}");
+                               $"EnableSynthesis={EnableSynthesis}, AutoOpenChest={AutoOpenChest}, " +
+                               $"AutoUpgradeRune={AutoUpgradeRune}, " +
+                               $"MaxRuneUpgradesPerCycle={MaxRuneUpgradesPerCycle}, " +
+                               $"MaxChestOpensPerCycle={MaxChestOpensPerCycle}");
         }
         catch (Exception e) { Logger.LogWarning("config reload failed: " + e.Message); }
     }
@@ -114,6 +120,8 @@ public class AutoSynthPlugin : BasePlugin
             "Delay after the Cube+Rune cycle finishes before the next cycle starts (default: 5 minutes)");
         _afterRuneE = Config.Bind("Timing", "AfterRuneUpgradeSeconds", 0.5f,
             "Delay between successive rune level-up clicks within the Rune phase");
+        _afterChestE = Config.Bind("Timing", "AfterChestOpenSeconds", 1.5f,
+            "Delay after clicking a StageBox chest open button (animation settle)");
         _autoStartE = Config.Bind("General", "AutoStart", true,
             "Arm the auto loop as soon as the game starts, and sync the live loop when the " +
             "companion changes this setting. F8 still toggles the live loop without rewriting the cfg.");
@@ -122,13 +130,19 @@ public class AutoSynthPlugin : BasePlugin
         _autoOpenE = Config.Bind("General", "AutoOpenCube", true,
             "While the loop is armed, click the Cube menu button to open the Cube panel when a " +
             "cycle is due. Turn this off to only run while you have the Cube panel open yourself.");
+        _autoChestE = Config.Bind("General", "AutoOpenChest", false,
+            "After the Cube phase (or at cycle start if synthesis is off), click StageBox chest " +
+            "buttons (Normal / Boss / ActBoss) to open accumulated chests. Does not touch the " +
+            "game's built-in auto-open toggle.");
         _autoRuneE = Config.Bind("General", "AutoUpgradeRune", false,
-            "After the Cube phase (or at cycle start if synthesis is off), open the Rune panel and " +
-            "upgrade the cheapest affordable runes.");
+            "After the Cube and Chest phases (or at cycle start if those are off), open the Rune " +
+            "panel and upgrade the cheapest affordable runes.");
         _autoOpenRuneE = Config.Bind("General", "AutoOpenRune", true,
             "During the Rune phase, click the Rune menu button to open the Rune panel.");
         _maxRuneUpgradesE = Config.Bind("Safety", "MaxRuneUpgradesPerCycle", 20,
             "Maximum rune level-ups to perform in a single cycle (safety cap).");
+        _maxChestOpensE = Config.Bind("Safety", "MaxChestOpensPerCycle", 40,
+            "Maximum StageBox chest open clicks in a single cycle (safety cap).");
         _typesE = Config.Bind("General", "SynthesisTypes", "Equipment,Materials,Accessories",
             "Which synthesis item types the loop rotates through, comma-separated: " +
             "Equipment, Materials, Accessories. e.g. 'Equipment,Materials' to skip accessories.");
@@ -144,17 +158,20 @@ public class AutoSynthPlugin : BasePlugin
             ClassInjector.RegisterTypeInIl2Cpp<AutoSynthBehaviour>();
         AddComponent<AutoSynthBehaviour>();
         Logger.LogInfo($"TBH Auto Synthesis {Version}: " +
-                       "F7 = run one cycle now, F8 = toggle auto loop, F9 = click synth trigger, F10 = dump cube+rune state.");
+                       "F7 = run one cycle now, F8 = toggle auto loop, F9 = click synth trigger, F10 = dump cube+chest+rune state.");
     }
 }
 
 public class AutoSynthBehaviour : MonoBehaviour
 {
     private enum LoopMode { Off, Armed, OneShot }
-    private enum Phase { Idle, Fill, Synth, Clear, Rune }
+    private enum Phase { Idle, Fill, Synth, Clear, Chest, Rune }
+    private enum CycleStep { Cube, Chest, Rune }
 
     private LoopMode _mode;
     private Phase _phase;
+    private CycleStep[] _steps = Array.Empty<CycleStep>();
+    private int _stepIndex;
     private int _cycles;
     private bool _recipeSelected;
     private int _recipeAttempts;
@@ -166,6 +183,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     private float _nextTick;
     private float _nextOpenAttempt;
     private int _openFails;
+    private readonly ChestOpenRunner _chests;
     private readonly RuneUpgradeRunner _runes;
     private UI_Cube _cube;
     private bool _legacyInputBroken;
@@ -177,6 +195,7 @@ public class AutoSynthBehaviour : MonoBehaviour
 
     public AutoSynthBehaviour(IntPtr ptr) : base(ptr)
     {
+        _chests = new ChestOpenRunner();
         _runes = new RuneUpgradeRunner(Click);
     }
 
@@ -199,8 +218,10 @@ public class AutoSynthBehaviour : MonoBehaviour
                 ",\"lastCount\":" + _lastSynthCount +
                 ",\"lastGrade\":" + _lastSynthGrade +
                 ",\"lastRuneUpgrades\":" + _runes.LastUpgrades +
+                ",\"lastChestOpens\":" + _chests.LastOpens +
                 ",\"maxGrade\":" + AutoSynthPlugin.MaxGrade +
                 ",\"autoUpgradeRune\":" + (AutoSynthPlugin.AutoUpgradeRune ? "true" : "false") +
+                ",\"autoOpenChest\":" + (AutoSynthPlugin.AutoOpenChest ? "true" : "false") +
                 ",\"enableSynthesis\":" + (AutoSynthPlugin.EnableSynthesis ? "true" : "false") +
                 ",\"cycleIntervalSeconds\":" + (int)AutoSynthPlugin.AfterClearDelay +
                 ",\"updatedUtc\":\"" + DateTime.UtcNow.ToString("o") + "\"}";
@@ -235,6 +256,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                 AutoSynthPlugin.Logger.LogInfo(
                     "Auto loop armed on launch (AutoStart=true). " +
                     (AutoSynthPlugin.EnableSynthesis ? "Synthesis ON. " : "Synthesis OFF. ") +
+                    (AutoSynthPlugin.AutoOpenChest ? "Chest opens ON. " : "Chest opens OFF. ") +
                     (AutoSynthPlugin.AutoUpgradeRune ? "Rune upgrades ON. " : "Rune upgrades OFF. ") +
                     "F7 = one cycle, F8 toggles auto.");
             }
@@ -273,13 +295,14 @@ public class AutoSynthBehaviour : MonoBehaviour
         }
         _mode = LoopMode.OneShot;
         BeginCycleWork();
-        AutoSynthPlugin.Logger.LogInfo("F7: starting one-shot cycle (cube -> rune), then auto OFF");
+        AutoSynthPlugin.Logger.LogInfo("F7: starting one-shot cycle (cube -> chest -> rune), then auto OFF");
     }
 
     void SetAuto(bool on, string reason)
     {
         _mode = on ? LoopMode.Armed : LoopMode.Off;
         _cycles = 0;
+        _chests.ResetSession();
         _runes.ResetSession();
         BeginCycleWork();
         string suffix = string.IsNullOrEmpty(reason) ? "" : " (" + reason + ")";
@@ -294,18 +317,12 @@ public class AutoSynthBehaviour : MonoBehaviour
         _nextTick = 0f;
         _nextOpenAttempt = 0f;
         _nextStatusWrite = 0f;
-        if (AutoSynthPlugin.EnableSynthesis)
-            _phase = Phase.Fill;
-        else if (AutoSynthPlugin.AutoUpgradeRune)
-        {
-            _cycles++;
-            StartRunePhase(true);
-        }
-        else
+        _steps = EnabledSteps();
+        _stepIndex = 0;
+        if (_steps.Length == 0)
         {
             AutoSynthPlugin.Logger.LogWarning(
-                "cycle skipped: EnableSynthesis and AutoUpgradeRune are both off");
-            // Stay Idle and retry after the normal gap (config may flip mid-session).
+                "cycle skipped: EnableSynthesis, AutoOpenChest, and AutoUpgradeRune are all off");
             _phase = Phase.Idle;
             if (_mode == LoopMode.OneShot)
             {
@@ -317,7 +334,57 @@ public class AutoSynthBehaviour : MonoBehaviour
                 _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterClearDelay;
             else
                 _nextTick = 0f;
+            return;
         }
+        // Cube increments _cycles on Clear; chest/rune-only cycles increment here.
+        if (_steps[0] != CycleStep.Cube)
+            _cycles++;
+        StartStep(_steps[0], true);
+    }
+
+    static CycleStep[] EnabledSteps()
+    {
+        var list = new System.Collections.Generic.List<CycleStep>(3);
+        if (AutoSynthPlugin.EnableSynthesis) list.Add(CycleStep.Cube);
+        if (AutoSynthPlugin.AutoOpenChest) list.Add(CycleStep.Chest);
+        if (AutoSynthPlugin.AutoUpgradeRune) list.Add(CycleStep.Rune);
+        return list.ToArray();
+    }
+
+    void StartStep(CycleStep step, bool loud)
+    {
+        switch (step)
+        {
+            case CycleStep.Cube:
+                _phase = Phase.Fill;
+                _nextTick = 0f;
+                break;
+            case CycleStep.Chest:
+                StartChestPhase(loud);
+                break;
+            case CycleStep.Rune:
+                StartRunePhase(loud);
+                break;
+        }
+    }
+
+    void AdvanceAfterStep(bool loud, string detailIfEnd)
+    {
+        _stepIndex++;
+        if (_stepIndex >= _steps.Length)
+        {
+            EndCycleAndScheduleNext(loud, detailIfEnd);
+            return;
+        }
+        StartStep(_steps[_stepIndex], loud);
+    }
+
+    void StartChestPhase(bool loud)
+    {
+        _chests.BeginPhase();
+        _phase = Phase.Chest;
+        _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
+        if (loud) AutoSynthPlugin.Logger.LogInfo($"cycle {_cycles}: starting chest phase");
     }
 
     void StartRunePhase(bool loud)
@@ -326,14 +393,6 @@ public class AutoSynthBehaviour : MonoBehaviour
         _phase = Phase.Rune;
         _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
         if (loud) AutoSynthPlugin.Logger.LogInfo($"cycle {_cycles}: starting rune phase");
-    }
-
-    void EnterRuneOrEnd(bool loud, string detailIfEnd)
-    {
-        if (AutoSynthPlugin.AutoUpgradeRune)
-            StartRunePhase(loud);
-        else
-            EndCycleAndScheduleNext(loud, detailIfEnd);
     }
 
     void EndCycleAndScheduleNext(bool loud, string detail)
@@ -364,6 +423,21 @@ public class AutoSynthBehaviour : MonoBehaviour
                 return;
             }
 
+            if (_phase == Phase.Chest)
+            {
+                var loud = _cycles < 2 || _cycles % 20 == 0;
+                var result = _chests.Tick(loud, out float delay);
+                if (result == ChestOpenRunner.TickResult.Done)
+                {
+                    _nextStatusWrite = 0f;
+                    AdvanceAfterStep(loud || _chests.LastOpens > 0,
+                        "chest opens this cycle: " + _chests.LastOpens);
+                }
+                else
+                    _nextTick = Time.unscaledTime + delay;
+                return;
+            }
+
             if (_phase == Phase.Rune)
             {
                 var loud = _cycles < 2 || _cycles % 20 == 0;
@@ -371,7 +445,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                 if (result == RuneUpgradeRunner.TickResult.Done)
                 {
                     _nextStatusWrite = 0f;
-                    EndCycleAndScheduleNext(loud || _runes.LastUpgrades > 0,
+                    AdvanceAfterStep(loud || _runes.LastUpgrades > 0,
                         "rune upgrades this cycle: " + _runes.LastUpgrades);
                 }
                 else
@@ -441,7 +515,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                     ClickTrash(cube.m_trashToggleBtn, cubeLoud);
                     _cycles++;
                     _typeSelected = false;
-                    EnterRuneOrEnd(cubeLoud, null);
+                    AdvanceAfterStep(cubeLoud, null);
                     break;
             }
         }
@@ -870,6 +944,7 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
                 }
             }
 
+            _chests.Dump();
             _runes.Dump(Describe);
         }
         catch (Exception e)

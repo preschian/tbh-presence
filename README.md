@@ -126,6 +126,9 @@ settings in two columns:
       start).
     - **Cycle interval** — how often a round runs (minutes).
 - **Right**
+  - **Chests** — *Enabled* opens StageBox chests (Normal / Boss / ActBoss) each
+    cycle by clicking the stage UI (does not flip the game's built-in auto-open
+    toggle).
   - **Runes** — *Enabled* turns on auto-upgrade runes in the shared cycle.
   - **Synthesis**
     - **Enabled** — include cube synthesis in the cycle,
@@ -134,6 +137,8 @@ settings in two columns:
     - **Max rarity** (default: Legendary),
     - **Target level** — which cube recipe bracket to use (dropdown matching the
       in-game list: Max / `Lv.1~10` … `Lv.65~80`; default Max = highest unlocked).
+
+Cycle order when several are enabled: **Cube → Chest → Rune**.
 
 Press **Save** — with a current plugin, loop settings reach the running game
 within ~10 seconds. If the game is still on an older plugin, restart the game
