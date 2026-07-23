@@ -73,9 +73,9 @@ $OFF = @{
     HSD_unlocked    = 0x18
     HSD_exp         = 0x20
     # ux.uq static fields (live stage system)
-    UU_currentCache = 0x88   # ux.StageCache bfan: the stage currently loaded
+    UU_currentCache = 0x88   # ux.StageCache bfao: the stage currently loaded
     # ux.StageCache
-    SC_infoData     = 0x10   # StageInfoData
+    SC_infoData     = 0x10   # StageInfoData (bfas)
     # Il2CppClass
     KLASS_staticFields = 0xB8
     # StageInfoData
@@ -92,13 +92,14 @@ $DIFF = @('NORMAL','NIGHTMARE','HELL','TORMENT')
 $STYPE = @('NORMAL','ACTBOSS')
 # EEquipClassType: each hero maps 1:1 to a class, which doubles as its name
 $HCLASS = @('All','Knight','Ranger','Sorcerer','Priest','Hunter','Slayer')
-$CACHE_VERSION = 7
+$CACHE_VERSION = 8
 
 function Get-GameStamp($proc) {
-    # Identifies the game build; invalidates the cached stage table on updates.
+    # Key on GameAssembly.dll — patches often leave TaskBarHero.exe untouched.
     $exe = $proc.MainModule.FileName
-    $fi = Get-Item $exe
-    return "$exe|$($fi.LastWriteTimeUtc.Ticks)|$($fi.Length)"
+    $ga = Join-Path (Split-Path $exe) 'GameAssembly.dll'
+    $fi = Get-Item $(if (Test-Path $ga) { $ga } else { $exe })
+    return "$($fi.FullName)|$($fi.LastWriteTimeUtc.Ticks)|$($fi.Length)"
 }
 
 function Load-Cache {
