@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using TaskbarHero;
 using TaskbarHero.Data;
 using TaskbarHero.UI;
@@ -20,10 +21,10 @@ internal sealed class RuneUpgradeRunner
 
     private const int MaxOpenAttempts = 6;
     private const float OpenTimeoutSeconds = 60f;
-    private const int FailStreakAbort = 5;
     private const int SoftAwaitTicks = 6; // ~ several AfterRuneUpgradeDelay windows
 
     private readonly Action<ButtonBase, string, bool> _click;
+    private readonly HashSet<int> _skipKeys = new HashSet<int>();
 
     private UI_Rune _runeUi;
     private RuneTooltip _runeTooltip;
@@ -45,7 +46,6 @@ internal sealed class RuneUpgradeRunner
     private int _pendingCost;
     private bool _pendingCounted;   // counted via gold drop while still awaiting level
     private int _awaitLevelTicks;
-    private int _failStreak;
     private string _lastName = "";
 
     internal int UpgradesThisCycle => _upgradesThisCycle;
@@ -55,7 +55,7 @@ internal sealed class RuneUpgradeRunner
     {
         _upgradesThisCycle = 0;
         ClearPending();
-        _failStreak = 0;
+        _skipKeys.Clear();
         _openAttempts = 0;
         _nextOpenAttempt = 0f;
         _phaseEnteredAt = Time.unscaledTime;
@@ -131,8 +131,13 @@ internal sealed class RuneUpgradeRunner
         if (_pendingKey >= 0)
         {
             var confirm = ConfirmPending(page, loud);
-            if (confirm == ConfirmResult.Failed && _failStreak >= FailStreakAbort)
-                return Finish(loud);
+            if (confirm == ConfirmResult.Failed)
+            {
+                // Click landed but the game rejected it (locked tree, etc.).
+                // Blacklist this key for the rest of the cycle and try the next cheapest.
+                nextDelay = AutoSynthPlugin.AfterRuneUpgradeDelay;
+                return TickResult.InProgress;
+            }
             if (confirm == ConfirmResult.AwaitingLevel || confirm == ConfirmResult.Confirmed)
             {
                 nextDelay = Math.Max(0.75f, AutoSynthPlugin.AfterRuneUpgradeDelay);
@@ -172,8 +177,9 @@ internal sealed class RuneUpgradeRunner
 
         if (!TryUpgradeRune(best, key, level, cost, loud))
         {
-            AutoSynthPlugin.Logger.LogWarning($"rune phase: upgrade invoke failed for key={key}");
-            if (NoteFailure()) return Finish(loud);
+            AutoSynthPlugin.Logger.LogWarning(
+                $"rune phase: upgrade invoke failed for key={key} — skipping this rune");
+            _skipKeys.Add(key);
             nextDelay = AutoSynthPlugin.AfterRuneUpgradeDelay;
             return TickResult.InProgress;
         }
@@ -206,7 +212,6 @@ internal sealed class RuneUpgradeRunner
         {
             if (!_pendingCounted)
                 _upgradesThisCycle++;
-            _failStreak = 0;
             if (loud)
                 AutoSynthPlugin.Logger.LogInfo(
                     $"rune upgrade ok: key={_pendingKey} lv {_pendingLevel}->{after} " +
@@ -224,7 +229,6 @@ internal sealed class RuneUpgradeRunner
             {
                 _upgradesThisCycle++;
                 _pendingCounted = true;
-                _failStreak = 0;
                 if (loud)
                     AutoSynthPlugin.Logger.LogInfo(
                         $"rune upgrade ok (gold spent, awaiting level): key={_pendingKey} lv={after} " +
@@ -243,18 +247,13 @@ internal sealed class RuneUpgradeRunner
             return ConfirmResult.AwaitingLevel;
         }
 
-        NoteFailure();
+        int failedKey = _pendingKey;
+        _skipKeys.Add(failedKey);
         AutoSynthPlugin.Logger.LogWarning(
-            $"rune upgrade no effect: key={_pendingKey} lv={_pendingLevel}->{after} " +
-            $"gold={goldNow} failStreak={_failStreak}");
+            $"rune upgrade no effect: key={failedKey} lv={_pendingLevel}->{after} " +
+            $"gold={goldNow} — skipping this rune for the cycle");
         ClearPending();
         return ConfirmResult.Failed;
-    }
-
-    private bool NoteFailure()
-    {
-        _failStreak++;
-        return _failStreak >= FailStreakAbort;
     }
 
     private UI_Rune FindRuneUi()
@@ -389,6 +388,9 @@ internal sealed class RuneUpgradeRunner
     private static bool RuneCanUpgrade(RuneNode node)
     {
         if (node == null || !node.isActiveAndEnabled) return false;
+        var btn = node.m_levelUpButton;
+        if (btn == null || !btn.gameObject.activeInHierarchy || !btn.interactable)
+            return false;
         int level = RuneLevel(node);
         if (level < 0) return false;
         var next = GameInterop.LookupRuneLevelInfo(node.m_runeKey, level + 1);
@@ -422,6 +424,7 @@ internal sealed class RuneUpgradeRunner
         for (int i = 0; i < list.Count; i++)
         {
             var node = list[i];
+            if (node == null || _skipKeys.Contains(node.m_runeKey)) continue;
             if (!RuneCanUpgrade(node)) continue;
             int cost = RuneUpgradeCost(node);
             if (cost <= 0 || cost > gold) continue;
