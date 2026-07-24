@@ -17,7 +17,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.28.8";
+    internal const string Version = "0.28.14";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -167,6 +167,10 @@ public class AutoSynthBehaviour : MonoBehaviour
     private enum Phase { Idle, Fill, Synth, Clear, Chest, Rune }
     private enum CycleStep { Cube, Chest, Rune }
 
+    // Game UI (UIManager / EventSystem / stage HUD) is not reliable right after
+    // BepInEx loads — wait before AutoStart / Show Main / any click automation.
+    const float BootDelaySeconds = 30f;
+
     private LoopMode _mode;
     private Phase _phase;
     private CycleStep[] _steps = Array.Empty<CycleStep>();
@@ -187,6 +191,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     private UI_Cube _cube;
     private bool _legacyInputBroken;
     private bool _autoStartApplied;
+    private float _bootReadyAt = -1f;
     private float _nextConfigReload;
     private float _nextStatusWrite;
     private int _lastSynthCount = -1;
@@ -231,6 +236,15 @@ public class AutoSynthBehaviour : MonoBehaviour
 
     private void Update()
     {
+        if (_bootReadyAt < 0f)
+        {
+            _bootReadyAt = Time.unscaledTime + BootDelaySeconds;
+            AutoSynthPlugin.Logger.LogInfo(
+                $"Waiting {BootDelaySeconds:0}s for game UI before starting automation...");
+        }
+        if (Time.unscaledTime < _bootReadyAt)
+            return;
+
         if (Time.unscaledTime >= _nextConfigReload)
         {
             _nextConfigReload = Time.unscaledTime + 10f;
@@ -845,7 +859,7 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
 
     // The loop can only act with the Cube panel open, so open it ourselves when a cycle
     // is due. Throttled so we don't fight the player for the tab. When the content row
-    // is hidden, MainMenuAccess clicks Show Main (settle-safe) before the Cube button.
+    // is hidden: Show Main first, then click the Cube menu button on the next tick.
     private void TryOpenCube()
     {
         if (!AutoSynthPlugin.AutoOpenCube) return;
@@ -863,7 +877,8 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
         switch (MainMenuAccess.Ensure(true))
         {
             case MainMenuAccess.Status.Open:
-                _nextOpenAttempt = Time.unscaledTime + 1f;
+                // Content row just became visible — click Cube on the next attempt.
+                _nextOpenAttempt = Time.unscaledTime + 0.25f;
                 break;
             case MainMenuAccess.Status.Waiting:
                 _nextOpenAttempt = Time.unscaledTime + 1f;

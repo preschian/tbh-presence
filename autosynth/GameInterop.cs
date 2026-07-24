@@ -658,26 +658,53 @@ internal static class GameInterop
         catch { return false; }
     }
 
-    // UI_Stage.button_ShowMain — stable name across patches; sits on the stage HUD
-    // next to the auto-retry control. Returns true only when a click was issued.
+    // Show Main's onClick walks UIManager → UI_Hero; clicking before those exist
+    // throws a game-side NRE (ux+tv.isk). Wait until the graph is wired.
+    internal static bool IsHudReadyForShowMain()
+    {
+        try
+        {
+            if (EventSystem.current == null) return false;
+            var um = Object.FindObjectOfType<UIManager>(true);
+            if (um == null || um.ui_main == null || um.Ui_Hero == null)
+                return false;
+            var stage = Object.FindObjectOfType<UI_Stage>(true);
+            var btn = stage != null ? stage.button_ShowMain : null;
+            return btn != null && btn.gameObject.activeInHierarchy;
+        }
+        catch { return false; }
+    }
+
+    // UI_Stage.button_ShowMain — opens the content row (Stash/Stat/Cube/Rune/Portal).
+    // Game handler often NREs inside UI_Hero after chrome is already up; if the row is
+    // visible afterward, treat as success and do not spam a warning.
     internal static bool TryClickShowMain()
     {
+        if (!IsHudReadyForShowMain())
+            return false;
         var stage = Object.FindObjectOfType<UI_Stage>(true);
-        if (stage == null)
-        {
-            AutoSynthPlugin.Logger.LogWarning("auto-open menu: UI_Stage not found");
-            return false;
-        }
         var btn = stage.button_ShowMain;
-        if (btn == null || !btn.gameObject.activeInHierarchy)
+        try
         {
-            AutoSynthPlugin.Logger.LogWarning(
-                "auto-open menu: Show Main button " +
-                (btn == null ? "null" : "inactive"));
+            var inner = InnerButton(btn);
+            if (inner == null || inner.onClick == null)
+            {
+                AutoSynthPlugin.Logger.LogWarning("auto-open menu: Show Main has no inner onClick");
+                return false;
+            }
+            inner.onClick.Invoke();
+            AutoSynthPlugin.Logger.LogInfo("clicked Show Main (stage HUD) (+inner onClick)");
+            return true;
+        }
+        catch (Exception)
+        {
+            if (IsMainMenuOpen())
+            {
+                AutoSynthPlugin.Logger.LogInfo("clicked Show Main (stage HUD)");
+                return true;
+            }
             return false;
         }
-        Click(btn, "Show Main (stage HUD)", true);
-        return true;
     }
 
     internal static ToggleButton FindShowMainButton()
@@ -691,6 +718,8 @@ internal static class GameInterop
     }
 
     // Canonical ButtonBase click (pointer + inner onClick). Used by Plugin / runners.
+    // Game handlers (UIManager etc.) can NRE during HUD transitions; swallow so Tick
+    // keeps running — the click was still issued.
     internal static void Click(ButtonBase button, string name, bool loud)
     {
         if (button == null)
@@ -703,17 +732,24 @@ internal static class GameInterop
             if (loud) AutoSynthPlugin.Logger.LogInfo($"{name}: inactive, skipped");
             return;
         }
-        var ped = new PointerEventData(EventSystem.current);
-        button.OnPointerClick(ped);
-        // ButtonBase.OnPointerClick only handles hover/click effects; game logic is
-        // wired to the wrapped UnityEngine.UI.Button, so fire its onClick too.
-        var inner = InnerButton(button);
-        if (inner != null && inner.onClick != null)
+        try
         {
-            inner.onClick.Invoke();
-            if (loud) AutoSynthPlugin.Logger.LogInfo($"clicked {name} (+inner onClick)");
+            var ped = new PointerEventData(EventSystem.current);
+            button.OnPointerClick(ped);
+            // ButtonBase.OnPointerClick only handles hover/click effects; game logic is
+            // wired to the wrapped UnityEngine.UI.Button, so fire its onClick too.
+            var inner = InnerButton(button);
+            if (inner != null && inner.onClick != null)
+            {
+                inner.onClick.Invoke();
+                if (loud) AutoSynthPlugin.Logger.LogInfo($"clicked {name} (+inner onClick)");
+            }
+            else if (loud) AutoSynthPlugin.Logger.LogInfo($"clicked {name} (no inner button!)");
         }
-        else if (loud) AutoSynthPlugin.Logger.LogInfo($"clicked {name} (no inner button!)");
+        catch (Exception e)
+        {
+            AutoSynthPlugin.Logger.LogWarning($"{name}: game click threw ({e.GetType().Name}: {e.Message})");
+        }
     }
 
     internal static Il2CppSystem.Collections.Generic.List<ItemInfoData> ItemInfoList()

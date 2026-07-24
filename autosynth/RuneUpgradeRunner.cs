@@ -275,24 +275,35 @@ internal sealed class RuneUpgradeRunner
     private bool TryOpenRune()
     {
         if (Time.unscaledTime < _nextOpenAttempt) return false;
-        _nextOpenAttempt = Time.unscaledTime + 10f;
 
         var btn = RuneMenuButton();
         if (btn != null && btn.gameObject.activeInHierarchy)
         {
+            _nextOpenAttempt = Time.unscaledTime + 10f;
             _openFails = 0;
             _click(btn, "Rune menu button (auto-open)", true);
             return true;
         }
 
-        // Content row hidden — same Show Main ensure path as Cube (no toggle spam).
-        var status = MainMenuAccess.Ensure(true);
-        if (status == MainMenuAccess.Status.Failed && ++_openFails == 3)
-            AutoSynthPlugin.Logger.LogWarning(
-                "auto-open: Rune menu button not available " +
-                $"(button={(btn == null ? "null" : "inactive")}); " +
-                "open the Rune panel yourself and the loop will continue");
-        return true; // attempt window used (Waiting / Failed / just opened)
+        // Content row hidden — Show Main first; Rune button click follows once visible.
+        switch (MainMenuAccess.Ensure(true))
+        {
+            case MainMenuAccess.Status.Open:
+                _nextOpenAttempt = Time.unscaledTime + 0.25f;
+                break;
+            case MainMenuAccess.Status.Waiting:
+                _nextOpenAttempt = Time.unscaledTime + 1f;
+                break;
+            default:
+                _nextOpenAttempt = Time.unscaledTime + 10f;
+                if (++_openFails == 3)
+                    AutoSynthPlugin.Logger.LogWarning(
+                        "auto-open: Rune menu button not available " +
+                        $"(button={(btn == null ? "null" : "inactive")}); " +
+                        "open the Rune panel yourself and the loop will continue");
+                break;
+        }
+        return true;
     }
 
     private void ClosePanel(bool loud)

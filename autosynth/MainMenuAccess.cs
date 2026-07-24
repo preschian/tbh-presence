@@ -16,16 +16,19 @@ internal static class MainMenuAccess
     const int MaxClicks = 3;
     const float SettleSeconds = 1.5f;
     const float RetrySeconds = 10f;
+    const float HudPollSeconds = 0.5f;
 
     static int _clicks;
     static float _awaitUntil;
     static float _nextRetryAt;
+    static bool _loggedWaitingHud;
 
     internal static void Reset()
     {
         _clicks = 0;
         _awaitUntil = 0f;
         _nextRetryAt = 0f;
+        _loggedWaitingHud = false;
     }
 
     internal static bool IsOpen() => GameInterop.IsMainMenuOpen();
@@ -57,10 +60,24 @@ internal static class MainMenuAccess
             return Status.Waiting;
         }
 
+        if (!GameInterop.IsHudReadyForShowMain())
+        {
+            if (loud && !_loggedWaitingHud)
+            {
+                _loggedWaitingHud = true;
+                AutoSynthPlugin.Logger.LogInfo(
+                    "auto-open menu: waiting for UIManager/UI_Hero before Show Main");
+            }
+            _awaitUntil = Time.unscaledTime + HudPollSeconds;
+            return Status.Waiting;
+        }
+
         if (!GameInterop.TryClickShowMain())
         {
+            // Issued or not — give the HUD time; do not burn the click budget on a throw.
+            _awaitUntil = Time.unscaledTime + SettleSeconds;
             _nextRetryAt = Time.unscaledTime + RetrySeconds;
-            return Status.Failed;
+            return Status.Waiting;
         }
 
         _clicks++;
