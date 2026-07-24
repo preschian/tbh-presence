@@ -19,9 +19,11 @@ updates this plugin automatically. (Building it from source is covered in
 ## Use
 
 With `AutoStart` on (the default) the loop is already armed when the game starts.
-Each armed cycle runs enabled phases in order: **Cube → Chest → Rune**. With
-`AutoOpenCube` on it clicks the **Cube** menu button itself whenever a Cube
-cycle is due. Hotkeys:
+Each armed cycle runs enabled phases in order: **Cube → Chest → Rune**. If the main
+menu/HUD is closed when Cube or Rune needs the content row, the plugin clicks the
+stage-HUD **Show Main** button (next to auto-retry) — never synthesizes Tab.
+With `AutoOpenCube` on it then clicks the **Cube** menu button when a Cube cycle
+is due. Hotkeys:
 
 | Key | Action |
 |-----|--------|

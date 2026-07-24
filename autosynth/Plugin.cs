@@ -10,7 +10,6 @@ using TaskbarHero.Data;
 using TaskbarHero.UI;
 using TS;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace TbhAutoSynth;
@@ -18,7 +17,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.27.4";
+    internal const string Version = "0.28.17";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -168,6 +167,10 @@ public class AutoSynthBehaviour : MonoBehaviour
     private enum Phase { Idle, Fill, Synth, Clear, Chest, Rune }
     private enum CycleStep { Cube, Chest, Rune }
 
+    // Game UI (UIManager / EventSystem / stage HUD) is not reliable right after
+    // BepInEx loads — wait before AutoStart / Show Main / any click automation.
+    const float BootDelaySeconds = 30f;
+
     private LoopMode _mode;
     private Phase _phase;
     private CycleStep[] _steps = Array.Empty<CycleStep>();
@@ -182,12 +185,14 @@ public class AutoSynthBehaviour : MonoBehaviour
     private int _currentType;
     private float _nextTick;
     private float _nextOpenAttempt;
-    private int _openFails;
+    private bool _loggedCubeOpenFailed;
+    private int _cubePanelClicks;
     private readonly ChestOpenRunner _chests;
     private readonly RuneUpgradeRunner _runes;
     private UI_Cube _cube;
     private bool _legacyInputBroken;
     private bool _autoStartApplied;
+    private float _bootReadyAt = -1f;
     private float _nextConfigReload;
     private float _nextStatusWrite;
     private int _lastSynthCount = -1;
@@ -196,7 +201,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     public AutoSynthBehaviour(IntPtr ptr) : base(ptr)
     {
         _chests = new ChestOpenRunner();
-        _runes = new RuneUpgradeRunner(Click);
+        _runes = new RuneUpgradeRunner(GameInterop.Click);
     }
 
     private bool LoopRunning => _mode != LoopMode.Off;
@@ -232,12 +237,22 @@ public class AutoSynthBehaviour : MonoBehaviour
 
     private void Update()
     {
+        if (_bootReadyAt < 0f)
+        {
+            _bootReadyAt = Time.unscaledTime + BootDelaySeconds;
+            AutoSynthPlugin.Logger.LogInfo(
+                $"Waiting {BootDelaySeconds:0}s for game UI before starting automation...");
+        }
+        bool bootReady = Time.unscaledTime >= _bootReadyAt;
+
+        // Config / status / hotkeys stay live during the boot wait so the companion
+        // and F7–F10 are not dead for 30s. Only AutoStart + the Tick loop wait.
         if (Time.unscaledTime >= _nextConfigReload)
         {
             _nextConfigReload = Time.unscaledTime + 10f;
             AutoSynthPlugin.ReloadConfig();
             bool? autoStartChange = AutoSynthPlugin.ConsumeAutoStartChange();
-            if (autoStartChange.HasValue)
+            if (autoStartChange.HasValue && bootReady)
                 SetAuto(autoStartChange.Value, "from companion AutoStart setting");
         }
         if (Time.unscaledTime >= _nextStatusWrite)
@@ -245,6 +260,21 @@ public class AutoSynthBehaviour : MonoBehaviour
             _nextStatusWrite = Time.unscaledTime + 3f;
             WriteStatus();
         }
+        if (KeyDown(KeyCode.F7))
+            StartOneShotCycle();
+        if (KeyDown(KeyCode.F8))
+            SetAuto(_mode == LoopMode.Off, null);
+        if (KeyDown(KeyCode.F9))
+        {
+            var cube = FindCube();
+            if (CubeOpen(cube))
+                GameInterop.Click(cube.toggleButton_Trigger, "toggleButton_Trigger", true);
+            else AutoSynthPlugin.Logger.LogInfo("F9: cube panel not open");
+        }
+        if (KeyDown(KeyCode.F10)) DumpState();
+
+        if (!bootReady) return;
+
         if (!_autoStartApplied)
         {
             _autoStartApplied = true;
@@ -266,17 +296,6 @@ public class AutoSynthBehaviour : MonoBehaviour
                     "Auto loop idle (AutoStart=false). Press F7 to run one cycle, or F8 to arm the loop.");
             }
         }
-        if (KeyDown(KeyCode.F7))
-            StartOneShotCycle();
-        if (KeyDown(KeyCode.F8))
-            SetAuto(_mode == LoopMode.Off, null);
-        if (KeyDown(KeyCode.F9))
-        {
-            var cube = FindCube();
-            if (CubeOpen(cube)) Click(cube.toggleButton_Trigger, "toggleButton_Trigger", true);
-            else AutoSynthPlugin.Logger.LogInfo("F9: cube panel not open");
-        }
-        if (KeyDown(KeyCode.F10)) DumpState();
 
         if (!LoopRunning || Time.unscaledTime < _nextTick) return;
         _nextTick = Time.unscaledTime + 1.5f;
@@ -316,7 +335,10 @@ public class AutoSynthBehaviour : MonoBehaviour
         _typeSelected = false;
         _nextTick = 0f;
         _nextOpenAttempt = 0f;
+        _loggedCubeOpenFailed = false;
+        _cubePanelClicks = 0;
         _nextStatusWrite = 0f;
+        MainMenuAccess.Reset();
         _steps = EnabledSteps();
         _stepIndex = 0;
         if (_steps.Length == 0)
@@ -487,7 +509,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                                 "recipe select: UI not available; continuing with the currently selected recipe " +
                                 "(will keep checking each cycle - opening the recipe dropdown once in-game also fixes it)");
                     }
-                    Click(cube.m_synthesisAutoFillButton, "auto-fill", cubeLoud);
+                    GameInterop.Click(cube.m_synthesisAutoFillButton, "auto-fill", cubeLoud);
                     _phase = Phase.Synth;
                     _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
                     break;
@@ -499,7 +521,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                         _phase = Phase.Clear;
                         break;
                     }
-                    Click(cube.toggleButton_Trigger, "synthesis trigger", false);
+                    GameInterop.Click(cube.toggleButton_Trigger, "synthesis trigger", false);
                     if (itemCount > 0)
                     {
                         _lastSynthCount = itemCount;
@@ -663,7 +685,7 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
                 }
                 else if (!open)
                 {
-                    Click(synth, "sub-recipe dropdown (open to populate)", loud);
+                    GameInterop.Click(synth, "sub-recipe dropdown (open to populate)", loud);
                 }
                 else if (loud)
                 {
@@ -776,7 +798,7 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
         {
             var dropdown = combo != null ? combo.m_comboBoxObject : null;
             if (dropdown == null || !dropdown.activeInHierarchy) return;
-            Click(combo, "sub-recipe dropdown (close)", false);
+            GameInterop.Click(combo, "sub-recipe dropdown (close)", false);
         }
         catch { }
     }
@@ -844,29 +866,38 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
     }
 
     // The loop can only act with the Cube panel open, so open it ourselves when a cycle
-    // is due. Throttled: if the player is using another panel we take the tab back at
-    // most once every 10s instead of every tick, and the loop is idle between cycles
-    // anyway, so this only fires when there is actually work to do.
+    // is due. MainMenuAccess owns Show Main → content row → Cube button click.
+    // Early accounts (Cube locked) get a few clicks then a long backoff + clear warning.
     private void TryOpenCube()
     {
         if (!AutoSynthPlugin.AutoOpenCube) return;
         if (Time.unscaledTime < _nextOpenAttempt) return;
-        _nextOpenAttempt = Time.unscaledTime + 10f;
 
-        var btn = CubeMenuButton();
-        if (btn == null || !btn.gameObject.activeInHierarchy)
+        var result = MainMenuAccess.TryOpenContentPanel(
+            "Cube", "Cube menu button (auto-open)", true, out float delay, out bool spent);
+        _nextOpenAttempt = Time.unscaledTime + delay;
+
+        if (result == MainMenuAccess.PanelResult.Failed && !_loggedCubeOpenFailed)
         {
-            // The main window is still being built for the first seconds after launch,
-            // so a few misses are normal; only speak up once it stays unavailable.
-            if (++_openFails == 3)
-                AutoSynthPlugin.Logger.LogWarning(
-                    "auto-open: Cube menu button not available " +
-                    $"(button={(btn == null ? "null" : "inactive")}); " +
-                    "open the Cube panel yourself and the loop will run");
+            _loggedCubeOpenFailed = true;
+            AutoSynthPlugin.Logger.LogWarning(
+                "auto-open: could not open main menu for Cube; " +
+                "open the Cube panel yourself and the loop will run");
             return;
         }
-        _openFails = 0;
-        Click(btn, "Cube menu button (auto-open)", true);
+
+        if (result == MainMenuAccess.PanelResult.Clicked || spent)
+            _cubePanelClicks++;
+
+        if (_cubePanelClicks >= 3 && !CubeOpen(FindCube()) && !_loggedCubeOpenFailed)
+        {
+            _loggedCubeOpenFailed = true;
+            _nextOpenAttempt = Time.unscaledTime + AutoSynthPlugin.AfterClearDelay;
+            AutoSynthPlugin.Logger.LogWarning(
+                "auto-open: Cube panel did not open after menu clicks " +
+                "(locked on low-level accounts, or UI blocked) — " +
+                "backing off until the next cycle interval");
+        }
     }
 
     private static void ClickTrash(CubeSlotResetButton trash, bool loud)
@@ -885,31 +916,6 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
         else if (loud) AutoSynthPlugin.Logger.LogWarning("clear cube: no inner button!");
     }
 
-    private static void Click(ButtonBase button, string name, bool loud)
-    {
-        if (button == null)
-        {
-            AutoSynthPlugin.Logger.LogWarning($"{name}: null");
-            return;
-        }
-        if (!button.gameObject.activeInHierarchy)
-        {
-            if (loud) AutoSynthPlugin.Logger.LogInfo($"{name}: inactive, skipped");
-            return;
-        }
-        var ped = new PointerEventData(EventSystem.current);
-        button.OnPointerClick(ped);
-        // ButtonBase.OnPointerClick only handles hover/click effects; game logic is
-        // wired to the wrapped UnityEngine.UI.Button, so fire its onClick too.
-        var inner = GameInterop.InnerButton(button);
-        if (inner != null && inner.onClick != null)
-        {
-            inner.onClick.Invoke();
-            if (loud) AutoSynthPlugin.Logger.LogInfo($"clicked {name} (+inner onClick)");
-        }
-        else if (loud) AutoSynthPlugin.Logger.LogInfo($"clicked {name} (no inner button!)");
-    }
-
     private void DumpState()
     {
         try
@@ -920,6 +926,7 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
             {
                 AutoSynthPlugin.Logger.LogInfo(
                     $"dump: cubeOpen={cube.gameObject.activeInHierarchy} " +
+                    $"showMainBtn={Describe(MainMenuAccess.FindShowMainButton())} " +
                     $"cubeMenuBtn={Describe(CubeMenuButton())} " +
                     $"autoFillBtn={Describe(cube.m_synthesisAutoFillButton)} " +
                     $"autoFillToggle={Describe(cube.toggleButton_AutoFill)} " +

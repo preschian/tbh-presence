@@ -8,6 +8,8 @@ using TaskbarHero.UI;
 using TaskbarHero.UI.Rune;
 using TS;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using Object = UnityEngine.Object;
 
 namespace TbhAutoSynth;
 
@@ -332,7 +334,7 @@ internal static class GameInterop
     {
         try
         {
-            var im = UnityEngine.Object.FindObjectOfType<InputManager>(true);
+            var im = Object.FindObjectOfType<TaskbarHero.InputManager>(true);
             if (im == null || im.OnOpenAllBoxKeyPressed == null) return false;
             im.OnOpenAllBoxKeyPressed.Invoke();
             return true;
@@ -642,6 +644,53 @@ internal static class GameInterop
             }
         }
         return inactiveMatch;
+    }
+
+    // Main content row (Stash/Stat/Cube/Rune/Portal) is visible only while the main
+    // menu/HUD is open. Cube is enough: the whole row hides together when it closes.
+    internal static bool IsMainMenuOpen()
+    {
+        try
+        {
+            var cube = FindMenuToggle("Cube");
+            return cube != null && cube.gameObject.activeInHierarchy;
+        }
+        catch { return false; }
+    }
+
+    // Canonical ButtonBase click (pointer + inner onClick). Used by Plugin / runners.
+    // Game handlers (UIManager etc.) can NRE during HUD transitions; swallow so Tick
+    // keeps running — the click was still issued.
+    internal static void Click(ButtonBase button, string name, bool loud)
+    {
+        if (button == null)
+        {
+            AutoSynthPlugin.Logger.LogWarning($"{name}: null");
+            return;
+        }
+        if (!button.gameObject.activeInHierarchy)
+        {
+            if (loud) AutoSynthPlugin.Logger.LogInfo($"{name}: inactive, skipped");
+            return;
+        }
+        try
+        {
+            var ped = new PointerEventData(EventSystem.current);
+            button.OnPointerClick(ped);
+            // ButtonBase.OnPointerClick only handles hover/click effects; game logic is
+            // wired to the wrapped UnityEngine.UI.Button, so fire its onClick too.
+            var inner = InnerButton(button);
+            if (inner != null && inner.onClick != null)
+            {
+                inner.onClick.Invoke();
+                if (loud) AutoSynthPlugin.Logger.LogInfo($"clicked {name} (+inner onClick)");
+            }
+            else if (loud) AutoSynthPlugin.Logger.LogInfo($"clicked {name} (no inner button!)");
+        }
+        catch (Exception e)
+        {
+            AutoSynthPlugin.Logger.LogWarning($"{name}: game click threw ({e.GetType().Name}: {e.Message})");
+        }
     }
 
     internal static Il2CppSystem.Collections.Generic.List<ItemInfoData> ItemInfoList()

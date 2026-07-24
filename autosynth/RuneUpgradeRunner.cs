@@ -34,9 +34,9 @@ internal sealed class RuneUpgradeRunner
     }
 
     private float _nextOpenAttempt;
-    private int _openFails;
     private int _openAttempts;
     private float _phaseEnteredAt;
+    private bool _loggedOpenFailed;
 
     private int _upgradesThisCycle;
     private int _pendingKey = -1;
@@ -56,10 +56,10 @@ internal sealed class RuneUpgradeRunner
         _upgradesThisCycle = 0;
         ClearPending();
         _failStreak = 0;
-        _openFails = 0;
         _openAttempts = 0;
         _nextOpenAttempt = 0f;
         _phaseEnteredAt = Time.unscaledTime;
+        _loggedOpenFailed = false;
         _lastName = "";
     }
 
@@ -113,9 +113,10 @@ internal sealed class RuneUpgradeRunner
                     $"rune phase: could not open panel (attempts={_openAttempts}) — ending phase");
                 return Finish(loud);
             }
-            if (TryOpenRune())
+            // Only real Show Main / Rune clicks spend the attempt budget — not Waiting polls.
+            if (TryOpenRune(out bool spent) && spent)
                 _openAttempts++;
-            nextDelay = 1.5f;
+            nextDelay = Math.Max(0.25f, _nextOpenAttempt - Time.unscaledTime);
             return TickResult.InProgress;
         }
 
@@ -266,29 +267,23 @@ internal sealed class RuneUpgradeRunner
     private static bool IsOpen(UI_Rune rune)
         => rune != null && rune.gameObject.activeInHierarchy;
 
-    private ToggleButton RuneMenuButton()
+    // Returns true when work was done this tick; spentAttempt counts toward MaxOpenAttempts.
+    private bool TryOpenRune(out bool spentAttempt)
     {
-        return GameInterop.FindMenuToggle("Rune");
-    }
-
-    // Returns true when an open attempt was scheduled/issued (counts toward timeout).
-    private bool TryOpenRune()
-    {
+        spentAttempt = false;
         if (Time.unscaledTime < _nextOpenAttempt) return false;
-        _nextOpenAttempt = Time.unscaledTime + 10f;
 
-        var btn = RuneMenuButton();
-        if (btn == null || !btn.gameObject.activeInHierarchy)
+        var result = MainMenuAccess.TryOpenContentPanel(
+            "Rune", "Rune menu button (auto-open)", true, out float delay, out spentAttempt);
+        _nextOpenAttempt = Time.unscaledTime + delay;
+
+        if (result == MainMenuAccess.PanelResult.Failed && !_loggedOpenFailed)
         {
-            if (++_openFails == 3)
-                AutoSynthPlugin.Logger.LogWarning(
-                    "auto-open: Rune menu button not available " +
-                    $"(button={(btn == null ? "null" : "inactive")}); " +
-                    "open the Rune panel yourself and the loop will continue");
-            return true; // still counts as an attempt window
+            _loggedOpenFailed = true;
+            AutoSynthPlugin.Logger.LogWarning(
+                "auto-open: could not open main menu for Rune; " +
+                "open the Rune panel yourself and the loop will continue");
         }
-        _openFails = 0;
-        _click(btn, "Rune menu button (auto-open)", true);
         return true;
     }
 
@@ -497,9 +492,10 @@ internal sealed class RuneUpgradeRunner
         try
         {
             var runeUi = FindRuneUi();
+            var runeMenu = GameInterop.FindMenuToggle("Rune");
             AutoSynthPlugin.Logger.LogInfo(
                 $"dump: runeOpen={(runeUi != null && runeUi.gameObject.activeInHierarchy)} " +
-                $"runeMenuBtn={describe(RuneMenuButton())} autoUpgradeRune={AutoSynthPlugin.AutoUpgradeRune}");
+                $"runeMenuBtn={describe(runeMenu)} autoUpgradeRune={AutoSynthPlugin.AutoUpgradeRune}");
             if (runeUi == null)
             {
                 AutoSynthPlugin.Logger.LogInfo("dump: UI_Rune not found");
