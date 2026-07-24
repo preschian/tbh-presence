@@ -1,5 +1,7 @@
 # TBH Companion
 
+[![GitHub Downloads](https://img.shields.io/github/downloads/preschian/tbh-presence/total)](https://github.com/preschian/tbh-presence/releases)
+
 A companion app for **TaskBarHero**. One small tray program, two features:
 
 1. **Discord presence** — your Discord profile shows what you're doing in the
