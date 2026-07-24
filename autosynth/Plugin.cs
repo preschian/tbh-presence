@@ -17,7 +17,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.28.15";
+    internal const string Version = "0.28.17";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -186,6 +186,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     private float _nextTick;
     private float _nextOpenAttempt;
     private bool _loggedCubeOpenFailed;
+    private int _cubePanelClicks;
     private readonly ChestOpenRunner _chests;
     private readonly RuneUpgradeRunner _runes;
     private UI_Cube _cube;
@@ -335,6 +336,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         _nextTick = 0f;
         _nextOpenAttempt = 0f;
         _loggedCubeOpenFailed = false;
+        _cubePanelClicks = 0;
         _nextStatusWrite = 0f;
         MainMenuAccess.Reset();
         _steps = EnabledSteps();
@@ -865,20 +867,36 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
 
     // The loop can only act with the Cube panel open, so open it ourselves when a cycle
     // is due. MainMenuAccess owns Show Main → content row → Cube button click.
+    // Early accounts (Cube locked) get a few clicks then a long backoff + clear warning.
     private void TryOpenCube()
     {
         if (!AutoSynthPlugin.AutoOpenCube) return;
         if (Time.unscaledTime < _nextOpenAttempt) return;
 
         var result = MainMenuAccess.TryOpenContentPanel(
-            "Cube", "Cube menu button (auto-open)", true, out float delay, out _);
+            "Cube", "Cube menu button (auto-open)", true, out float delay, out bool spent);
         _nextOpenAttempt = Time.unscaledTime + delay;
+
         if (result == MainMenuAccess.PanelResult.Failed && !_loggedCubeOpenFailed)
         {
             _loggedCubeOpenFailed = true;
             AutoSynthPlugin.Logger.LogWarning(
                 "auto-open: could not open main menu for Cube; " +
                 "open the Cube panel yourself and the loop will run");
+            return;
+        }
+
+        if (result == MainMenuAccess.PanelResult.Clicked || spent)
+            _cubePanelClicks++;
+
+        if (_cubePanelClicks >= 3 && !CubeOpen(FindCube()) && !_loggedCubeOpenFailed)
+        {
+            _loggedCubeOpenFailed = true;
+            _nextOpenAttempt = Time.unscaledTime + AutoSynthPlugin.AfterClearDelay;
+            AutoSynthPlugin.Logger.LogWarning(
+                "auto-open: Cube panel did not open after menu clicks " +
+                "(locked on low-level accounts, or UI blocked) — " +
+                "backing off until the next cycle interval");
         }
     }
 

@@ -95,12 +95,7 @@ internal static class MainMenuAccess
         spentAttempt = false;
         var btn = GameInterop.FindMenuToggle(menuName);
         if (btn != null && btn.gameObject.activeInHierarchy)
-        {
-            GameInterop.Click(btn, clickLogName, loud);
-            nextDelay = 10f;
-            spentAttempt = true;
-            return PanelResult.Clicked;
-        }
+            return ClickMenuToggle(btn, clickLogName, loud, out nextDelay, out spentAttempt);
 
         var ensured = Ensure(loud);
         nextDelay = ensured.NextDelay;
@@ -113,17 +108,29 @@ internal static class MainMenuAccess
         {
             btn = GameInterop.FindMenuToggle(menuName);
             if (btn != null && btn.gameObject.activeInHierarchy)
-            {
-                GameInterop.Click(btn, clickLogName, loud);
-                nextDelay = 10f;
-                spentAttempt = true;
-                return PanelResult.Clicked;
-            }
+                return ClickMenuToggle(btn, clickLogName, loud, out nextDelay, out spentAttempt);
             nextDelay = 0.25f;
             return PanelResult.Waiting;
         }
 
         return PanelResult.Waiting;
+    }
+
+    // Do not re-click a toggle that is already on — that closes the panel.
+    static PanelResult ClickMenuToggle(
+        ToggleButton btn, string clickLogName, bool loud,
+        out float nextDelay, out bool spentAttempt)
+    {
+        if (GameInterop.IsOn(btn))
+        {
+            nextDelay = 1f;
+            spentAttempt = false;
+            return PanelResult.Waiting;
+        }
+        GameInterop.Click(btn, clickLogName, loud);
+        nextDelay = 10f;
+        spentAttempt = true;
+        return PanelResult.Clicked;
     }
 
     // Honest status: Open only when the content row is actually visible.
