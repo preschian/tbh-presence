@@ -658,65 +658,6 @@ internal static class GameInterop
         catch { return false; }
     }
 
-    // Show Main's onClick walks UIManager → UI_Hero; clicking before those exist
-    // throws a game-side NRE (ux+tv.isk). Wait until the graph is wired.
-    internal static bool IsHudReadyForShowMain()
-    {
-        try
-        {
-            if (EventSystem.current == null) return false;
-            var um = Object.FindObjectOfType<UIManager>(true);
-            if (um == null || um.ui_main == null || um.Ui_Hero == null)
-                return false;
-            var stage = Object.FindObjectOfType<UI_Stage>(true);
-            var btn = stage != null ? stage.button_ShowMain : null;
-            return btn != null && btn.gameObject.activeInHierarchy;
-        }
-        catch { return false; }
-    }
-
-    // UI_Stage.button_ShowMain — opens the content row (Stash/Stat/Cube/Rune/Portal).
-    // Game handler often NREs inside UI_Hero after chrome is already up; if the row is
-    // visible afterward, treat as success and do not spam a warning.
-    internal static bool TryClickShowMain()
-    {
-        if (!IsHudReadyForShowMain())
-            return false;
-        var stage = Object.FindObjectOfType<UI_Stage>(true);
-        var btn = stage.button_ShowMain;
-        try
-        {
-            var inner = InnerButton(btn);
-            if (inner == null || inner.onClick == null)
-            {
-                AutoSynthPlugin.Logger.LogWarning("auto-open menu: Show Main has no inner onClick");
-                return false;
-            }
-            inner.onClick.Invoke();
-            AutoSynthPlugin.Logger.LogInfo("clicked Show Main (stage HUD) (+inner onClick)");
-            return true;
-        }
-        catch (Exception)
-        {
-            if (IsMainMenuOpen())
-            {
-                AutoSynthPlugin.Logger.LogInfo("clicked Show Main (stage HUD)");
-                return true;
-            }
-            return false;
-        }
-    }
-
-    internal static ToggleButton FindShowMainButton()
-    {
-        try
-        {
-            var stage = Object.FindObjectOfType<UI_Stage>(true);
-            return stage != null ? stage.button_ShowMain : null;
-        }
-        catch { return null; }
-    }
-
     // Canonical ButtonBase click (pointer + inner onClick). Used by Plugin / runners.
     // Game handlers (UIManager etc.) can NRE during HUD transitions; swallow so Tick
     // keeps running — the click was still issued.
