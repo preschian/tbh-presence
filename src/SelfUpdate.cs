@@ -19,7 +19,14 @@ namespace TbhCompanion
     // Only X.Y is compared; the hotfix suffix never affects matching.
     static class SelfUpdate
     {
-        const string ReleasesApi = "https://api.github.com/repos/preschian/tbh-presence/releases?per_page=100";
+        const string Repo = "preschian/tbh-presence";
+        const string ReleasesApi = "https://api.github.com/repos/" + Repo + "/releases?per_page=100";
+
+        // Release assets must come from this repo's own release downloads — the URL
+        // is taken from an API response and ends up being executed as this app.
+        const string AssetPrefix = "https://github.com/" + Repo + "/releases/download/";
+
+        const int GameMajor = 1;
         const int ModsMajor = 3;
 
         // ---- version parsing ----
@@ -27,18 +34,17 @@ namespace TbhCompanion
         internal struct Ver
         {
             public int X, Y, Hotfix;   // Hotfix = -1 when the tag has no "-n"
-            public string Text;
             public bool Ok;
         }
 
-        static readonly Regex GameShape = new Regex(@"^v?1\.(\d+)\.(\d+)$");
-        static readonly Regex ModsShape = new Regex(@"^v?3\.(\d+)\.(\d+)(?:-(\d+))?$");
+        static readonly Regex GameShape = new Regex(@"^v?" + GameMajor + @"\.(\d+)\.(\d+)$");
+        static readonly Regex ModsShape = new Regex(@"^v?" + ModsMajor + @"\.(\d+)\.(\d+)(?:-(\d+))?$");
 
         static int Num(string s) { return int.Parse(s, CultureInfo.InvariantCulture); }
 
         internal static Ver ParseGame(string s)
         {
-            var v = new Ver { Hotfix = -1, Text = s };
+            var v = new Ver { Hotfix = -1 };
             if (string.IsNullOrEmpty(s)) return v;
             var m = GameShape.Match(s.Trim());
             if (!m.Success) return v;
@@ -48,7 +54,7 @@ namespace TbhCompanion
 
         internal static Ver ParseMods(string s)
         {
-            var v = new Ver { Hotfix = -1, Text = s };
+            var v = new Ver { Hotfix = -1 };
             if (string.IsNullOrEmpty(s)) return v;
             var m = ModsShape.Match(s.Trim());
             if (!m.Success) return v;
@@ -92,7 +98,18 @@ namespace TbhCompanion
             Matched,        // mods already track this game build
             UpdateReady,    // game is ahead and GitHub has a matching release
             WaitingRelease, // game is ahead but no v3.X.Y release exists yet
-            Ahead           // mods are newer than the installed game (nothing to do)
+            Ahead,          // mods are newer than the installed game (nothing to do)
+            CheckFailed     // the release lookup itself failed (network, rate limit)
+        }
+
+        // A failed lookup says nothing about the release, so retry it sooner than
+        // a settled answer.
+        public const int RetryMinutes = 5;
+        public const int ThrottleMinutes = 30;
+
+        public static int MinutesBetweenChecks(Status s)
+        {
+            return s != null && s.State == State.CheckFailed ? RetryMinutes : ThrottleMinutes;
         }
 
         public sealed class Status
@@ -119,7 +136,8 @@ namespace TbhCompanion
         {
             lock (_gate)
             {
-                if (!force && _last != null && (DateTime.UtcNow - _lastAt).TotalMinutes < 30)
+                if (!force && _last != null
+                    && (DateTime.UtcNow - _lastAt).TotalMinutes < MinutesBetweenChecks(_last))
                     return _last;
             }
             if (force) GameVersion.InvalidateCache();
@@ -131,9 +149,18 @@ namespace TbhCompanion
 
         // The presence-only edition ships no plugin, so "mods" would misname it.
         public static string Noun { get { return Build.Synth ? "Mods" : "Companion"; } }
-        static string noun { get { return Build.Synth ? "mods" : "companion"; } }
+        static string LowerNoun { get { return Build.Synth ? "mods" : "companion"; } }
 
         static Status Evaluate()
+        {
+            var st = EvaluateCore();
+            // A swap that failed after we exited is the most useful thing to say.
+            string failed = TakeFailureMarker();
+            if (failed != null) st.Message = failed;
+            return st;
+        }
+
+        static Status EvaluateCore()
         {
             var st = new Status();
             st.GameVersion = GameVersion.Read();
@@ -153,7 +180,7 @@ namespace TbhCompanion
             if (!mods.Ok)
             {
                 st.State = State.Unknown;
-                st.Message = noun + " version unknown (dev build) — game v" + st.GameVersion;
+                st.Message = LowerNoun + " version unknown (dev build) — game v" + st.GameVersion;
                 return st;
             }
 
@@ -178,8 +205,9 @@ namespace TbhCompanion
             }
             catch (Exception ex)
             {
-                st.State = State.WaitingRelease;
-                st.Message = "Update check failed: " + ex.Message;
+                // Not the same as "no release yet" — say so, and retry sooner.
+                st.State = State.CheckFailed;
+                st.Message = "Update check failed (retrying): " + Short(ex.Message);
                 return st;
             }
 
@@ -260,7 +288,11 @@ namespace TbhCompanion
                 if (!asset.TryGetValue("name", out name) || name == null) continue;
                 if (!string.Equals(name.ToString(), want, StringComparison.OrdinalIgnoreCase)) continue;
                 if (!asset.TryGetValue("browser_download_url", out url) || url == null) continue;
-                return url.ToString();
+                string href = url.ToString();
+                // The API supplies this URL and we execute what it returns, so only
+                // accept this repo's own release-download host and path.
+                if (!href.StartsWith(AssetPrefix, StringComparison.Ordinal)) continue;
+                return href;
             }
             return null;
         }
@@ -292,8 +324,23 @@ namespace TbhCompanion
             try
             {
                 if (st == null || !st.CanUpdate) { log("Nothing to update."); return false; }
+                if (!st.DownloadUrl.StartsWith(AssetPrefix, StringComparison.Ordinal))
+                {
+                    log("Refusing an update from an unexpected location.");
+                    return false;
+                }
 
                 string exePath = Application.ExecutablePath;
+
+                // The swap runs after this process exits, so a folder we cannot
+                // write would fail silently there. Find out now, before quitting.
+                string why;
+                if (!FolderWritable(Path.GetDirectoryName(exePath), out why))
+                {
+                    log("Cannot update in place: " + why + ". Move the app to a writable folder.");
+                    return false;
+                }
+
                 string staged = Path.Combine(Path.GetTempPath(),
                     "TbhCompanion_update_" + Guid.NewGuid().ToString("N") + ".exe");
 
@@ -328,6 +375,10 @@ namespace TbhCompanion
         // A running exe cannot overwrite itself, so hand the swap to a throwaway
         // batch file that waits for this process to exit, copies, and relaunches.
         // The new exe redeploys TbhAutoSynth.dll on its own next poll.
+        //
+        // The old exe is left in place if the copy fails, so the relaunch always
+        // brings the app back; the marker file is how the restarted app learns the
+        // swap did not take, instead of silently reporting the update again.
         static bool StartSwap(string exePath, string staged, Action<string> log)
         {
             try
@@ -335,6 +386,14 @@ namespace TbhCompanion
                 string bat = Path.Combine(Path.GetTempPath(),
                     "TbhCompanion_update_" + Guid.NewGuid().ToString("N") + ".cmd");
                 int pid = Process.GetCurrentProcess().Id;
+
+                // cmd expands %VAR% even inside quotes, so a path containing '%'
+                // (legal on Windows) has to be doubled before it goes in the script.
+                string q_staged = Bat(staged);
+                string q_exe = Bat(exePath);
+                string marker = FailureMarkerPath();
+                try { Directory.CreateDirectory(Path.GetDirectoryName(marker)); } catch { }
+                string q_marker = Bat(marker);
 
                 string script =
                     "@echo off\r\n" +
@@ -345,13 +404,16 @@ namespace TbhCompanion
                     "  ping -n 2 127.0.0.1 >nul\r\n" +
                     "  goto wait\r\n" +
                     ")\r\n" +
-                    "copy /y \"" + staged + "\" \"" + exePath + "\" >nul\r\n" +
+                    "copy /y \"" + q_staged + "\" \"" + q_exe + "\" >nul\r\n" +
                     "if errorlevel 1 (\r\n" +
                     "  ping -n 3 127.0.0.1 >nul\r\n" +
-                    "  copy /y \"" + staged + "\" \"" + exePath + "\" >nul\r\n" +
+                    "  copy /y \"" + q_staged + "\" \"" + q_exe + "\" >nul\r\n" +
                     ")\r\n" +
-                    "del \"" + staged + "\" >nul 2>&1\r\n" +
-                    "start \"\" \"" + exePath + "\"\r\n" +
+                    "if errorlevel 1 (\r\n" +
+                    "  >\"" + q_marker + "\" echo Last update could not replace the app - check folder permissions.\r\n" +
+                    ")\r\n" +
+                    "del \"" + q_staged + "\" >nul 2>&1\r\n" +
+                    "start \"\" \"" + q_exe + "\"\r\n" +
                     "del \"%~f0\" >nul 2>&1\r\n";
                 File.WriteAllText(bat, script);
 
@@ -367,6 +429,67 @@ namespace TbhCompanion
             catch (Exception ex)
             {
                 log("Could not start the updater: " + ex.Message);
+                return false;
+            }
+        }
+
+        // Escape for use inside a double-quoted batch argument.
+        static string Bat(string path)
+        {
+            return path == null ? "" : path.Replace("%", "%%");
+        }
+
+        static string FailureMarkerPath()
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "tbh-companion", "update-failed.txt");
+        }
+
+        // Reads and clears the marker the swap script leaves behind, so a failed
+        // swap is reported once by the app that comes back up.
+        static string TakeFailureMarker()
+        {
+            try
+            {
+                string path = FailureMarkerPath();
+                if (!File.Exists(path)) return null;
+                string text = File.ReadAllText(path).Trim();
+                TryDelete(path);
+                return string.IsNullOrEmpty(text)
+                    ? "Last update could not replace the app."
+                    : text;
+            }
+            catch { return null; }
+        }
+
+        static string Short(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "unknown error";
+            s = s.Replace("\r", " ").Replace("\n", " ").Trim();
+            return s.Length > 90 ? s.Substring(0, 89) + "…" : s;
+        }
+
+        // A probe write is the only reliable test: the running exe itself cannot be
+        // opened for writing, but the swap only needs the folder.
+        static bool FolderWritable(string dir, out string why)
+        {
+            why = null;
+            try
+            {
+                if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+                {
+                    why = "app folder not found";
+                    return false;
+                }
+                string probe = Path.Combine(dir, ".tbh-update-probe-" + Guid.NewGuid().ToString("N"));
+                using (var fs = new FileStream(probe, FileMode.CreateNew, FileAccess.Write)) { fs.WriteByte(0); }
+                TryDelete(probe);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                why = Short(ex.Message);
                 return false;
             }
         }

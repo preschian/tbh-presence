@@ -173,15 +173,23 @@ What you'll see:
 - **Update available: game v1.01.02 → release v3.01.02** — the game moved ahead
   and a matching release exists. Press **Update mods**: it downloads that release
   from GitHub, replaces this app, and restarts it. Your save and settings are
-  untouched. The in-game plugin is redeployed on the next launch — if
-  TaskBarHero is running, that happens the next time you close and start it.
+  untouched. The in-game plugin is redeployed once the game isn't holding the
+  file open — close TaskBarHero and the companion picks it up within 10 minutes.
 - **Waiting for release v3.01.02 (game v1.01.02)** — the game patched but a
   matching mods release isn't out yet. The mods may misbehave until it lands;
   no update is offered.
+- **Update check failed (retrying)** — GitHub couldn't be reached. This says
+  nothing about whether a release exists; it retries every 5 minutes.
 - **mods version unknown (dev build)** — you're running a locally built exe, so
   there's nothing to compare against.
 
 The check runs when you open the window and roughly every 30 minutes after that.
+Hover the text to see the full message when it's too long for the rail.
+
+Updating needs write access to the folder the app sits in, so keep
+`TbhCompanion.exe` somewhere like your Downloads or a folder of your own rather
+than under `Program Files`. If the swap can't be done you'll be told before
+anything is replaced.
 
 ## Start it with Windows
 

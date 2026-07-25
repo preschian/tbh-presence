@@ -18,6 +18,11 @@ namespace TbhCompanion
         // are two-part ("1.0") and the engine version carries letters ("6000.0.72f1").
         static readonly Regex Shape = new Regex(@"^\d{1,4}\.\d{1,4}\.\d{1,4}$");
 
+        // The engine version ("6000.0.72f1") is a null-terminated string in the
+        // serialized-file header and is the anchor the scan starts from.
+        static readonly Regex EngineShape = new Regex(@"\d+\.\d+\.\d+[a-z]\d+");
+        const int HeaderScan = 512;
+
         static string _cached;
         static DateTime _cachedAt = DateTime.MinValue;
         static string _cachedFor;
@@ -64,12 +69,18 @@ namespace TbhCompanion
             catch { return null; }
         }
 
-        // Walks length-prefixed strings (int32 LE length + ASCII bytes) and keeps
-        // the last "X.Y.Z" match, which is where bundleVersion lives.
+        // bundleVersion is the first plain "X.Y.Z" length-prefixed string (int32 LE
+        // length + ASCII bytes, 4-byte aligned) after the engine version. Anchoring
+        // on the engine version keeps this stable if unrelated numeric strings are
+        // added further into the file.
         internal static string FindBundleVersion(byte[] buf)
         {
-            string found = null;
-            for (int i = 0; i + 4 <= buf.Length; i++)
+            int start = 0;
+            var anchor = EngineShape.Match(
+                Encoding.ASCII.GetString(buf, 0, Math.Min(buf.Length, HeaderScan)));
+            if (anchor.Success) start = anchor.Index + anchor.Length;
+
+            for (int i = (start + 3) & ~3; i + 4 <= buf.Length; i += 4)
             {
                 int len = buf[i] | (buf[i + 1] << 8) | (buf[i + 2] << 16) | (buf[i + 3] << 24);
                 if (len < 3 || len > 24 || i + 4 + len > buf.Length) continue;
@@ -83,9 +94,9 @@ namespace TbhCompanion
                 if (!ascii) continue;
 
                 string s = Encoding.ASCII.GetString(buf, i + 4, len);
-                if (Shape.IsMatch(s)) found = s;
+                if (Shape.IsMatch(s)) return s;
             }
-            return found;
+            return null;
         }
     }
 }

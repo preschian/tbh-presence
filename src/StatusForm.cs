@@ -89,6 +89,7 @@ namespace TbhCompanion
         FlatDrop _desiredLevel;
         FlatButton _saveBtn, _setupBtn, _removeBtn, _launchBtn, _updateBtn;
         Label _cfgNote, _verNote;
+        readonly ToolTip _verTip = new ToolTip();
 
         public StatusForm(Func<string> stageLabel, Func<bool> discordConnected, Func<string> diag,
             Func<bool> presenceEnabled, Action<bool> setPresenceEnabled)
@@ -126,6 +127,7 @@ namespace TbhCompanion
                 _timer.Stop(); _timer.Dispose();
                 if (_wheelFilter != null) { Application.RemoveMessageFilter(_wheelFilter); _wheelFilter = null; }
                 if (_icon != null) _icon.Dispose();
+                _verTip.Dispose();
             };
 
             Load += delegate { ApplyRegion(); };
@@ -487,8 +489,9 @@ namespace TbhCompanion
         void EnsureVersionCheck(bool force)
         {
             if (_verCheckRunning || _updateOpRunning) return;
-            if (!force && SelfUpdate.LastStatus != null
-                && (DateTime.UtcNow - _verCheckedAt).TotalMinutes < 30) return;
+            var last = SelfUpdate.LastStatus;
+            if (!force && last != null
+                && (DateTime.UtcNow - _verCheckedAt).TotalMinutes < SelfUpdate.MinutesBetweenChecks(last)) return;
 
             _verCheckRunning = true;
             _verCheckedAt = DateTime.UtcNow;
@@ -522,12 +525,23 @@ namespace TbhCompanion
             _verNote.ForeColor =
                 st.State == SelfUpdate.State.UpdateReady ? Theme.Amber :
                 st.State == SelfUpdate.State.Matched ? Theme.Green : Theme.TextMuted;
+            // The rail is narrow, so keep the full text reachable on hover.
+            _verTip.SetToolTip(_verNote, st.Message);
             _updateBtn.Visible = st.CanUpdate;
         }
 
         static string UpdateTitle
         {
             get { return "Update " + SelfUpdate.Noun.ToLowerInvariant(); }
+        }
+
+        // The presence-only edition ships no plugin, so it has nothing to redeploy.
+        static string PluginNote()
+        {
+            if (!Build.Synth) return "";
+            return GameRestart.IsGameRunning()
+                ? "TaskBarHero is running, so the in-game plugin is refreshed once you close the game.\n\n"
+                : "The in-game plugin is redeployed automatically after the restart.\n\n";
         }
 
         void RunUpdate()
@@ -540,10 +554,7 @@ namespace TbhCompanion
                 "Update the companion to " + st.ReleaseTag + " for game v" + st.GameVersion + "?\n\n" +
                 "  - downloads " + st.ReleaseTag + " from GitHub\n" +
                 "  - replaces this app and restarts it\n\n" +
-                (!Build.Synth ? ""
-                    : GameRestart.IsGameRunning()
-                    ? "TaskBarHero is running, so the in-game plugin is refreshed the next time you close and start the game.\n\n"
-                    : "The in-game plugin is redeployed automatically after the restart.\n\n") +
+                PluginNote() +
                 "Your save and settings are unaffected. Continue?";
             if (MessageBox.Show(this, body, UpdateTitle, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
                 return;
