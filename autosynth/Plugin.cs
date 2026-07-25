@@ -17,7 +17,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.28.20";
+    internal const string Version = "0.28.21";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -83,20 +83,24 @@ public class AutoSynthPlugin : BasePlugin
         if (_conf == null) return;
         try
         {
-            int mg = MaxGrade, dl = DesiredLevel, mr = MaxRuneUpgradesPerCycle, mc = MaxChestOpensPerCycle;
+            int mg = MaxGrade, dl = DesiredLevel, mr = MaxRuneUpgradesPerCycle, mc = MaxChestOpensPerCycle,
+                ms = MaxSynthRepeatsPerCycle;
             float ci = AfterClearDelay;
             bool auto = AutoStart, open = AutoOpenCube, rune = AutoUpgradeRune, synth = EnableSynthesis,
-                chest = AutoOpenChest;
+                chest = AutoOpenChest, repeat = RepeatFullSynth;
             _conf.Reload();
             if (mg != MaxGrade || dl != DesiredLevel || ci != AfterClearDelay || auto != AutoStart
                 || open != AutoOpenCube || rune != AutoUpgradeRune || synth != EnableSynthesis
-                || chest != AutoOpenChest || mr != MaxRuneUpgradesPerCycle || mc != MaxChestOpensPerCycle)
+                || chest != AutoOpenChest || mr != MaxRuneUpgradesPerCycle || mc != MaxChestOpensPerCycle
+                || ms != MaxSynthRepeatsPerCycle || repeat != RepeatFullSynth)
                 Logger.LogInfo($"config reloaded: MaxGrade={MaxGrade}, DesiredLevel={DesiredLevel}, " +
                                $"CycleIntervalSeconds={AfterClearDelay}, AutoStart={AutoStart}, " +
                                $"EnableSynthesis={EnableSynthesis}, AutoOpenChest={AutoOpenChest}, " +
                                $"AutoUpgradeRune={AutoUpgradeRune}, " +
                                $"MaxRuneUpgradesPerCycle={MaxRuneUpgradesPerCycle}, " +
-                               $"MaxChestOpensPerCycle={MaxChestOpensPerCycle}");
+                               $"MaxChestOpensPerCycle={MaxChestOpensPerCycle}, " +
+                               $"RepeatFullSynth={RepeatFullSynth}, " +
+                               $"MaxSynthRepeatsPerCycle={MaxSynthRepeatsPerCycle}");
         }
         catch (Exception e) { Logger.LogWarning("config reload failed: " + e.Message); }
     }
@@ -535,7 +539,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                             out var slotCount))
                     {
                         AutoSynthPlugin.Logger.LogWarning(
-                            $"grade limit exceeded ({offender}); skipping this cycle");
+                            $"grade limit exceeded ({offender}); skipping this synthesis pass");
                         _lastFillFull = false;
                         _phase = Phase.Clear;
                         break;
