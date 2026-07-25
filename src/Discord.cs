@@ -64,6 +64,10 @@ namespace TbhCompanion
                 assets["large_image"] = "tbh";   // uploaded in the Discord dev portal (Rich Presence > Art Assets)
                 assets["large_text"] = "TaskBarHero";
                 activity["assets"] = assets;
+                var repoButton = new Dictionary<string, object>();
+                repoButton["label"] = "GitHub";
+                repoButton["url"] = "https://github.com/preschian/tbh-presence";
+                activity["buttons"] = new List<object> { repoButton };
                 args["activity"] = activity;
             }
             var cmd = new Dictionary<string, object>();
