@@ -81,12 +81,12 @@ namespace TbhCompanion
         WheelRedirectFilter _wheelFilter;
         Toggle _presenceToggle;
         Toggle _autoRestart;
-        Toggle _autoLoop, _enableSynth, _autoChest, _autoRune, _showConsole;
+        Toggle _autoLoop, _enableSynth, _autoChest, _autoRune, _showConsole, _autoAlchemy;
         TypeTile _tEquip, _tMaterials, _tAccessories;
         SegmentBar _seg;
         Label _rarityValue;
-        Stepper _cycleMin, _restartDays;
-        FlatDrop _desiredLevel;
+        Stepper _cycleMin, _restartDays, _alchemyLevel;
+        FlatDrop _desiredLevel, _alchemyRarity;
         FlatButton _saveBtn, _setupBtn, _removeBtn, _launchBtn, _updateBtn;
         Label _cfgNote, _verNote;
         readonly ToolTip _verTip = new ToolTip();
@@ -346,6 +346,16 @@ namespace TbhCompanion
             y0 = AddToggleRow("Show BepInEx console", Col0X, ref _showConsole, t0, y0);
             y0 = AddFieldRow("Cycle interval", "min", Col0X, y0, f0, fieldW, out _cycleMin);
             _cycleMin.Min = 1; _cycleMin.Max = 1440; _cycleMin.Step = 1; _cycleMin.Decimals = 0; _cycleMin.Value = 5;
+            y0 = AddSectionDivider(Col0X, ColW, y0);
+
+            // Alchemy melts inventory gear below a level threshold into gold.
+            y0 = AddSectionHeader("Alchemy", Col0X, y0);
+            y0 = AddToggleRow("Enabled", Col0X, ref _autoAlchemy, t0, y0);
+            y0 = AddFieldRow("Melt below level", "", Col0X, y0, f0, fieldW, out _alchemyLevel);
+            _alchemyLevel.Min = 0; _alchemyLevel.Max = 9999; _alchemyLevel.Step = 5; _alchemyLevel.Decimals = 0;
+            _alchemyLevel.Value = 0;
+            y0 = AddDropdownRow("Max rarity", Grades, Col0X, y0, f0, fieldW, out _alchemyRarity);
+            _alchemyRarity.SelectedIndex = 2;
 
             // ---- right: Chests / Runes / Synthesis ----
             int t1 = Col1X + ColW - toggleW;
@@ -949,6 +959,7 @@ namespace TbhCompanion
         {
             _autoLoop.Enabled = on; _enableSynth.Enabled = on; _autoChest.Enabled = on;
             _autoRune.Enabled = on; _seg.Enabled = on;
+            _autoAlchemy.Enabled = on; _alchemyLevel.Enabled = on; _alchemyRarity.Enabled = on;
             _tEquip.Enabled = on; _tMaterials.Enabled = on; _tAccessories.Enabled = on;
             _desiredLevel.Enabled = on; _cycleMin.Enabled = on;
             _saveBtn.Enabled = on;
@@ -971,6 +982,13 @@ namespace TbhCompanion
                 _enableSynth.Checked = !string.Equals(GetVal(text, "General", "EnableSynthesis", "true"), "false", StringComparison.OrdinalIgnoreCase);
                 _autoChest.Checked = !string.Equals(GetVal(text, "General", "AutoOpenChest", "false"), "false", StringComparison.OrdinalIgnoreCase);
                 _autoRune.Checked = !string.Equals(GetVal(text, "General", "AutoUpgradeRune", "false"), "false", StringComparison.OrdinalIgnoreCase);
+                _autoAlchemy.Checked = !string.Equals(GetVal(text, "General", "AutoAlchemy", "false"), "false", StringComparison.OrdinalIgnoreCase);
+                int al;
+                if (!int.TryParse(GetVal(text, "General", "AlchemyLevelThreshold", "0"), out al) || al < 0) al = 0;
+                _alchemyLevel.SetValue(al);
+                int ag;
+                if (!int.TryParse(GetVal(text, "Safety", "MaxAlchemyGrade", "2"), out ag) || ag < 0 || ag > 9) ag = 2;
+                _alchemyRarity.SelectedIndex = ag;
                 int mg;
                 if (!int.TryParse(GetVal(text, "Safety", "MaxGrade", "2"), out mg) || mg < 0 || mg > 9) mg = 2;
                 _seg.Value = mg; UpdateRarityLabel();
@@ -1014,6 +1032,12 @@ namespace TbhCompanion
                 text = SetVal(text, "General", "EnableSynthesis", _enableSynth.Checked ? "true" : "false");
                 text = SetVal(text, "General", "AutoOpenChest", _autoChest.Checked ? "true" : "false");
                 text = SetVal(text, "General", "AutoUpgradeRune", _autoRune.Checked ? "true" : "false");
+                text = SetVal(text, "General", "AutoAlchemy", _autoAlchemy.Checked ? "true" : "false");
+                text = SetVal(text, "General", "AlchemyLevelThreshold",
+                    ((int)_alchemyLevel.Value).ToString(CultureInfo.InvariantCulture));
+                text = SetVal(text, "Safety", "MaxAlchemyGrade",
+                    Math.Max(0, Math.Min(Grades.Length - 1, _alchemyRarity.SelectedIndex))
+                        .ToString(CultureInfo.InvariantCulture));
                 // AutoOpenCube / AutoOpenRune / AfterFill / AfterSynthesis / AfterChestOpen are not exposed in the UI — leave cfg values alone.
                 text = SetVal(text, "Safety", "MaxGrade", _seg.Value.ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "General", "DesiredLevel",

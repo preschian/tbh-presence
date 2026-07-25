@@ -1,7 +1,8 @@
 # TBH Auto Synthesis (BepInEx plugin)
 
-Automates TaskBarHero's shared idle cycle: optional **Cube synthesis**, optional
-**StageBox chest opens**, and optional **Rune upgrades** — then wait and repeat.
+Automates TaskBarHero's shared idle cycle: optional **Cube alchemy**, optional
+**Cube synthesis**, optional **StageBox chest opens**, and optional **Rune
+upgrades** — then wait and repeat.
 
 > **Unlike the presence app, this is a game mod.** It runs *inside* the game
 > via [BepInEx](https://github.com/BepInEx/BepInEx) and clicks the game's own
@@ -19,7 +20,7 @@ updates this plugin automatically. (Building it from source is covered in
 ## Use
 
 With `AutoStart` on (the default) the loop is already armed when the game starts.
-Each armed cycle runs enabled phases in order: **Cube → Chest → Rune**. If the main
+Each armed cycle runs enabled phases in order: **Alchemy → Cube → Chest → Rune**. If the main
 menu/HUD is closed when Cube or Rune needs the content row, the plugin clicks the
 stage-HUD **Show Main** button (next to auto-retry) — never synthesizes Tab.
 With `AutoOpenCube` on it then clicks the **Cube** menu button when a Cube cycle
@@ -27,10 +28,10 @@ is due. Hotkeys:
 
 | Key | Action |
 |-----|--------|
-| **F7** | Run one cycle now (cube → chest → rune for enabled phases) |
+| **F7** | Run one cycle now (alchemy → cube → chest → rune for enabled phases) |
 | **F8** | Toggle the auto loop on/off |
 | **F9** | Click the synthesis trigger once |
-| **F10** | Dump cube / chest / rune state to `BepInEx\LogOutput.log` |
+| **F10** | Dump alchemy / cube / chest / rune state to `BepInEx\LogOutput.log` |
 
 The Cube phase only acts while the Cube panel is open. With `AutoOpenCube` off
 it waits for you to open the panel yourself instead of opening it. When auto-fill
@@ -47,6 +48,33 @@ phase uses the stage HUD StageBox click-detector:
 
 It does **not** flip the game's built-in auto-open toggle.
 
+## Alchemy
+
+The Alchemy phase (off by default) melts junk gear into gold. It selects
+**Alchemy** on the Cube's recipe dropdown, sends eligible inventory items to the
+cube nine at a time, runs the operation — confirming the warning panel if the
+game shows one — and repeats while items remain, up to
+`MaxAlchemyBatchesPerCycle`. It always hands the Cube back on the **Synthesis**
+recipe so the Cube phase finds it where it expects.
+
+Items are moved with the game's own `MoveToCube` slot action
+(`SlotInteractionManager`), the same one a right click resolves to, rather than
+by faking pointer events: `ItemSlot`'s click hooks are really drag handlers, and
+a synthetic press with no matching release leaves the player holding the item.
+
+An item is eligible only when **all** of these hold:
+
+- it is gear (materials and chests are never touched),
+- its item level is strictly below `AlchemyLevelThreshold`,
+- its rarity is at or below `MaxAlchemyGrade`,
+- it is not locked or reserved, and its item key is not in `AlchemyProtectedItemKeys`.
+
+Equipped gear lives in the gear slots, not the inventory, so it is never a
+candidate. `AlchemyLevelThreshold = 0` (the default) means nothing is eligible.
+**Set `AlchemyDryRun = true` for one cycle first** — the phase then only writes
+the items it *would* melt to the log, so you can check the threshold before it
+destroys anything.
+
 ## Config
 
 `<game>\BepInEx\config\com.pres.tbh.autosynth.cfg` (created on first run):
@@ -59,6 +87,13 @@ It does **not** flip the game's built-in auto-open toggle.
 | `AutoOpenChest` | false | After Cube (or at cycle start if synthesis is off), click StageBox chests (Normal / Boss / ActBoss) |
 | `AutoUpgradeRune` | false | After Cube/Chest, open the Rune panel and upgrade the cheapest affordable runes |
 | `AutoOpenRune` | true | During the Rune phase, click the Rune menu button to open the Rune panel |
+| `AutoAlchemy` | false | Run the Alchemy phase before the Cube phase |
+| `AlchemyDryRun` | false | Log the items the Alchemy phase would melt instead of clicking them |
+| `AlchemyLevelThreshold` | 0 | Gear below this item level is eligible for alchemy (e.g. `80` melts levels 1–79). `0` disables the phase. |
+| `MaxAlchemyGrade` | 2 | Highest rarity the Alchemy phase may melt (same scale as `MaxGrade`) |
+| `MaxAlchemyBatchesPerCycle` | 5 | Safety cap on alchemy operations (9 items each) per cycle |
+| `AlchemyProtectedItemKeys` | *(empty)* | Comma-separated item keys the Alchemy phase must never melt |
+| `AfterAlchemyClickSeconds` | 0.35 | Delay between successive items while filling the Alchemy cube |
 | `SynthesisTypes` | Equipment,Materials,Accessories | Which item types to synthesize; the loop rotates through them each round. e.g. `Equipment,Materials` to skip accessories. |
 | `DesiredLevel` | 0 | Target synthesis recipe. `0` = highest unlocked (default). Otherwise the lower bound of an in-game bracket from the companion Target level dropdown (`1`=`Lv.1~10` … `65`=`Lv.65~80`). If that bracket is locked, uses the highest unlocked bracket with `lo ≤ DesiredLevel`. |
 | `MaxGrade` | 3 | Highest rarity the loop may synthesize (0=Common, 1=Uncommon, 2=Rare, 3=Legendary, 4=Immortal, …). Cycles holding anything above this are skipped. |

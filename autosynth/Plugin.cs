@@ -17,15 +17,17 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.28.21";
+    internal const string Version = "0.29.0";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
-    private static ConfigEntry<float> _afterFillE, _afterSynthE, _cycleE, _afterRuneE, _afterChestE;
+    private static ConfigEntry<float> _afterFillE, _afterSynthE, _cycleE, _afterRuneE, _afterChestE,
+        _afterAlchemyE;
     private static ConfigEntry<int> _maxGradeE, _desiredLevelE, _maxRuneUpgradesE, _maxChestOpensE,
-        _maxSynthRepeatsE;
+        _maxSynthRepeatsE, _alchemyLevelE, _maxAlchemyGradeE, _maxAlchemyBatchesE;
     private static ConfigEntry<bool> _autoStartE, _autoOpenE, _autoRuneE, _autoOpenRuneE, _enableSynthE, _autoChestE,
-        _repeatFullSynthE;
+        _repeatFullSynthE, _autoAlchemyE, _alchemyDryRunE;
+    private static ConfigEntry<string> _alchemyProtectedE;
 
     internal static float AfterFillDelay => _afterFillE != null ? _afterFillE.Value : 1.0f;
     internal static float AfterSynthDelay => _afterSynthE != null ? _afterSynthE.Value : 4.0f;
@@ -46,6 +48,32 @@ public class AutoSynthPlugin : BasePlugin
     internal static bool AutoOpenRune => _autoOpenRuneE == null || _autoOpenRuneE.Value;
     internal static bool AutoOpenChest => _autoChestE != null && _autoChestE.Value;
     internal static bool EnableSynthesis => _enableSynthE == null || _enableSynthE.Value;
+    internal static float AfterAlchemyClickDelay => _afterAlchemyE != null ? _afterAlchemyE.Value : 0.35f;
+    internal static bool AutoAlchemy => _autoAlchemyE != null && _autoAlchemyE.Value;
+    internal static bool AlchemyDryRun => _alchemyDryRunE != null && _alchemyDryRunE.Value;
+    internal static int AlchemyLevelThreshold => _alchemyLevelE != null ? _alchemyLevelE.Value : 0;
+    internal static int MaxAlchemyGrade => _maxAlchemyGradeE != null ? _maxAlchemyGradeE.Value : 2;
+    internal static int MaxAlchemyBatchesPerCycle => _maxAlchemyBatchesE != null ? _maxAlchemyBatchesE.Value : 5;
+
+    // Item keys the loop must never melt, parsed once per distinct cfg value.
+    private static string _protectedRaw;
+    private static System.Collections.Generic.HashSet<int> _protectedKeys;
+
+    internal static bool IsAlchemyProtected(int itemKey)
+    {
+        var raw = _alchemyProtectedE != null ? _alchemyProtectedE.Value : "";
+        if (_protectedKeys == null || raw != _protectedRaw)
+        {
+            _protectedRaw = raw;
+            _protectedKeys = new System.Collections.Generic.HashSet<int>();
+            foreach (var tok in (raw ?? "").Split(','))
+            {
+                int key;
+                if (int.TryParse(tok.Trim(), out key)) _protectedKeys.Add(key);
+            }
+        }
+        return _protectedKeys.Contains(itemKey);
+    }
 
     private static ConfigEntry<string> _typesE;
 
@@ -84,15 +112,18 @@ public class AutoSynthPlugin : BasePlugin
         try
         {
             int mg = MaxGrade, dl = DesiredLevel, mr = MaxRuneUpgradesPerCycle, mc = MaxChestOpensPerCycle,
-                ms = MaxSynthRepeatsPerCycle;
+                ms = MaxSynthRepeatsPerCycle, al = AlchemyLevelThreshold, ag = MaxAlchemyGrade,
+                ab = MaxAlchemyBatchesPerCycle;
             float ci = AfterClearDelay;
             bool auto = AutoStart, open = AutoOpenCube, rune = AutoUpgradeRune, synth = EnableSynthesis,
-                chest = AutoOpenChest, repeat = RepeatFullSynth;
+                chest = AutoOpenChest, repeat = RepeatFullSynth, alchemy = AutoAlchemy, dry = AlchemyDryRun;
             _conf.Reload();
             if (mg != MaxGrade || dl != DesiredLevel || ci != AfterClearDelay || auto != AutoStart
                 || open != AutoOpenCube || rune != AutoUpgradeRune || synth != EnableSynthesis
                 || chest != AutoOpenChest || mr != MaxRuneUpgradesPerCycle || mc != MaxChestOpensPerCycle
-                || ms != MaxSynthRepeatsPerCycle || repeat != RepeatFullSynth)
+                || ms != MaxSynthRepeatsPerCycle || repeat != RepeatFullSynth || alchemy != AutoAlchemy
+                || dry != AlchemyDryRun || al != AlchemyLevelThreshold || ag != MaxAlchemyGrade
+                || ab != MaxAlchemyBatchesPerCycle)
                 Logger.LogInfo($"config reloaded: MaxGrade={MaxGrade}, DesiredLevel={DesiredLevel}, " +
                                $"CycleIntervalSeconds={AfterClearDelay}, AutoStart={AutoStart}, " +
                                $"EnableSynthesis={EnableSynthesis}, AutoOpenChest={AutoOpenChest}, " +
@@ -100,7 +131,11 @@ public class AutoSynthPlugin : BasePlugin
                                $"MaxRuneUpgradesPerCycle={MaxRuneUpgradesPerCycle}, " +
                                $"MaxChestOpensPerCycle={MaxChestOpensPerCycle}, " +
                                $"RepeatFullSynth={RepeatFullSynth}, " +
-                               $"MaxSynthRepeatsPerCycle={MaxSynthRepeatsPerCycle}");
+                               $"MaxSynthRepeatsPerCycle={MaxSynthRepeatsPerCycle}, " +
+                               $"AutoAlchemy={AutoAlchemy}, AlchemyDryRun={AlchemyDryRun}, " +
+                               $"AlchemyLevelThreshold={AlchemyLevelThreshold}, " +
+                               $"MaxAlchemyGrade={MaxAlchemyGrade}, " +
+                               $"MaxAlchemyBatchesPerCycle={MaxAlchemyBatchesPerCycle}");
         }
         catch (Exception e) { Logger.LogWarning("config reload failed: " + e.Message); }
     }
@@ -141,6 +176,26 @@ public class AutoSynthPlugin : BasePlugin
             "After the Cube phase (or at cycle start if synthesis is off), click StageBox chest " +
             "buttons (Normal / Boss / ActBoss) to open accumulated chests. Does not touch the " +
             "game's built-in auto-open toggle.");
+        _afterAlchemyE = Config.Bind("Timing", "AfterAlchemyClickSeconds", 0.35f,
+            "Delay between successive items while filling the Alchemy cube");
+        _autoAlchemyE = Config.Bind("General", "AutoAlchemy", false,
+            "Before the Cube phase, select the Cube's Alchemy recipe and melt low-level gear " +
+            "from the inventory, 9 items per operation. " +
+            "Needs AlchemyLevelThreshold > 0.");
+        _alchemyDryRunE = Config.Bind("General", "AlchemyDryRun", false,
+            "Run the Alchemy phase without clicking anything: every item that would be melted " +
+            "is written to the log instead. Use this once to check the threshold before arming it.");
+        _alchemyLevelE = Config.Bind("General", "AlchemyLevelThreshold", 0,
+            "Gear with an item level strictly below this is eligible for alchemy (e.g. 80 melts " +
+            "levels 1-79). 0 disables the phase — nothing is ever eligible.");
+        _maxAlchemyGradeE = Config.Bind("Safety", "MaxAlchemyGrade", 2,
+            "Highest item grade the Alchemy phase may melt: 0=COMMON 1=UNCOMMON 2=RARE 3=LEGENDARY ... " +
+            "Anything above this is left in the inventory regardless of its level.");
+        _maxAlchemyBatchesE = Config.Bind("Safety", "MaxAlchemyBatchesPerCycle", 5,
+            "Maximum alchemy operations (up to 9 items each) in a single cycle (safety cap).");
+        _alchemyProtectedE = Config.Bind("Safety", "AlchemyProtectedItemKeys", "",
+            "Comma-separated item keys the Alchemy phase must never melt, e.g. '1201,1305'. " +
+            "Locked and reserved items are always skipped without listing them here.");
         _autoRuneE = Config.Bind("General", "AutoUpgradeRune", false,
             "After the Cube and Chest phases (or at cycle start if those are off), open the Rune " +
             "panel and upgrade the cheapest affordable runes.");
@@ -179,8 +234,8 @@ public class AutoSynthPlugin : BasePlugin
 public class AutoSynthBehaviour : MonoBehaviour
 {
     private enum LoopMode { Off, Armed, OneShot }
-    private enum Phase { Idle, Fill, Synth, Clear, Chest, Rune }
-    private enum CycleStep { Cube, Chest, Rune }
+    private enum Phase { Idle, Fill, Synth, Clear, Chest, Rune, Alchemy }
+    private enum CycleStep { Alchemy, Cube, Chest, Rune }
 
     // Game UI (UIManager / EventSystem / stage HUD) is not reliable right after
     // BepInEx loads — wait before AutoStart / Show Main / any click automation.
@@ -204,6 +259,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     private int _cubePanelClicks;
     private readonly ChestOpenRunner _chests;
     private readonly RuneUpgradeRunner _runes;
+    private readonly AlchemyRunner _alchemy;
     private UI_Cube _cube;
     private bool _legacyInputBroken;
     private bool _autoStartApplied;
@@ -221,6 +277,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     {
         _chests = new ChestOpenRunner();
         _runes = new RuneUpgradeRunner(GameInterop.Click);
+        _alchemy = new AlchemyRunner();
     }
 
     private bool LoopRunning => _mode != LoopMode.Off;
@@ -243,6 +300,9 @@ public class AutoSynthBehaviour : MonoBehaviour
                 ",\"lastGrade\":" + _lastSynthGrade +
                 ",\"lastRuneUpgrades\":" + _runes.LastUpgrades +
                 ",\"lastChestOpens\":" + _chests.LastOpens +
+                ",\"lastAlchemized\":" + _alchemy.LastAlchemized +
+                ",\"autoAlchemy\":" + (AutoSynthPlugin.AutoAlchemy ? "true" : "false") +
+                ",\"alchemyLevelThreshold\":" + AutoSynthPlugin.AlchemyLevelThreshold +
                 ",\"maxGrade\":" + AutoSynthPlugin.MaxGrade +
                 ",\"autoUpgradeRune\":" + (AutoSynthPlugin.AutoUpgradeRune ? "true" : "false") +
                 ",\"autoOpenChest\":" + (AutoSynthPlugin.AutoOpenChest ? "true" : "false") +
@@ -304,6 +364,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                 BeginCycleWork();
                 AutoSynthPlugin.Logger.LogInfo(
                     "Auto loop armed on launch (AutoStart=true). " +
+                    (AutoSynthPlugin.AutoAlchemy ? "Alchemy ON. " : "Alchemy OFF. ") +
                     (AutoSynthPlugin.EnableSynthesis ? "Synthesis ON. " : "Synthesis OFF. ") +
                     (AutoSynthPlugin.AutoOpenChest ? "Chest opens ON. " : "Chest opens OFF. ") +
                     (AutoSynthPlugin.AutoUpgradeRune ? "Rune upgrades ON. " : "Rune upgrades OFF. ") +
@@ -333,7 +394,8 @@ public class AutoSynthBehaviour : MonoBehaviour
         }
         _mode = LoopMode.OneShot;
         BeginCycleWork();
-        AutoSynthPlugin.Logger.LogInfo("F7: starting one-shot cycle (cube -> chest -> rune), then auto OFF");
+        AutoSynthPlugin.Logger.LogInfo(
+            "F7: starting one-shot cycle (alchemy -> cube -> chest -> rune), then auto OFF");
     }
 
     void SetAuto(bool on, string reason)
@@ -342,6 +404,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         _cycles = 0;
         _chests.ResetSession();
         _runes.ResetSession();
+        _alchemy.ResetSession();
         BeginCycleWork();
         string suffix = string.IsNullOrEmpty(reason) ? "" : " (" + reason + ")";
         AutoSynthPlugin.Logger.LogInfo($"Auto-synthesis: {(on ? "ON" : "OFF")}{suffix}");
@@ -365,7 +428,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         if (_steps.Length == 0)
         {
             AutoSynthPlugin.Logger.LogWarning(
-                "cycle skipped: EnableSynthesis, AutoOpenChest, and AutoUpgradeRune are all off");
+                "cycle skipped: AutoAlchemy, EnableSynthesis, AutoOpenChest, and AutoUpgradeRune are all off");
             _phase = Phase.Idle;
             if (_mode == LoopMode.OneShot)
             {
@@ -379,15 +442,18 @@ public class AutoSynthBehaviour : MonoBehaviour
                 _nextTick = 0f;
             return;
         }
-        // Cube increments _cycles on Clear; chest/rune-only cycles increment here.
-        if (_steps[0] != CycleStep.Cube)
+        // Cube increments _cycles on Clear; cycles without a Cube step increment here.
+        if (Array.IndexOf(_steps, CycleStep.Cube) < 0)
             _cycles++;
         StartStep(_steps[0], true);
     }
 
     static CycleStep[] EnabledSteps()
     {
-        var list = new System.Collections.Generic.List<CycleStep>(3);
+        var list = new System.Collections.Generic.List<CycleStep>(4);
+        // Alchemy runs first: it frees inventory space before chests refill it, and it
+        // hands the Cube back on the Synthesis recipe that the Cube phase expects.
+        if (AutoSynthPlugin.AutoAlchemy) list.Add(CycleStep.Alchemy);
         if (AutoSynthPlugin.EnableSynthesis) list.Add(CycleStep.Cube);
         if (AutoSynthPlugin.AutoOpenChest) list.Add(CycleStep.Chest);
         if (AutoSynthPlugin.AutoUpgradeRune) list.Add(CycleStep.Rune);
@@ -398,6 +464,9 @@ public class AutoSynthBehaviour : MonoBehaviour
     {
         switch (step)
         {
+            case CycleStep.Alchemy:
+                StartAlchemyPhase(loud);
+                break;
             case CycleStep.Cube:
                 _phase = Phase.Fill;
                 _nextTick = 0f;
@@ -428,6 +497,14 @@ public class AutoSynthBehaviour : MonoBehaviour
         _phase = Phase.Chest;
         _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
         if (loud) AutoSynthPlugin.Logger.LogInfo($"cycle {_cycles}: starting chest phase");
+    }
+
+    void StartAlchemyPhase(bool loud)
+    {
+        _alchemy.BeginPhase();
+        _phase = Phase.Alchemy;
+        _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
+        if (loud) AutoSynthPlugin.Logger.LogInfo($"cycle {_cycles}: starting alchemy phase");
     }
 
     void StartRunePhase(bool loud)
@@ -500,6 +577,21 @@ public class AutoSynthBehaviour : MonoBehaviour
             if (!CubeOpen(cube)) { TryOpenCube(); return; }
 
             var cubeLoud = _cycles < 2 || _cycles % 20 == 0;
+
+            if (_phase == Phase.Alchemy)
+            {
+                var result = _alchemy.Tick(cube, cubeLoud, out float delay);
+                if (result == AlchemyRunner.TickResult.Done)
+                {
+                    _nextStatusWrite = 0f;
+                    AdvanceAfterStep(cubeLoud || _alchemy.LastAlchemized > 0,
+                        "alchemy items this cycle: " + _alchemy.LastAlchemized);
+                }
+                else
+                    _nextTick = Time.unscaledTime + delay;
+                return;
+            }
+
             switch (_phase)
             {
                 case Phase.Fill:
@@ -1001,6 +1093,7 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
 
             _chests.Dump();
             _runes.Dump(Describe);
+            _alchemy.Dump();
         }
         catch (Exception e)
         {
