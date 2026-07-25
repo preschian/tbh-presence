@@ -14,6 +14,7 @@
 - When adapting to a TaskBarHero update, keep the memory offsets in `src/Game.cs` and `legacy/Get-TbhStage.ps1` aligned and bump `CACHE_VERSION` so stale address caches are discarded.
 - Verify every change with the most relevant available build or runtime check. If a required check cannot run in the current environment, state that clearly in the handoff.
 - When a development change requires the companion app and/or TaskBarHero to be relaunched, relaunch the affected app or game directly and continue verification. No additional confirmation is needed.
+- Plugin changes only take effect after the rebuilt DLL is deployed into the game's `BepInEx\plugins`, so deploy it (or let the companion install it) before relaunching TaskBarHero.
 
 ## Commits and pull requests
 

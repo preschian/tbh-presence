@@ -17,13 +17,15 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.28.18";
+    internal const string Version = "0.28.20";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
     private static ConfigEntry<float> _afterFillE, _afterSynthE, _cycleE, _afterRuneE, _afterChestE;
-    private static ConfigEntry<int> _maxGradeE, _desiredLevelE, _maxRuneUpgradesE, _maxChestOpensE;
-    private static ConfigEntry<bool> _autoStartE, _autoOpenE, _autoRuneE, _autoOpenRuneE, _enableSynthE, _autoChestE;
+    private static ConfigEntry<int> _maxGradeE, _desiredLevelE, _maxRuneUpgradesE, _maxChestOpensE,
+        _maxSynthRepeatsE;
+    private static ConfigEntry<bool> _autoStartE, _autoOpenE, _autoRuneE, _autoOpenRuneE, _enableSynthE, _autoChestE,
+        _repeatFullSynthE;
 
     internal static float AfterFillDelay => _afterFillE != null ? _afterFillE.Value : 1.0f;
     internal static float AfterSynthDelay => _afterSynthE != null ? _afterSynthE.Value : 4.0f;
@@ -36,6 +38,8 @@ public class AutoSynthPlugin : BasePlugin
     internal static int DesiredLevel => _desiredLevelE != null ? _desiredLevelE.Value : 0;
     internal static int MaxRuneUpgradesPerCycle => _maxRuneUpgradesE != null ? _maxRuneUpgradesE.Value : 20;
     internal static int MaxChestOpensPerCycle => _maxChestOpensE != null ? _maxChestOpensE.Value : 40;
+    internal static int MaxSynthRepeatsPerCycle => _maxSynthRepeatsE != null ? _maxSynthRepeatsE.Value : 10;
+    internal static bool RepeatFullSynth => _repeatFullSynthE == null || _repeatFullSynthE.Value;
     internal static bool AutoStart => _autoStartE == null || _autoStartE.Value;
     internal static bool AutoOpenCube => _autoOpenE == null || _autoOpenE.Value;
     internal static bool AutoUpgradeRune => _autoRuneE != null && _autoRuneE.Value;
@@ -142,6 +146,13 @@ public class AutoSynthPlugin : BasePlugin
             "Maximum rune level-ups to perform in a single cycle (safety cap).");
         _maxChestOpensE = Config.Bind("Safety", "MaxChestOpensPerCycle", 40,
             "Maximum StageBox chest open clicks in a single cycle (safety cap).");
+        _maxSynthRepeatsE = Config.Bind("Safety", "MaxSynthRepeatsPerCycle", 10,
+            "Maximum extra synthesis passes a single Cube phase may run when RepeatFullSynth " +
+            "keeps finding a full cube (safety cap).");
+        _repeatFullSynthE = Config.Bind("General", "RepeatFullSynth", true,
+            "When auto-fill fills every cube slot, run another fill -> synth -> clear pass in the " +
+            "same cycle instead of waiting for CycleIntervalSeconds. Stops on a partial/empty fill, " +
+            "a grade-limit skip, or MaxSynthRepeatsPerCycle.");
         _typesE = Config.Bind("General", "SynthesisTypes", "Equipment,Materials,Accessories",
             "Which synthesis item types the loop rotates through, comma-separated: " +
             "Equipment, Materials, Accessories. e.g. 'Equipment,Materials' to skip accessories.");
@@ -197,6 +208,10 @@ public class AutoSynthBehaviour : MonoBehaviour
     private float _nextStatusWrite;
     private int _lastSynthCount = -1;
     private int _lastSynthGrade = -1;
+    // Cube-phase repeat state: how many extra passes this cycle already ran, and
+    // whether the pass we just synthesized had filled every cube slot.
+    private int _synthRepeats;
+    private bool _lastFillFull;
 
     public AutoSynthBehaviour(IntPtr ptr) : base(ptr)
     {
@@ -337,6 +352,8 @@ public class AutoSynthBehaviour : MonoBehaviour
         _nextOpenAttempt = 0f;
         _loggedCubeOpenFailed = false;
         _cubePanelClicks = 0;
+        _synthRepeats = 0;
+        _lastFillFull = false;
         _nextStatusWrite = 0f;
         MainMenuAccess.Reset();
         _steps = EnabledSteps();
@@ -514,13 +531,16 @@ public class AutoSynthBehaviour : MonoBehaviour
                     _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
                     break;
                 case Phase.Synth:
-                    if (!SlotsWithinGradeLimit(cube, out var offender, out var itemCount, out var maxGrade))
+                    if (!SlotsWithinGradeLimit(cube, out var offender, out var itemCount, out var maxGrade,
+                            out var slotCount))
                     {
                         AutoSynthPlugin.Logger.LogWarning(
                             $"grade limit exceeded ({offender}); skipping this cycle");
+                        _lastFillFull = false;
                         _phase = Phase.Clear;
                         break;
                     }
+                    _lastFillFull = slotCount > 0 && itemCount >= slotCount;
                     GameInterop.Click(cube.toggleButton_Trigger, "synthesis trigger", false);
                     if (itemCount > 0)
                     {
@@ -528,13 +548,34 @@ public class AutoSynthBehaviour : MonoBehaviour
                         _lastSynthGrade = maxGrade;
                         _nextStatusWrite = 0f;
                         AutoSynthPlugin.Logger.LogInfo(
-                            $"synthesis started: {TypeName(_currentType)}, {itemCount} item(s), rarity {GradeName(maxGrade)}");
+                            $"synthesis started: {TypeName(_currentType)}, {itemCount}/{slotCount} slot(s) filled, " +
+                            $"rarity {GradeName(maxGrade)}");
                     }
                     _phase = Phase.Clear;
                     _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterSynthDelay;
                     break;
                 case Phase.Clear:
                     ClickTrash(cube.m_trashToggleBtn, cubeLoud);
+                    // A full cube usually means there are still materials left, so run
+                    // another pass right away instead of waiting for the next cycle.
+                    // The type/recipe selection stays as-is for the repeat.
+                    if (_lastFillFull && AutoSynthPlugin.RepeatFullSynth
+                        && _synthRepeats < AutoSynthPlugin.MaxSynthRepeatsPerCycle)
+                    {
+                        _synthRepeats++;
+                        _lastFillFull = false;
+                        AutoSynthPlugin.Logger.LogInfo(
+                            $"cube was full; repeating synthesis " +
+                            $"({_synthRepeats}/{AutoSynthPlugin.MaxSynthRepeatsPerCycle})");
+                        _phase = Phase.Fill;
+                        _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
+                        break;
+                    }
+                    if (_lastFillFull && AutoSynthPlugin.RepeatFullSynth)
+                        AutoSynthPlugin.Logger.LogInfo(
+                            $"cube still full but MaxSynthRepeatsPerCycle " +
+                            $"({AutoSynthPlugin.MaxSynthRepeatsPerCycle}) reached; leaving the Cube phase");
+                    _lastFillFull = false;
                     _cycles++;
                     _typeSelected = false;
                     AdvanceAfterStep(cubeLoud, null);
@@ -809,14 +850,17 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
     private static string GradeName(int grade)
         => grade >= 0 && grade < GradeNames.Length ? $"{GradeNames[grade]}({grade})" : $"?({grade})";
 
-    private bool SlotsWithinGradeLimit(UI_Cube cube, out string offender, out int itemCount, out int maxGrade)
+    private bool SlotsWithinGradeLimit(UI_Cube cube, out string offender, out int itemCount, out int maxGrade,
+        out int slotCount)
     {
         offender = null;
         itemCount = 0;
         maxGrade = -1;
+        slotCount = 0;
         var setter = cube.m_cubeSlotSetter;
         var slots = setter != null ? setter.m_cubeInventorySlots : null;
         if (slots == null) return true;
+        slotCount = slots.Count;
         EnsureGradeMap();
         for (int i = 0; i < slots.Count; i++)
         {
