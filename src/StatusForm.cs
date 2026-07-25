@@ -62,6 +62,9 @@ namespace TbhCompanion
         bool _modOpRunning;          // install or remove in flight
         bool _modsLayoutReady;
         bool _modsPresent;
+        bool _verCheckRunning;       // background release lookup in flight
+        bool _updateOpRunning;       // self-update download in flight
+        DateTime _verCheckedAt = DateTime.MinValue;
 
         Bitmap _icon;
         Rectangle _closeRect;
@@ -84,8 +87,9 @@ namespace TbhCompanion
         Label _rarityValue;
         Stepper _cycleMin, _restartDays;
         FlatDrop _desiredLevel;
-        FlatButton _saveBtn, _setupBtn, _removeBtn, _launchBtn;
-        Label _cfgNote;
+        FlatButton _saveBtn, _setupBtn, _removeBtn, _launchBtn, _updateBtn;
+        Label _cfgNote, _verNote;
+        readonly ToolTip _verTip = new ToolTip();
 
         public StatusForm(Func<string> stageLabel, Func<bool> discordConnected, Func<string> diag,
             Func<bool> presenceEnabled, Action<bool> setPresenceEnabled)
@@ -123,6 +127,7 @@ namespace TbhCompanion
                 _timer.Stop(); _timer.Dispose();
                 if (_wheelFilter != null) { Application.RemoveMessageFilter(_wheelFilter); _wheelFilter = null; }
                 if (_icon != null) _icon.Dispose();
+                _verTip.Dispose();
             };
 
             Load += delegate { ApplyRegion(); };
@@ -168,6 +173,8 @@ namespace TbhCompanion
             _launchBtn.Click += delegate { LaunchGame(); };
             _side.Controls.Add(_launchBtn);
             RefreshLaunchButton();
+
+            AddVersionBlock();
         }
 
         void PaintSide(object sender, PaintEventArgs e)
@@ -447,6 +454,145 @@ namespace TbhCompanion
             return AddSectionDivider(colX, colW, y);
         }
 
+        // Mods-vs-game build status plus the one-click self-update button. Lives in
+        // the side rail so it is always visible and never pushes the settings pane.
+        void AddVersionBlock()
+        {
+            var head = new Label
+            {
+                Text = "Version", AutoSize = true, Location = new Point(Sc(16), Sc(72)),
+                ForeColor = Theme.TextDark, BackColor = Theme.SideBg, Font = Theme.F(9.5f, FontStyle.Bold)
+            };
+            _side.Controls.Add(head);
+
+            _verNote = new Label
+            {
+                Text = "checking for updates...", AutoSize = false,
+                Location = new Point(Sc(16), Sc(92)),
+                Size = new Size(Sc(SideW - 32), Sc(74)),
+                ForeColor = Theme.TextMuted, BackColor = Theme.SideBg,
+                Font = Theme.F(8.5f, FontStyle.Regular), TextAlign = ContentAlignment.TopLeft
+            };
+            _side.Controls.Add(_verNote);
+
+            _updateBtn = new FlatButton { Text = UpdateTitle, Fill = Theme.Accent };
+            _updateBtn.SetBounds(Sc(12), Sc(170), Sc(SideW - 24), Sc(30));
+            _updateBtn.Click += delegate { RunUpdate(); };
+            _updateBtn.Visible = false;
+            _side.Controls.Add(_updateBtn);
+
+            EnsureVersionCheck(false);
+        }
+
+        // Release lookup hits the network, so it runs off the UI thread. SelfUpdate
+        // throttles internally; this only guards against overlapping threads.
+        void EnsureVersionCheck(bool force)
+        {
+            if (_verCheckRunning || _updateOpRunning) return;
+            var last = SelfUpdate.LastStatus;
+            if (!force && last != null
+                && (DateTime.UtcNow - _verCheckedAt).TotalMinutes < SelfUpdate.MinutesBetweenChecks(last)) return;
+
+            _verCheckRunning = true;
+            _verCheckedAt = DateTime.UtcNow;
+            var t = new System.Threading.Thread(delegate()
+            {
+                try { SelfUpdate.Check(force); }
+                catch { }
+                try
+                {
+                    if (IsDisposed) { _verCheckRunning = false; return; }
+                    BeginInvoke((Action)delegate { _verCheckRunning = false; RefreshVersionRow(); });
+                }
+                catch { _verCheckRunning = false; }
+            });
+            t.IsBackground = true;
+            t.Start();
+        }
+
+        void RefreshVersionRow()
+        {
+            if (_verNote == null || _updateOpRunning) return;
+            var st = SelfUpdate.LastStatus;
+            if (st == null)
+            {
+                _verNote.Text = "checking for updates...";
+                _verNote.ForeColor = Theme.TextMuted;
+                _updateBtn.Visible = false;
+                return;
+            }
+            _verNote.Text = st.Message;
+            _verNote.ForeColor =
+                st.State == SelfUpdate.State.UpdateReady ? Theme.Amber :
+                st.State == SelfUpdate.State.Matched ? Theme.Green : Theme.TextMuted;
+            // The rail is narrow, so keep the full text reachable on hover.
+            _verTip.SetToolTip(_verNote, st.Message);
+            _updateBtn.Visible = st.CanUpdate;
+        }
+
+        static string UpdateTitle
+        {
+            get { return "Update " + SelfUpdate.Noun.ToLowerInvariant(); }
+        }
+
+        // The presence-only edition ships no plugin, so it has nothing to redeploy.
+        static string PluginNote()
+        {
+            if (!Build.Synth) return "";
+            return GameRestart.IsGameRunning()
+                ? "TaskBarHero is running, so the in-game plugin is refreshed once you close the game.\n\n"
+                : "The in-game plugin is redeployed automatically after the restart.\n\n";
+        }
+
+        void RunUpdate()
+        {
+            if (_updateOpRunning || _modOpRunning) return;
+            var st = SelfUpdate.LastStatus;
+            if (st == null || !st.CanUpdate) { EnsureVersionCheck(true); return; }
+
+            string body =
+                "Update the companion to " + st.ReleaseTag + " for game v" + st.GameVersion + "?\n\n" +
+                "  - downloads " + st.ReleaseTag + " from GitHub\n" +
+                "  - replaces this app and restarts it\n\n" +
+                PluginNote() +
+                "Your save and settings are unaffected. Continue?";
+            if (MessageBox.Show(this, body, UpdateTitle, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
+                return;
+
+            _updateOpRunning = true;
+            _updateBtn.Enabled = false;
+            _verNote.Text = "working...";
+            var t = new System.Threading.Thread(delegate()
+            {
+                bool restarting = SelfUpdate.Apply(st, delegate(string s) { PostVerNote(s); });
+                PostUpdateDone(restarting);
+            });
+            t.IsBackground = true;
+            t.Start();
+        }
+
+        void PostVerNote(string s)
+        {
+            try { if (!IsDisposed) BeginInvoke((Action)delegate { if (_verNote != null) _verNote.Text = s; }); }
+            catch { }
+        }
+
+        void PostUpdateDone(bool restarting)
+        {
+            try
+            {
+                if (IsDisposed) return;
+                BeginInvoke((Action)delegate
+                {
+                    _updateOpRunning = false;
+                    _updateBtn.Enabled = true;
+                    if (restarting) Application.Exit();   // the swap script relaunches us
+                    else EnsureVersionCheck(true);
+                });
+            }
+            catch { }
+        }
+
         void WirePresenceToggle()
         {
             _presenceToggle.Checked = _presenceEnabled == null || _presenceEnabled();
@@ -657,6 +803,7 @@ namespace TbhCompanion
                     if (!success && !string.IsNullOrEmpty(note) && note != "working...")
                         _cfgNote.Text = note;
                     RefreshModsRow(forceLayout: true);
+                    EnsureVersionCheck(true);
                 });
             }
             catch { }
@@ -734,6 +881,9 @@ namespace TbhCompanion
                     : "—";
                 _live.SetRow(0, "Presence", value, ShortStatus(diag), presenceState, presenceDot);
             }
+
+            EnsureVersionCheck(false);   // no-op until the 30 min throttle expires
+            RefreshVersionRow();         // also covers a check that finished pre-handle
 
             if (!Build.Synth) return;
 

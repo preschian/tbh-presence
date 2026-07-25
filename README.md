@@ -109,7 +109,10 @@ memory.
 
 ![The Status & Settings window](docs/settings-window.png)
 
-Left rail shows a **Launch game** button, plus live status: Discord presence
+Left rail shows the **Version** block (whether the mods still match your
+installed game build, plus an **Update mods** button when they don't — see
+[Keeping the mods in step with the game](#keeping-the-mods-in-step-with-the-game)),
+a **Launch game** button, and live status: Discord presence
 (stage/difficulty) and the auto-synthesis loop (on/off, cycle count, interval).
 The right pane has the settings in two columns:
 
@@ -147,6 +150,46 @@ within ~10 seconds. If the game is still on an older plugin, restart the game
 after Save (or after Install mods) so the update loads. Console visibility
 always needs a game restart. Use **Install mods** / **Remove mods** when
 BepInEx isn't set up yet or you want it gone.
+
+## Keeping the mods in step with the game
+
+The mods are built against one TaskBarHero build at a time, so a game patch can
+leave them out of date. The **Version** section shows where you stand.
+
+Versions line up like this — the mods use a different prefix but the same
+build number as the game:
+
+| Role | Shape | Examples |
+| --- | --- | --- |
+| Game | `v1.X.Y` | `v1.00.28`, `v1.01.02` |
+| Mods (companion) | `v3.X.Y` or `v3.X.Y-n` | `v3.00.28`, `v3.00.28-1`, `v3.01.02` |
+
+Only `X.Y` is compared. The `-n` suffix is a mods-only hotfix for the same game
+build, so `v3.00.28` and `v3.00.28-1` both match game `v1.00.28`.
+
+What you'll see:
+
+- **Mods matched (v3.01.02 ↔ game v1.01.02)** — nothing to do.
+- **Update available: game v1.01.02 → release v3.01.02** — the game moved ahead
+  and a matching release exists. Press **Update mods**: it downloads that release
+  from GitHub, replaces this app, and restarts it. Your save and settings are
+  untouched. The in-game plugin is redeployed once the game isn't holding the
+  file open — close TaskBarHero and the companion picks it up within 10 minutes.
+- **Waiting for release v3.01.02 (game v1.01.02)** — the game patched but a
+  matching mods release isn't out yet. The mods may misbehave until it lands;
+  no update is offered.
+- **Update check failed (retrying)** — GitHub couldn't be reached. This says
+  nothing about whether a release exists; it retries every 5 minutes.
+- **mods version unknown (dev build)** — you're running a locally built exe, so
+  there's nothing to compare against.
+
+The check runs when you open the window and roughly every 30 minutes after that.
+Hover the text to see the full message when it's too long for the rail.
+
+Updating needs write access to the folder the app sits in, so keep
+`TbhCompanion.exe` somewhere like your Downloads or a folder of your own rather
+than under `Program Files`. If the swap can't be done you'll be told before
+anything is replaced.
 
 ## Start it with Windows
 
