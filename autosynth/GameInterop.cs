@@ -21,6 +21,10 @@ internal static class GameInterop
     static bool _obfResolved;
     static Exception _resolveError;
     static PropertyInfo _pRecipeType, _pInnerButton, _pIsOn, _pCubeItemData, _pItemInfoData;
+    static PropertyInfo _pRecipeSlotType, _pInvSlotItem, _pInvItemInfo;
+    static PropertyInfo _pCubeSourceType, _pCubeUniqueId;
+    static Type _tSlotRef;
+    static MethodInfo _mExecuteSlotAction, _mBuildSlotContext, _mDestinationOfAction;
     static PropertyInfo _pRuneNodeSave, _pRuneLevelCost, _pRuneSaveLevel;
     static PropertyInfo[] _pRuneNodeLevelInfos;
     static MethodInfo _mRuneTooltipBind, _mSubRecipeOpen, _mSubRecipeLearned;
@@ -366,6 +370,11 @@ internal static class GameInterop
             : null;
         _mRuneTooltipBind = PreferMethod(
             "RuneTooltip.bind(RuneNode)", Methods(typeof(RuneTooltip), typeof(void), typeof(RuneNode)));
+        _pRecipeSlotType = OnlyProp(typeof(MainRecipeSlotButton), typeof(ERecipeType), true);
+        _pCubeSourceType = OnlyProp(typeof(CubeInData), typeof(ECubeDataType), true);
+        _pCubeUniqueId = OnlyProp(typeof(CubeInData), typeof(ulong), true);
+        ResolveInventoryItem();
+        ResolveSlotInteraction();
         _mSubRecipeActions = SubRecipeActions();
         _mSubRecipeOpen = PreferMethod(
             "ComboBoxButton.open(bool)", Methods(typeof(ComboBoxButton), typeof(void), typeof(bool)));
@@ -389,7 +398,13 @@ internal static class GameInterop
             $"runeLevelInfo=[{string.Join(",", Array.ConvertAll(_mRuneLevelInfo, m => m.Name))}], " +
             $"boxInv={(_boxInvType != null ? _boxInvType.Name : "null")}, " +
             $"boxCount=[{string.Join(",", Array.ConvertAll(_mBoxCount ?? Array.Empty<MethodInfo>(), m => m.Name))}], " +
-            $"accountStatus={PName(_pAccountStatus)}, accountValue={MName(_mAccountStatusValue)}");
+            $"accountStatus={PName(_pAccountStatus)}, accountValue={MName(_mAccountStatusValue)}, " +
+            $"recipeSlotType={PName(_pRecipeSlotType)}, invSlotItem={PName(_pInvSlotItem)}, " +
+            $"invItemInfo={PName(_pInvItemInfo)}, " +
+            $"cubeSourceType={PName(_pCubeSourceType)}, cubeUniqueId={PName(_pCubeUniqueId)}, " +
+            $"slotRef={(_tSlotRef != null ? _tSlotRef.Name : "null")}, " +
+            $"execSlotAction={MName(_mExecuteSlotAction)}, buildSlotCtx={MName(_mBuildSlotContext)}, " +
+            $"actionDest={MName(_mDestinationOfAction)}");
 
         if (_pRecipeType == null || _pInnerButton == null || _pIsOn == null || _pCubeItemData == null)
         {
@@ -690,6 +705,340 @@ internal static class GameInterop
         catch (Exception e)
         {
             AutoSynthPlugin.Logger.LogWarning($"{name}: game click threw ({e.GetType().Name}: {e.Message})");
+        }
+    }
+
+    // InventorySlot holds the live item in one obfuscated-type property; that type is
+    // the only one of the slot's properties exposing a read-only ItemInfoData. Both
+    // hops are found by shape, so a patch that renames them costs nothing.
+    static void ResolveInventoryItem()
+    {
+        _pInvSlotItem = null;
+        _pInvItemInfo = null;
+        foreach (var p in typeof(InventorySlot).GetProperties(DeclInstance))
+        {
+            var holder = p.PropertyType;
+            if (holder == null || holder.IsValueType || holder == typeof(string)) continue;
+            PropertyInfo info = null;
+            foreach (var q in holder.GetProperties(DeclInstance))
+            {
+                if (q.PropertyType != typeof(ItemInfoData) || q.CanWrite) continue;
+                if (info != null) { info = null; break; } // ambiguous, not this one
+                info = q;
+            }
+            if (info == null) continue;
+            _pInvSlotItem = p;
+            _pInvItemInfo = info;
+            return;
+        }
+        AutoSynthPlugin.Logger.LogWarning(
+            "interop resolve: no InventorySlot property leading to ItemInfoData; alchemy is disabled");
+    }
+
+    // The item shown in an inventory slot, or null when the slot is empty.
+    internal static ItemInfoData InventoryItemInfo(InventorySlot slot)
+    {
+        Resolve();
+        if (slot == null || _pInvSlotItem == null || _pInvItemInfo == null) return null;
+        try
+        {
+            var item = _pInvSlotItem.GetValue(slot);
+            return item != null ? _pInvItemInfo.GetValue(item) as ItemInfoData : null;
+        }
+        catch { return null; }
+    }
+
+    internal static bool CanReadInventoryItems => _pInvSlotItem != null && _pInvItemInfo != null;
+
+    internal static ERecipeType MainRecipeTypeOf(MainRecipeSlotButton slot)
+    {
+        Resolve();
+        if (slot == null || _pRecipeSlotType == null) return ERecipeType.NONE;
+        try { return (ERecipeType)_pRecipeSlotType.GetValue(slot); }
+        catch { return ERecipeType.NONE; }
+    }
+
+    static MainRecipeSlotButton FindMainRecipeEntry(ERecipeType type, out int total)
+    {
+        var slots = Object.FindObjectsOfType<MainRecipeSlotButton>(true);
+        total = slots.Length;
+        foreach (var slot in slots)
+        {
+            if (slot == null || MainRecipeTypeOf(slot) != type) continue;
+            return slot;
+        }
+        return null;
+    }
+
+    // Picks a recipe (Alchemy / Synthesis / ...) from the Cube's main recipe dropdown.
+    // Returns true only once the entry reports itself selected, because clicking an
+    // entry the dropdown has not initialised yet silently does nothing — callers keep
+    // ticking until this confirms, so a no-op click is never mistaken for a switch.
+    internal static bool TrySelectMainRecipe(ERecipeType type, out string detail)
+    {
+        detail = null;
+        try
+        {
+            Resolve();
+            int total;
+            var target = FindMainRecipeEntry(type, out total);
+            if (target == null)
+            {
+                detail = $"no main recipe entry for {type} yet ({total} entr(ies) in scene)";
+                return false;
+            }
+            if (target.m_isLocked)
+            {
+                detail = $"the {type} recipe is locked in-game";
+                return false;
+            }
+            if (target.m_isSelected)
+            {
+                detail = $"the {type} recipe is selected";
+                return true;
+            }
+            var button = target.m_clickButton;
+            if (button == null || button.onClick == null)
+            {
+                detail = $"the {type} recipe entry has no click button";
+                return false;
+            }
+            button.onClick.Invoke();
+            detail = $"clicked the {type} recipe entry, waiting for it to take";
+            return false;
+        }
+        catch (Exception e)
+        {
+            detail = "recipe select threw: " + e.Message;
+            return false;
+        }
+    }
+
+    // Lists what actually sits on an inventory slot, so a click that goes nowhere can
+    // be traced to the component that really handles it instead of being guessed at.
+    internal static void DumpSlotComponents(Component slot)
+    {
+        try
+        {
+            if (slot == null) return;
+            Transform t = slot.transform;
+            for (int depth = 0; t != null && depth < 3; t = t.parent, depth++)
+            {
+                var names = new List<string>();
+                foreach (var c in t.GetComponents<Component>())
+                {
+                    if (c == null) { names.Add("null"); continue; }
+                    try { names.Add(c.GetIl2CppType().Name); }
+                    catch { names.Add("?"); }
+                }
+                AutoSynthPlugin.Logger.LogInfo(
+                    $"dump: slot ancestor {depth} '{t.name}' -> [{string.Join(",", names)}]");
+            }
+        }
+        catch (Exception e)
+        {
+            AutoSynthPlugin.Logger.LogWarning("dump slot components failed: " + e.Message);
+        }
+    }
+
+    internal static void DumpMainRecipes()
+    {
+        try
+        {
+            Resolve();
+            var slots = Object.FindObjectsOfType<MainRecipeSlotButton>(true);
+            AutoSynthPlugin.Logger.LogInfo($"dump: {slots.Length} main recipe entr(ies)");
+            foreach (var slot in slots)
+            {
+                if (slot == null) continue;
+                var text = slot.m_text != null ? slot.m_text.text : "(no text)";
+                AutoSynthPlugin.Logger.LogInfo(
+                    $"dump: recipe {MainRecipeTypeOf(slot)} '{text}' locked={slot.m_isLocked} " +
+                    $"selected={slot.m_isSelected} active={slot.gameObject.activeInHierarchy}");
+            }
+        }
+        catch (Exception e)
+        {
+            AutoSynthPlugin.Logger.LogWarning("dump main recipes failed: " + e.Message);
+        }
+    }
+
+    // Leaves no dropdown hanging over the inventory after a recipe switch.
+    internal static void CloseComboBox(ComboBoxButton combo, string name)
+    {
+        SetComboBox(combo, name, false);
+    }
+
+    // A dropdown entry only reacts once its list has been opened at least once.
+    internal static void OpenComboBox(ComboBoxButton combo, string name)
+    {
+        SetComboBox(combo, name, true);
+    }
+
+    static void SetComboBox(ComboBoxButton combo, string name, bool open)
+    {
+        try
+        {
+            var dropdown = combo != null ? combo.m_comboBoxObject : null;
+            if (dropdown == null || dropdown.activeInHierarchy == open) return;
+            Click(combo, name, false);
+        }
+        catch { }
+    }
+
+    // Whether a cube slot holds anything. ItemKey alone is not enough: a stackable
+    // material carries one, but a piece of gear — what alchemy consumes — is a unique
+    // instance identified by its id, so the slot's source type is the real signal.
+    internal static bool CubeSlotOccupied(CubeInData data)
+    {
+        if (data == null) return false;
+        Resolve();
+        if (_pCubeSourceType != null)
+        {
+            try { return (ECubeDataType)_pCubeSourceType.GetValue(data) != ECubeDataType.None; }
+            catch { }
+        }
+        try { if (CubeItemKey(data) > 0) return true; }
+        catch { }
+        if (_pCubeUniqueId != null)
+        {
+            try { return (ulong)_pCubeUniqueId.GetValue(data) != 0UL; }
+            catch { }
+        }
+        return false;
+    }
+
+    // How many cube slots currently hold an item, and how many slots exist.
+    internal static int CubeFilledCount(UI_Cube cube, out int slotCount)
+    {
+        slotCount = 0;
+        if (cube == null) return 0;
+        var setter = cube.m_cubeSlotSetter;
+        var slots = setter != null ? setter.m_cubeInventorySlots : null;
+        if (slots == null) return 0;
+        slotCount = slots.Count;
+        int filled = 0;
+        for (int i = 0; i < slots.Count; i++)
+        {
+            var data = slots[i] != null ? slots[i]._cubeData : null;
+            if (CubeSlotOccupied(data)) filled++;
+        }
+        return filled;
+    }
+
+    // The game routes every slot interaction through SlotInteractionManager: a context
+    // describing what was clicked, and a SlotActionResult saying what to do with it.
+    // Driving that directly beats faking pointer events — ItemSlot's own click hooks
+    // start a drag that a synthetic release never ends, leaving the player holding the
+    // item. SlotActionContext/SlotActionResult/ESlotAction keep their real names, so
+    // only the three manager methods have to be found by signature.
+    static void ResolveSlotInteraction()
+    {
+        _tSlotRef = null;
+        _mExecuteSlotAction = null;
+        _mBuildSlotContext = null;
+        _mDestinationOfAction = null;
+        foreach (var m in typeof(SlotInteractionManager).GetMethods(DeclInstance))
+        {
+            if (m.IsSpecialName) continue;
+            var ps = m.GetParameters();
+            if (m.ReturnType == typeof(void) && ps.Length == 3
+                && ps[0].ParameterType == typeof(SlotActionResult)
+                && ps[2].ParameterType == typeof(SlotActionContext))
+            {
+                _mExecuteSlotAction = m;
+                _tSlotRef = ps[1].ParameterType;
+            }
+            else if (m.ReturnType == typeof(SlotActionContext) && ps.Length == 3
+                && ps[1].ParameterType == typeof(bool) && ps[2].ParameterType == typeof(ulong))
+            {
+                _mBuildSlotContext = m;
+            }
+            else if (m.ReturnType == typeof(ESlotType) && ps.Length == 1
+                && ps[0].ParameterType == typeof(ESlotAction))
+            {
+                _mDestinationOfAction = m;
+            }
+        }
+    }
+
+    internal static bool CanMoveItemsToCube
+        => _mExecuteSlotAction != null && _tSlotRef != null;
+
+    // Hands the slot to the game as the interface type its own code passes around.
+    static object SlotRef(Component slot)
+    {
+        if (_tSlotRef == null || slot == null) return null;
+        return Activator.CreateInstance(_tSlotRef, new object[] { slot.Pointer });
+    }
+
+    // Moves one inventory item into the open cube by running the game's own
+    // MoveToCube slot action. No pointer events, so no drag can be left dangling.
+    internal static bool TryMoveItemToCube(InventorySlot slot, out string detail)
+    {
+        detail = null;
+        try
+        {
+            Resolve();
+            if (!CanMoveItemsToCube)
+            {
+                detail = "the slot action API is missing on this game build";
+                return false;
+            }
+            if (slot == null || !slot.gameObject.activeInHierarchy)
+            {
+                detail = "slot is null or inactive";
+                return false;
+            }
+            var manager = Object.FindObjectOfType<SlotInteractionManager>(true);
+            if (manager == null)
+            {
+                detail = "SlotInteractionManager is not in the scene";
+                return false;
+            }
+
+            var slotRef = SlotRef(slot);
+            if (slotRef == null)
+            {
+                detail = "could not wrap the slot";
+                return false;
+            }
+
+            // Let the game build the context so Item / SlotType / SlotIndex are filled
+            // the way its own handlers do, then mark it as the right click.
+            SlotActionContext context;
+            if (_mBuildSlotContext != null)
+                context = (SlotActionContext)_mBuildSlotContext.Invoke(
+                    manager, new object[] { slotRef, false, 0UL });
+            else
+            {
+                context = new SlotActionContext();
+                context.SlotType = ESlotType.INVENTORY;
+                context.SlotIndex = slot.index;
+            }
+            context.IsRightClick = true;
+            context.IsJustHover = false;
+
+            var destination = _mDestinationOfAction != null
+                ? (ESlotType)_mDestinationOfAction.Invoke(manager, new object[] { ESlotAction.MoveToCube })
+                : ESlotType.CUBEINVENTORY;
+
+            var result = new SlotActionResult
+            {
+                Action = ESlotAction.MoveToCube,
+                DestinationSlotType = destination,
+                AllowTabSwitch = false,
+            };
+
+            _mExecuteSlotAction.Invoke(manager, new object[] { result, slotRef, context });
+            detail = $"MoveToCube -> {destination}";
+            return true;
+        }
+        catch (Exception e)
+        {
+            var baseEx = e.GetBaseException();
+            detail = $"MoveToCube threw ({baseEx.GetType().Name}: {baseEx.Message})";
+            return false;
         }
     }
 
