@@ -93,7 +93,7 @@ destroys anything.
 | `MaxAlchemyGrade` | 2 | Highest rarity the Alchemy phase may melt (same scale as `MaxGrade`) |
 | `MaxAlchemyBatchesPerCycle` | 5 | Safety cap on alchemy operations (9 items each) per cycle |
 | `AlchemyProtectedItemKeys` | *(empty)* | Comma-separated item keys the Alchemy phase must never melt |
-| `AfterAlchemyClickSeconds` | 0.35 | Delay between successive inventory clicks while filling the Alchemy cube |
+| `AfterAlchemyClickSeconds` | 0.35 | Delay between successive items while filling the Alchemy cube |
 | `SynthesisTypes` | Equipment,Materials,Accessories | Which item types to synthesize; the loop rotates through them each round. e.g. `Equipment,Materials` to skip accessories. |
 | `DesiredLevel` | 0 | Target synthesis recipe. `0` = highest unlocked (default). Otherwise the lower bound of an in-game bracket from the companion Target level dropdown (`1`=`Lv.1~10` … `65`=`Lv.65~80`). If that bracket is locked, uses the highest unlocked bracket with `lo ≤ DesiredLevel`. |
 | `MaxGrade` | 3 | Highest rarity the loop may synthesize (0=Common, 1=Uncommon, 2=Rare, 3=Legendary, 4=Immortal, …). Cycles holding anything above this are skipped. |

@@ -8,9 +8,9 @@ using UnityEngine;
 namespace TbhAutoSynth;
 
 // Owns the Alchemy phase: pick the Alchemy recipe on the Cube's main dropdown,
-// left-click low-level inventory items into the cube, run the alchemy, repeat for
-// as long as eligible items remain, then hand the cube back on the Synthesis
-// recipe so the Cube phase finds it the way it left it.
+// send low-level inventory gear into the cube, run the alchemy, repeat for as
+// long as eligible items remain, then hand the cube back on the Synthesis recipe
+// so the Cube phase finds it the way it left it.
 //
 // Eligibility is deliberately narrow: gear only, unlocked, item level strictly
 // below AlchemyLevelThreshold, grade at or below MaxAlchemyGrade, and not in
@@ -26,7 +26,7 @@ internal sealed class AlchemyRunner
     private const int MaxItemsPerBatch = 9;
     private const int MaxRecipeAttempts = 8;
     private const int MaxConfirmAttempts = 4;
-    // Consecutive clicks that failed to land in a cube slot before the batch is cut.
+    // Items the game refused in a row before the batch is cut short.
     private const int MaxRejects = 5;
 
     private Step _step;
@@ -35,23 +35,16 @@ internal sealed class AlchemyRunner
     private int _confirmAttempts;
     private int _batches;
     private int _rejects;
-    private int _clickedThisBatch;
+    private int _batchItemCount;
     private int _alchemizedThisCycle;
-    private int _filledBeforeClick = -1;
-    private int _pendingSlot = -1;
-    private InventorySlot _pendingSlotObject;
-    private bool _dumpedSlot;
+    private int _filledBeforeAdd = -1;
     private float _phaseEnteredAt;
     private UI_Hero _hero;
     private bool _recipeSwitched;
-    // Inventory position -> clicks spent on it this batch. A slot is retired once it
-    // lands in the cube or every click strategy has been tried on it, so the probe
-    // gets a shot with each strategy before an item is written off as refused.
-    private readonly Dictionary<int, int> _slotTries = new Dictionary<int, int>();
-
-    // MoveToCube is a toggle, so a second attempt on the same item would pull it back
-    // out of the cube. One attempt each, and the game gets the final say.
-    private const int MaxTriesPerSlot = 1;
+    // Inventory positions already offered to the cube this batch. MoveToCube is a
+    // toggle, so a second attempt on the same item would pull it back out — one try
+    // each, and the game gets the final say on whether it lands.
+    private readonly HashSet<int> _offeredSlots = new HashSet<int>();
 
     internal int LastAlchemized { get; private set; }
 
@@ -83,7 +76,6 @@ internal sealed class AlchemyRunner
         _confirmAttempts = 0;
         _batches = 0;
         _alchemizedThisCycle = 0;
-        _dumpedSlot = false;
         _recipeSwitched = false;
         _hero = null;
         BeginBatch();
@@ -92,11 +84,9 @@ internal sealed class AlchemyRunner
     private void BeginBatch()
     {
         _rejects = 0;
-        _clickedThisBatch = 0;
-        _filledBeforeClick = -1;
-        _pendingSlot = -1;
-        _pendingSlotObject = null;
-        _slotTries.Clear();
+        _batchItemCount = 0;
+        _filledBeforeAdd = -1;
+        _offeredSlots.Clear();
     }
 
     internal TickResult Tick(UI_Cube cube, bool loud, out float nextDelay)
@@ -194,29 +184,13 @@ internal sealed class AlchemyRunner
         int filled = GameInterop.CubeFilledCount(cube, out slotCount);
         int capacity = slotCount > 0 ? Math.Min(slotCount, MaxItemsPerBatch) : MaxItemsPerBatch;
 
-        // Did the previous click actually land? The answer also tells GameInterop
-        // whether it is invoking the right ItemSlot click handler.
-        if (_filledBeforeClick >= 0)
+        // Did the item the last tick offered actually land? An item the game refuses
+        // (wrong type for the recipe, blocked, reserved) simply never shows up.
+        if (_filledBeforeAdd >= 0)
         {
-            if (filled > _filledBeforeClick)
-                _rejects = 0;
-            else
-            {
-                _rejects++;
-                // First miss of the phase: record what the slot is actually built from,
-                // so a refusal can be told apart from a wiring problem.
-                if (!_dumpedSlot && _pendingSlotObject != null)
-                {
-                    _dumpedSlot = true;
-                    AutoSynthPlugin.Logger.LogWarning(
-                        "alchemy: the item did not reach the cube — dumping the slot's components");
-                    GameInterop.DumpSlotComponents(_pendingSlotObject);
-                }
-            }
-            _slotTries[_pendingSlot] = MaxTriesPerSlot; // one attempt per item, either way
-            _filledBeforeClick = -1;
-            _pendingSlot = -1;
-            _pendingSlotObject = null;
+            if (filled > _filledBeforeAdd) _rejects = 0;
+            else _rejects++;
+            _filledBeforeAdd = -1;
         }
 
         if (filled >= capacity)
@@ -228,8 +202,8 @@ internal sealed class AlchemyRunner
         if (_rejects >= MaxRejects)
         {
             AutoSynthPlugin.Logger.LogWarning(
-                $"alchemy fill: {MaxRejects} click(s) in a row did not reach the cube " +
-                $"(the game refused them) — closing this batch with {filled} item(s)");
+                $"alchemy fill: the game refused {MaxRejects} item(s) in a row — " +
+                $"closing this batch with {filled} item(s)");
             _step = filled > 0 ? Step.Trigger : Step.Restore;
             return TickResult.InProgress;
         }
@@ -256,26 +230,18 @@ internal sealed class AlchemyRunner
             return TickResult.InProgress;
         }
 
-        int tries;
-        _slotTries.TryGetValue(position, out tries);
-        _slotTries[position] = tries + 1;
-
+        _offeredSlots.Add(position);
         string label = $"'{info.NameKey}' key={info.ItemKey} lv={info.Level} grade={info.GRADE}";
         if (AutoSynthPlugin.AlchemyDryRun)
         {
-            _slotTries[position] = MaxTriesPerSlot;
             AutoSynthPlugin.Logger.LogInfo($"alchemy dry run: would melt {label}");
             return TickResult.InProgress;
         }
 
         AutoSynthPlugin.Logger.LogInfo($"alchemy: adding {label}");
-        _filledBeforeClick = filled;
-        _pendingSlot = position;
-        _pendingSlotObject = slot;
+        _filledBeforeAdd = filled;
         string moveDetail;
-        if (GameInterop.TryMoveItemToCube(slot, out moveDetail))
-            _clickedThisBatch++;
-        else
+        if (!GameInterop.TryMoveItemToCube(slot, out moveDetail))
             AutoSynthPlugin.Logger.LogWarning($"alchemy: slot {position} — {moveDetail}");
         return TickResult.InProgress;
     }
@@ -294,6 +260,9 @@ internal sealed class AlchemyRunner
             _step = Step.Restore;
             return TickResult.InProgress;
         }
+        // What is in the cube now is what the operation consumes — items the game
+        // refused never made it here, so this is the only honest count.
+        _batchItemCount = filled;
         AutoSynthPlugin.Logger.LogInfo($"alchemy: running batch {_batches + 1} with {filled} item(s)");
         GameInterop.Click(cube.toggleButton_Trigger, "alchemy trigger", loud);
         _confirmAttempts = 0;
@@ -310,7 +279,7 @@ internal sealed class AlchemyRunner
         bool open = panel != null && panel.activeInHierarchy;
         if (!open)
         {
-            _alchemizedThisCycle += _clickedThisBatch;
+            _alchemizedThisCycle += _batchItemCount;
             _batches++;
             _step = Step.Settle;
             nextDelay = AutoSynthPlugin.AfterSynthDelay;
@@ -435,8 +404,7 @@ internal sealed class AlchemyRunner
         if (slots == null) return false;
         for (int i = 0; i < slots.Count; i++)
         {
-            int tries;
-            if (_slotTries.TryGetValue(i, out tries) && tries >= MaxTriesPerSlot) continue;
+            if (_offeredSlots.Contains(i)) continue;
             var candidate = slots[i];
             if (candidate == null || !candidate.gameObject.activeInHierarchy) continue;
             var item = GameInterop.InventoryItemInfo(candidate);

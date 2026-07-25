@@ -814,33 +814,6 @@ internal static class GameInterop
         }
     }
 
-    // Lists what actually sits on an inventory slot, so a click that goes nowhere can
-    // be traced to the component that really handles it instead of being guessed at.
-    internal static void DumpSlotComponents(Component slot)
-    {
-        try
-        {
-            if (slot == null) return;
-            Transform t = slot.transform;
-            for (int depth = 0; t != null && depth < 3; t = t.parent, depth++)
-            {
-                var names = new List<string>();
-                foreach (var c in t.GetComponents<Component>())
-                {
-                    if (c == null) { names.Add("null"); continue; }
-                    try { names.Add(c.GetIl2CppType().Name); }
-                    catch { names.Add("?"); }
-                }
-                AutoSynthPlugin.Logger.LogInfo(
-                    $"dump: slot ancestor {depth} '{t.name}' -> [{string.Join(",", names)}]");
-            }
-        }
-        catch (Exception e)
-        {
-            AutoSynthPlugin.Logger.LogWarning("dump slot components failed: " + e.Message);
-        }
-    }
-
     internal static void DumpMainRecipes()
     {
         try
@@ -889,7 +862,7 @@ internal static class GameInterop
     // Whether a cube slot holds anything. ItemKey alone is not enough: a stackable
     // material carries one, but a piece of gear — what alchemy consumes — is a unique
     // instance identified by its id, so the slot's source type is the real signal.
-    internal static bool CubeSlotOccupied(CubeInData data)
+    static bool CubeSlotOccupied(CubeInData data)
     {
         if (data == null) return false;
         Resolve();

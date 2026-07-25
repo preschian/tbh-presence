@@ -177,7 +177,7 @@ public class AutoSynthPlugin : BasePlugin
             "buttons (Normal / Boss / ActBoss) to open accumulated chests. Does not touch the " +
             "game's built-in auto-open toggle.");
         _afterAlchemyE = Config.Bind("Timing", "AfterAlchemyClickSeconds", 0.35f,
-            "Delay between successive inventory clicks while filling the Alchemy cube");
+            "Delay between successive items while filling the Alchemy cube");
         _autoAlchemyE = Config.Bind("General", "AutoAlchemy", false,
             "Before the Cube phase, select the Cube's Alchemy recipe and melt low-level gear " +
             "from the inventory, 9 items per operation. " +
