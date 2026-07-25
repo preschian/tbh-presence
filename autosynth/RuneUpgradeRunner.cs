@@ -22,6 +22,9 @@ internal sealed class RuneUpgradeRunner
     private const int MaxOpenAttempts = 6;
     private const float OpenTimeoutSeconds = 60f;
     private const int SoftAwaitTicks = 6; // ~ several AfterRuneUpgradeDelay windows
+    // HUD gold is abbreviated ("1.31B"), so the pre-check budget gets 2% of slack:
+    // opening the panel needlessly is cheap, skipping an affordable rune is not.
+    private const int GoldSlackPercent = 2;
 
     private readonly Action<ButtonBase, string, bool> _click;
     private readonly HashSet<int> _skipKeys = new HashSet<int>();
@@ -47,6 +50,7 @@ internal sealed class RuneUpgradeRunner
     private bool _pendingCounted;   // counted via gold drop while still awaiting level
     private int _awaitLevelTicks;
     private string _lastName = "";
+    private bool _prechecked;
 
     internal int UpgradesThisCycle => _upgradesThisCycle;
     internal int LastUpgrades { get; private set; }
@@ -61,6 +65,7 @@ internal sealed class RuneUpgradeRunner
         _phaseEnteredAt = Time.unscaledTime;
         _loggedOpenFailed = false;
         _lastName = "";
+        _prechecked = false;
     }
 
     internal void ResetSession()
@@ -100,6 +105,20 @@ internal sealed class RuneUpgradeRunner
         var runeUi = FindRuneUi();
         if (!IsOpen(runeUi))
         {
+            // Decide from the rune table before touching the UI: if nothing is
+            // affordable the panel never opens, so no open/close churn at all.
+            if (!_prechecked)
+            {
+                _prechecked = true;
+                if (NothingToUpgrade(runeUi, out string reason))
+                {
+                    AutoSynthPlugin.Logger.LogInfo(
+                        $"rune phase: {reason} — leaving the panel closed");
+                    return Finish(loud);
+                }
+                if (loud && reason != null)
+                    AutoSynthPlugin.Logger.LogInfo($"rune pre-check: {reason}");
+            }
             if (!AutoSynthPlugin.AutoOpenRune)
             {
                 AutoSynthPlugin.Logger.LogWarning(
@@ -166,8 +185,11 @@ internal sealed class RuneUpgradeRunner
         if (!TryFindCheapestUpgradeable(page, gold, out var best, out var cost, out var key, out var level))
         {
             if (loud || _upgradesThisCycle == 0)
+            {
                 AutoSynthPlugin.Logger.LogInfo(
                     $"rune phase: no affordable upgrade (gold={gold}, upgrades so far={_upgradesThisCycle})");
+                LogBlockedNodes(page, gold);
+            }
             return Finish(loud);
         }
 
@@ -192,6 +214,134 @@ internal sealed class RuneUpgradeRunner
         _awaitLevelTicks = 0;
         nextDelay = Math.Max(0.75f, AutoSynthPlugin.AfterRuneUpgradeDelay);
         return TickResult.InProgress;
+    }
+
+    // The rune table says a level exists and gold covers it, yet the panel offers
+    // nothing: say which nodes the game itself refused and why, instead of leaving
+    // a bare "no affordable upgrade" behind.
+    private void LogBlockedNodes(RunePage page, long gold)
+    {
+        try
+        {
+            var list = page != null ? page.m_listRuneNode : null;
+            if (list == null) return;
+            int shown = 0;
+            for (int i = 0; i < list.Count && shown < 8; i++)
+            {
+                var node = list[i];
+                if (node == null) continue;
+                int level = RuneLevel(node);
+                if (level < 0) continue;
+                int cost = GameInterop.RuneCostAt(node.m_runeKey, level + 1);
+                if (cost <= 0 || cost > gold) continue;
+                var btn = node.m_levelUpButton;
+                string reason =
+                    _skipKeys.Contains(node.m_runeKey) ? "skipped earlier this cycle"
+                    : !node.isActiveAndEnabled ? "node inactive"
+                    : btn == null ? "no level-up button"
+                    : !btn.gameObject.activeInHierarchy ? "level-up button hidden"
+                    : !btn.interactable ? "level-up button locked by the game"
+                    : "unknown";
+                AutoSynthPlugin.Logger.LogInfo(
+                    $"rune blocked: key={node.m_runeKey} lv={level} nextCost={cost} — {reason}");
+                shown++;
+            }
+        }
+        catch (Exception e)
+        {
+            AutoSynthPlugin.Logger.LogWarning("rune blocked-node report failed: " + e.Message);
+        }
+    }
+
+    // Pre-check run while the panel is still closed. RuneNode/RunePage live on an
+    // inactive object once the page has been built at least once, so levels and
+    // costs are readable without showing anything. Anything unknown answers false
+    // (open the panel) — this may only skip work it can prove is pointless.
+    private bool NothingToUpgrade(UI_Rune runeUi, out string reason)
+    {
+        reason = null;
+        try
+        {
+            var page = runeUi != null ? runeUi.m_runePage : null;
+            var list = page != null ? page.m_listRuneNode : null;
+            if (list == null || list.Count == 0)
+            {
+                reason = "rune nodes not built yet, opening to look";
+                return false;
+            }
+
+            long gold = ReadGoldAnySource(page);
+            if (gold < 0)
+            {
+                reason = "gold unreadable while closed, opening to look";
+                return false;
+            }
+
+            int cheapest = int.MaxValue;
+            int upgradeable = 0;
+            int lockedOut = 0;
+            int known = 0;
+            int visible = 0;
+            for (int i = 0; i < list.Count; i++)
+            {
+                var node = list[i];
+                if (node == null) continue;
+                int level = RuneLevel(node);
+                if (level < 0) continue;
+                known++;
+                if (ShowsWhenPanelOpens(node, page)) visible++;
+                int cost = GameInterop.RuneCostAt(node.m_runeKey, level + 1);
+                if (cost <= 0) continue;
+                if (!ShowsWhenPanelOpens(node, page)) { lockedOut++; continue; }
+                upgradeable++;
+                if (cost < cheapest) cheapest = cost;
+            }
+
+            string tally = $"[{visible}/{known} runes unlocked]";
+
+            if (upgradeable == 0)
+            {
+                reason = lockedOut > 0
+                    ? $"the only rune(s) with a next level are still locked ({lockedOut}) {tally}"
+                    : $"every rune is at max level {tally}";
+                return true;
+            }
+
+            long budget = gold + gold / (100 / GoldSlackPercent);
+            if (cheapest > budget)
+            {
+                reason = $"cheapest rune costs {cheapest}, gold {gold} {tally}";
+                return true;
+            }
+
+            reason = $"{upgradeable} rune(s) have a next level, cheapest {cheapest} vs gold {gold} {tally}";
+            return false;
+        }
+        catch (Exception e)
+        {
+            reason = "pre-check failed (" + e.Message + "), opening to look";
+            return false;
+        }
+    }
+
+    // isActiveAndEnabled is useless while the panel is hidden — every node reads
+    // inactive through its parents. activeSelf up to the page root answers the
+    // question that matters: will this node be there once the panel opens?
+    private static bool ShowsWhenPanelOpens(RuneNode node, RunePage page)
+    {
+        var stop = page != null ? page.transform : null;
+        for (Transform t = node.transform; t != null && t != stop; t = t.parent)
+            if (!t.gameObject.activeSelf) return false;
+        return true;
+    }
+
+    // Panel gold label first, stage HUD second, and the larger wins: gold only
+    // grows, so a stale label reads low and must never veto an affordable upgrade.
+    private static long ReadGoldAnySource(RunePage page)
+    {
+        long fromPage = ReadGold(page);
+        long fromHud = ParseGoldText(GameInterop.HeroGoldText());
+        return fromPage > fromHud ? fromPage : fromHud;
     }
 
     private TickResult Finish(bool loud)
@@ -364,8 +514,7 @@ internal sealed class RuneUpgradeRunner
         {
             if (level >= 0)
             {
-                var next = GameInterop.LookupRuneLevelInfo(key, level + 1);
-                int cost = GameInterop.RuneLevelCost(next);
+                int cost = GameInterop.RuneCostAt(key, level + 1);
                 if (cost > 0) return cost;
             }
         }
@@ -393,8 +542,7 @@ internal sealed class RuneUpgradeRunner
             return false;
         int level = RuneLevel(node);
         if (level < 0) return false;
-        var next = GameInterop.LookupRuneLevelInfo(node.m_runeKey, level + 1);
-        return GameInterop.RuneLevelCost(next) > 0;
+        return GameInterop.RuneCostAt(node.m_runeKey, level + 1) > 0;
     }
 
     private static RuneNode FindRuneNode(RunePage page, int key)
@@ -512,7 +660,13 @@ internal sealed class RuneUpgradeRunner
             }
             long gold = ReadGold(page);
             string goldRaw = page.m_goldText != null ? page.m_goldText.text : "(null)";
-            AutoSynthPlugin.Logger.LogInfo($"dump: goldParsed={gold} goldText='{goldRaw}'");
+            string hudRaw = GameInterop.HeroGoldText() ?? "(null)";
+            AutoSynthPlugin.Logger.LogInfo(
+                $"dump: goldParsed={gold} goldText='{goldRaw}' " +
+                $"hudGoldParsed={ParseGoldText(GameInterop.HeroGoldText())} hudGoldText='{hudRaw}'");
+            bool skip = NothingToUpgrade(runeUi, out string why);
+            AutoSynthPlugin.Logger.LogInfo(
+                $"dump: pre-check would {(skip ? "SKIP" : "OPEN")} — {why}");
             var list = page.m_listRuneNode;
             if (list == null)
             {

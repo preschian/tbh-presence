@@ -17,7 +17,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.29.0";
+    internal const string Version = "0.30.0";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;

@@ -75,6 +75,25 @@ candidate. `AlchemyLevelThreshold = 0` (the default) means nothing is eligible.
 the items it *would* melt to the log, so you can check the threshold before it
 destroys anything.
 
+## Runes
+
+The Rune phase repeatedly buys the cheapest affordable level-up until gold runs
+out or `MaxRuneUpgradesPerCycle` is reached, then closes the panel.
+
+Before any of that it checks the rune table while the panel is still **closed**:
+rune levels, the cost of each next level, and your gold are all readable without
+showing anything. When every unlocked rune is maxed, or the cheapest next level
+costs more than you have, the phase ends there and the panel is never opened —
+no menu flicker, and nothing for you to click back out of. The reason lands in
+the log, e.g.:
+
+```
+rune phase: every rune is at max level [196/197 runes unlocked] — leaving the panel closed
+```
+
+Runes still locked in the tree are ignored by that check: their next level exists
+in the game's data, but the panel would not let anyone buy it.
+
 ## Config
 
 `<game>\BepInEx\config\com.pres.tbh.autosynth.cfg` (created on first run):

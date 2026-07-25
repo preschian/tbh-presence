@@ -37,6 +37,12 @@ internal static class GameInterop
     static MethodInfo _mBoxCountLearned;
     static MethodInfo _mAccountStatusValue;
     static bool _runeMenuFallbackLogged;
+    static MethodInfo _mRuneLevelInfoLearned;
+    static object _dbInstance;
+    static UI_Hero _uiHero;
+    // (runeKey, level) -> gold cost, -1 when the level does not exist. The rune
+    // table is static data, so a hit here replaces a full DB lookup.
+    static readonly Dictionary<long, int> _runeCostCache = new Dictionary<long, int>();
 
     const BindingFlags DeclInstance =
         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
@@ -419,14 +425,19 @@ internal static class GameInterop
     static string PName(PropertyInfo p) => p != null ? p.Name : "null";
     static string MName(MethodInfo m) => m != null ? m.Name : "null";
 
+    // Cached: Resources.FindObjectsOfTypeAll walks every loaded object, so calling
+    // it per lookup froze the game for seconds during a rune scan. The DB is a
+    // scene-independent asset; callers drop the cache if a wrapper ever goes stale.
     static object DbInstance()
     {
         Resolve();
         if (_dbType == null) return null;
+        if (_dbInstance != null) return _dbInstance;
         var t = Il2CppInterop.Runtime.Il2CppType.From(_dbType);
         var all = UnityEngine.Resources.FindObjectsOfTypeAll(t);
         if (all == null || all.Length == 0) return null;
-        return Activator.CreateInstance(_dbType, new object[] { all[0].Pointer });
+        _dbInstance = Activator.CreateInstance(_dbType, new object[] { all[0].Pointer });
+        return _dbInstance;
     }
 
     internal static ERecipeType RecipeTypeOf(SubRecipeComboBoxButton c)
@@ -1026,6 +1037,8 @@ internal static class GameInterop
 
     // Several (int,int)->RuneLevelInfoData methods exist on the DB type; try each
     // until one returns a row (same fan-out as before, discovered by signature).
+    // The winner is remembered so later lookups skip the fan-out; a null result is
+    // legitimate (rune at max level) and must not unlearn it.
     internal static RuneLevelInfoData LookupRuneLevelInfo(int runeKey, int level)
     {
         try
@@ -1035,17 +1048,69 @@ internal static class GameInterop
             var db = DbInstance();
             if (db == null) return null;
             object[] args = { runeKey, level };
+
+            var learned = _mRuneLevelInfoLearned;
+            if (learned != null)
+            {
+                try
+                {
+                    var hit = learned.Invoke(db, args) as RuneLevelInfoData;
+                    if (hit != null) return hit;
+                }
+                catch
+                {
+                    // Wrapper or method went stale (scene reload): re-resolve once.
+                    _mRuneLevelInfoLearned = null;
+                    _dbInstance = null;
+                    db = DbInstance();
+                    if (db == null) return null;
+                }
+            }
+
             foreach (var m in _mRuneLevelInfo)
             {
                 try
                 {
                     var r = m.Invoke(db, args) as RuneLevelInfoData;
-                    if (r != null) return r;
+                    if (r != null)
+                    {
+                        _mRuneLevelInfoLearned = m;
+                        return r;
+                    }
                 }
                 catch { }
             }
         }
         catch { }
         return null;
+    }
+
+    // Memoized gold cost of (runeKey, level); -1 when that level does not exist.
+    internal static int RuneCostAt(int runeKey, int level)
+    {
+        if (level < 0) return -1;
+        long cacheKey = ((long)runeKey << 20) | (uint)(level & 0xFFFFF);
+        if (_runeCostCache.TryGetValue(cacheKey, out int cached)) return cached;
+        int cost = RuneLevelCost(LookupRuneLevelInfo(runeKey, level));
+        if (cost <= 0) cost = -1;
+        _runeCostCache[cacheKey] = cost;
+        return cost;
+    }
+
+    // Stage HUD gold counter. Readable while the Rune panel is closed, which the
+    // rune pre-check needs; RunePage's own gold label can be stale until shown.
+    internal static string HeroGoldText()
+    {
+        try
+        {
+            if (_uiHero == null)
+            {
+                var um = Object.FindObjectOfType<UIManager>(true);
+                _uiHero = um != null ? um.Ui_Hero : null;
+            }
+            var text = _uiHero != null ? _uiHero.text_gold : null;
+            return text != null ? text.text : null;
+        }
+        catch { return null; }
     }
 }
