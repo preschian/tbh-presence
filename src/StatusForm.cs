@@ -89,11 +89,12 @@ namespace TbhCompanion
         WheelRedirectFilter _wheelFilter;
         Toggle _presenceToggle;
         Toggle _autoRestart;
-        Toggle _autoLoop, _enableSynth, _autoChest, _autoRune, _showConsole, _autoAlchemy, _autoSoulstone;
+        Toggle _autoLoop, _enableSynth, _autoChest, _autoRune, _showConsole,
+            _autoAlchemy, _autoOffering, _autoSoulstone;
         TypeTile[] _typeTiles, _tierTiles;
         SegmentBar _seg;
         Label _rarityValue;
-        Stepper _cycleMin, _restartDays, _alchemyLevel, _actBossRuns;
+        Stepper _cycleMin, _restartDays, _alchemyLevel, _offeringMax, _actBossRuns;
         FlatDrop _desiredLevel, _alchemyRarity;
         FlatButton _saveBtn, _setupBtn, _removeBtn, _launchBtn, _updateBtn;
         Label _cfgNote, _verNote;
@@ -364,6 +365,14 @@ namespace TbhCompanion
             _alchemyLevel.Value = 0;
             y0 = AddDropdownRow("Max rarity", Grades, Col0X, y0, f0, fieldW, out _alchemyRarity);
             _alchemyRarity.SelectedIndex = 2;
+            y0 = AddSectionDivider(Col0X, ColW, y0);
+
+            // Offering consumes one offering coin per operation.
+            y0 = AddSectionHeader("Offering", Col0X, y0);
+            y0 = AddToggleRow("Enabled", Col0X, ref _autoOffering, t0, y0);
+            y0 = AddFieldRow("Max per cycle", "", Col0X, y0, f0, fieldW, out _offeringMax);
+            _offeringMax.Min = 1; _offeringMax.Max = 99; _offeringMax.Step = 1;
+            _offeringMax.Decimals = 0; _offeringMax.Value = 5;
 
             // ---- right: Chests / Runes / Synthesis ----
             int t1 = Col1X + ColW - toggleW;
@@ -937,8 +946,10 @@ namespace TbhCompanion
                 int lastRunes = d.ContainsKey("lastRuneUpgrades") ? Convert.ToInt32(d["lastRuneUpgrades"]) : 0;
                 int lastChests = d.ContainsKey("lastChestOpens") ? Convert.ToInt32(d["lastChestOpens"]) : 0;
                 int lastBossRuns = d.ContainsKey("lastActBossRuns") ? Convert.ToInt32(d["lastActBossRuns"]) : 0;
+                int lastOfferings = d.ContainsKey("lastOfferings") ? Convert.ToInt32(d["lastOfferings"]) : 0;
                 bool runeOn = d.ContainsKey("autoUpgradeRune") && (bool)d["autoUpgradeRune"];
                 bool chestOn = d.ContainsKey("autoOpenChest") && (bool)d["autoOpenChest"];
+                bool offeringOn = d.ContainsKey("autoOffering") && (bool)d["autoOffering"];
                 bool synthOn = !d.ContainsKey("enableSynthesis") || (bool)d["enableSynthesis"];
 
                 Color synthDot = auto ? Theme.Green : Theme.TextMuted;
@@ -947,10 +958,12 @@ namespace TbhCompanion
                 if (lastChests > 0) bits.Add(lastChests + " chests");
                 if (lastRunes > 0) bits.Add(lastRunes + " runes");
                 if (lastBossRuns > 0) bits.Add(lastBossRuns + " boss runs");
+                if (lastOfferings > 0) bits.Add(lastOfferings + " offerings");
                 if (bits.Count == 0 && !synthOn)
                 {
                     if (chestOn) bits.Add("chests");
                     else if (runeOn) bits.Add("runes");
+                    else if (offeringOn) bits.Add("offering");
                 }
                 bits.Add("every " + cycMin + " min");
                 string detail = string.Join(" · ", bits.ToArray());
@@ -986,6 +999,7 @@ namespace TbhCompanion
             _autoLoop.Enabled = on; _enableSynth.Enabled = on; _autoChest.Enabled = on;
             _autoRune.Enabled = on; _seg.Enabled = on;
             _autoAlchemy.Enabled = on; _alchemyLevel.Enabled = on; _alchemyRarity.Enabled = on;
+            _autoOffering.Enabled = on; _offeringMax.Enabled = on;
             _autoSoulstone.Enabled = on; _actBossRuns.Enabled = on;
             foreach (var tile in _tierTiles) tile.Enabled = on;
             foreach (var tile in _typeTiles) tile.Enabled = on;
@@ -1011,6 +1025,7 @@ namespace TbhCompanion
                 _autoChest.Checked = !string.Equals(GetVal(text, "General", "AutoOpenChest", "false"), "false", StringComparison.OrdinalIgnoreCase);
                 _autoRune.Checked = !string.Equals(GetVal(text, "General", "AutoUpgradeRune", "false"), "false", StringComparison.OrdinalIgnoreCase);
                 _autoAlchemy.Checked = !string.Equals(GetVal(text, "General", "AutoAlchemy", "false"), "false", StringComparison.OrdinalIgnoreCase);
+                _autoOffering.Checked = !string.Equals(GetVal(text, "General", "AutoOffering", "false"), "false", StringComparison.OrdinalIgnoreCase);
                 _autoSoulstone.Checked = !string.Equals(GetVal(text, "General", "AutoConsumeSoulstone", "false"), "false", StringComparison.OrdinalIgnoreCase);
                 int runs;
                 if (!int.TryParse(GetVal(text, "Safety", "ActBossRunsPerCycle", "5"), out runs) || runs < 1) runs = 5;
@@ -1023,6 +1038,10 @@ namespace TbhCompanion
                 int ag;
                 if (!int.TryParse(GetVal(text, "Safety", "MaxAlchemyGrade", "2"), out ag) || ag < 0 || ag > 9) ag = 2;
                 _alchemyRarity.SelectedIndex = ag;
+                int offeringMax;
+                if (!int.TryParse(GetVal(text, "Safety", "MaxOfferingOperationsPerCycle", "5"), out offeringMax)
+                    || offeringMax < 1) offeringMax = 5;
+                _offeringMax.SetValue(offeringMax);
                 int mg;
                 if (!int.TryParse(GetVal(text, "Safety", "MaxGrade", "2"), out mg) || mg < 0 || mg > 9) mg = 2;
                 _seg.Value = mg; UpdateRarityLabel();
@@ -1088,6 +1107,7 @@ namespace TbhCompanion
                 text = SetVal(text, "General", "AutoOpenChest", _autoChest.Checked ? "true" : "false");
                 text = SetVal(text, "General", "AutoUpgradeRune", _autoRune.Checked ? "true" : "false");
                 text = SetVal(text, "General", "AutoAlchemy", _autoAlchemy.Checked ? "true" : "false");
+                text = SetVal(text, "General", "AutoOffering", _autoOffering.Checked ? "true" : "false");
                 text = SetVal(text, "General", "AutoConsumeSoulstone", _autoSoulstone.Checked ? "true" : "false");
                 text = SetVal(text, "Safety", "ActBossRunsPerCycle",
                     ((int)_actBossRuns.Value).ToString(CultureInfo.InvariantCulture));
@@ -1096,6 +1116,8 @@ namespace TbhCompanion
                 text = SetVal(text, "Safety", "MaxAlchemyGrade",
                     Math.Max(0, Math.Min(Grades.Length - 1, _alchemyRarity.SelectedIndex))
                         .ToString(CultureInfo.InvariantCulture));
+                text = SetVal(text, "Safety", "MaxOfferingOperationsPerCycle",
+                    ((int)_offeringMax.Value).ToString(CultureInfo.InvariantCulture));
                 // AutoOpenCube / AutoOpenRune / AfterFill / AfterSynthesis / AfterChestOpen are not exposed in the UI — leave cfg values alone.
                 text = SetVal(text, "Safety", "MaxGrade", _seg.Value.ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "General", "DesiredLevel",

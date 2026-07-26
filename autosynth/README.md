@@ -2,7 +2,8 @@
 
 Automates TaskBarHero's shared idle cycle: optional **soulstone spending**,
 optional **StageBox chest opens**, optional **Cube alchemy**, optional **Cube
-synthesis**, and optional **Rune upgrades** — then wait and repeat.
+offering**, optional **Cube synthesis**, and optional **Rune upgrades** — then
+wait and repeat.
 
 > **Unlike the presence app, this is a game mod.** It runs *inside* the game
 > via [BepInEx](https://github.com/BepInEx/BepInEx) and clicks the game's own
@@ -20,18 +21,18 @@ updates this plugin automatically. (Building it from source is covered in
 ## Use
 
 With `AutoStart` on (the default) the loop is already armed when the game starts.
-Each armed cycle runs enabled phases in order: **Soulstone → Chest → Alchemy →
-Synthesis → Rune**. If the main menu/HUD is closed when a phase needs the content
+Each armed cycle runs enabled phases in order: **Soulstone → Chest → Offering →
+Alchemy → Synthesis → Rune**. If the main menu/HUD is closed when a phase needs the content
 row, the plugin clicks the stage-HUD **Show Main** button (next to auto-retry) —
 never synthesizes Tab. With `AutoOpenCube` on it then clicks the **Cube** menu
 button when the Synthesis phase is due. Hotkeys:
 
 | Key | Action |
 |-----|--------|
-| **F7** | Run one cycle now (soulstone → chest → alchemy → synthesis → rune for enabled phases) |
+| **F7** | Run one cycle now (soulstone → chest → offering → alchemy → synthesis → rune for enabled phases) |
 | **F8** | Toggle the auto loop on/off |
 | **F9** | Click the synthesis trigger once |
-| **F10** | Dump soulstone / chest / alchemy / synthesis / rune state to `BepInEx\LogOutput.log` |
+| **F10** | Dump soulstone / chest / alchemy / offering / synthesis / rune state to `BepInEx\LogOutput.log` |
 
 The Synthesis phase only acts while the Cube panel is open. With `AutoOpenCube`
 off it waits for you to open the panel yourself instead of opening it. When
@@ -74,6 +75,18 @@ candidate. `AlchemyLevelThreshold = 0` (the default) means nothing is eligible.
 **Set `AlchemyDryRun = true` for one cycle first** — the phase then only writes
 the items it *would* melt to the log, so you can check the threshold before it
 destroys anything.
+
+## Offering
+
+The Offering phase (off by default) selects **Offering** on the Cube's main
+recipe dropdown, looks for offering coins in the inventory, moves exactly one
+coin into the Cube, and clicks the process button. It repeats while another coin
+is available, up to `MaxOfferingOperationsPerCycle` operations (`5` by default),
+then returns the Cube to **Synthesis**.
+
+Coins are identified through the game's own material table as
+`EMaterialType.OFFERING`; the plugin does not depend on a localized item name or
+a hard-coded item key. Locked and reserved inventory slots are skipped.
 
 ## Runes
 
@@ -170,6 +183,8 @@ the dropdown does not offer is reported instead of guessed at.
 | `MaxAlchemyBatchesPerCycle` | 5 | Safety cap on alchemy operations (9 items each) per cycle |
 | `AlchemyProtectedItemKeys` | *(empty)* | Comma-separated item keys the Alchemy phase must never melt |
 | `AfterAlchemyClickSeconds` | 0.35 | Delay between successive items while filling the Alchemy cube |
+| `AutoOffering` | false | Run the Offering phase before Alchemy |
+| `MaxOfferingOperationsPerCycle` | 5 | Safety cap on one-coin Offering operations per cycle |
 | `SynthesisTypes` | Equipment,Materials,Accessories | Which item types to synthesize; the loop rotates through them each round. e.g. `Equipment,Materials` to skip accessories. |
 | `DesiredLevel` | 0 | Target synthesis recipe. `0` = highest unlocked (default). Otherwise the lower bound of an in-game bracket from the companion Target level dropdown (`1`=`Lv.1~10` … `65`=`Lv.65~80`). If that bracket is locked, uses the highest unlocked bracket with `lo ≤ DesiredLevel`. |
 | `MaxGrade` | 3 | Highest rarity the loop may synthesize (0=Common, 1=Uncommon, 2=Rare, 3=Legendary, 4=Immortal, …). Cycles holding anything above this are skipped. |
