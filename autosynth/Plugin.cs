@@ -17,17 +17,18 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.30.0";
+    internal const string Version = "0.31.0";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
     private static ConfigEntry<float> _afterFillE, _afterSynthE, _cycleE, _afterRuneE, _afterChestE,
-        _afterAlchemyE;
+        _afterAlchemyE, _afterSoulstoneE;
     private static ConfigEntry<int> _maxGradeE, _desiredLevelE, _maxRuneUpgradesE, _maxChestOpensE,
-        _maxSynthRepeatsE, _alchemyLevelE, _maxAlchemyGradeE, _maxAlchemyBatchesE;
+        _maxSynthRepeatsE, _alchemyLevelE, _maxAlchemyGradeE, _maxAlchemyBatchesE,
+        _actBossRunsE, _actBossWatchE;
     private static ConfigEntry<bool> _autoStartE, _autoOpenE, _autoRuneE, _autoOpenRuneE, _enableSynthE, _autoChestE,
-        _repeatFullSynthE, _autoAlchemyE, _alchemyDryRunE;
-    private static ConfigEntry<string> _alchemyProtectedE;
+        _repeatFullSynthE, _autoAlchemyE, _alchemyDryRunE, _autoSoulstoneE, _autoOpenPortalE, _soulstoneDryRunE;
+    private static ConfigEntry<string> _alchemyProtectedE, _soulstoneTiersE;
 
     internal static float AfterFillDelay => _afterFillE != null ? _afterFillE.Value : 1.0f;
     internal static float AfterSynthDelay => _afterSynthE != null ? _afterSynthE.Value : 4.0f;
@@ -54,6 +55,14 @@ public class AutoSynthPlugin : BasePlugin
     internal static int AlchemyLevelThreshold => _alchemyLevelE != null ? _alchemyLevelE.Value : 0;
     internal static int MaxAlchemyGrade => _maxAlchemyGradeE != null ? _maxAlchemyGradeE.Value : 2;
     internal static int MaxAlchemyBatchesPerCycle => _maxAlchemyBatchesE != null ? _maxAlchemyBatchesE.Value : 5;
+    internal static bool AutoConsumeSoulstone => _autoSoulstoneE != null && _autoSoulstoneE.Value;
+    internal static bool AutoOpenPortal => _autoOpenPortalE == null || _autoOpenPortalE.Value;
+    internal static bool SoulstoneDryRun => _soulstoneDryRunE != null && _soulstoneDryRunE.Value;
+    internal static int ActBossRunsPerCycle =>
+        _actBossRunsE != null ? Math.Max(1, _actBossRunsE.Value) : 5;
+    internal static int ActBossWatchMinutes =>
+        _actBossWatchE != null ? Math.Max(1, _actBossWatchE.Value) : 10;
+    internal static float AfterSoulstoneEnterDelay => _afterSoulstoneE != null ? _afterSoulstoneE.Value : 5.0f;
 
     // Item keys the loop must never melt, parsed once per distinct cfg value.
     private static string _protectedRaw;
@@ -74,6 +83,29 @@ public class AutoSynthPlugin : BasePlugin
         }
         return _protectedKeys.Contains(itemKey);
     }
+
+    // Which soulstone tiers the Soulstone phase may spend, as ESTAGEDIFFICULTY
+    // values (0=Normal, 1=Nightmare, 2=Hell, 3=Torment). Empty/invalid => all.
+    internal static System.Collections.Generic.List<int> EnabledSoulstoneTiers()
+    {
+        var list = new System.Collections.Generic.List<int>();
+        var raw = _soulstoneTiersE != null ? _soulstoneTiersE.Value : SoulstoneTiersDefault;
+        foreach (var tok in (raw ?? "").Split(','))
+        {
+            var t = tok.Trim().ToLowerInvariant();
+            if (t == "normal") { if (!list.Contains(0)) list.Add(0); }
+            else if (t == "nightmare") { if (!list.Contains(1)) list.Add(1); }
+            else if (t == "hell") { if (!list.Contains(2)) list.Add(2); }
+            else if (t == "torment") { if (!list.Contains(3)) list.Add(3); }
+        }
+        if (list.Count == 0) { list.Add(0); list.Add(1); list.Add(2); list.Add(3); }
+        return list;
+    }
+
+    internal const string SoulstoneTiersDefault = "Normal,Nightmare,Hell,Torment";
+
+    internal static string SoulstoneTiersRaw =>
+        _soulstoneTiersE != null ? _soulstoneTiersE.Value : SoulstoneTiersDefault;
 
     private static ConfigEntry<string> _typesE;
 
@@ -113,17 +145,21 @@ public class AutoSynthPlugin : BasePlugin
         {
             int mg = MaxGrade, dl = DesiredLevel, mr = MaxRuneUpgradesPerCycle, mc = MaxChestOpensPerCycle,
                 ms = MaxSynthRepeatsPerCycle, al = AlchemyLevelThreshold, ag = MaxAlchemyGrade,
-                ab = MaxAlchemyBatchesPerCycle;
+                ab = MaxAlchemyBatchesPerCycle, ac = ActBossRunsPerCycle, aw = ActBossWatchMinutes;
             float ci = AfterClearDelay;
+            string st = SoulstoneTiersRaw;
             bool auto = AutoStart, open = AutoOpenCube, rune = AutoUpgradeRune, synth = EnableSynthesis,
-                chest = AutoOpenChest, repeat = RepeatFullSynth, alchemy = AutoAlchemy, dry = AlchemyDryRun;
+                chest = AutoOpenChest, repeat = RepeatFullSynth, alchemy = AutoAlchemy, dry = AlchemyDryRun,
+                soul = AutoConsumeSoulstone, soulDry = SoulstoneDryRun;
             _conf.Reload();
             if (mg != MaxGrade || dl != DesiredLevel || ci != AfterClearDelay || auto != AutoStart
                 || open != AutoOpenCube || rune != AutoUpgradeRune || synth != EnableSynthesis
                 || chest != AutoOpenChest || mr != MaxRuneUpgradesPerCycle || mc != MaxChestOpensPerCycle
                 || ms != MaxSynthRepeatsPerCycle || repeat != RepeatFullSynth || alchemy != AutoAlchemy
                 || dry != AlchemyDryRun || al != AlchemyLevelThreshold || ag != MaxAlchemyGrade
-                || ab != MaxAlchemyBatchesPerCycle)
+                || ab != MaxAlchemyBatchesPerCycle || soul != AutoConsumeSoulstone
+                || soulDry != SoulstoneDryRun
+                || ac != ActBossRunsPerCycle || aw != ActBossWatchMinutes || st != SoulstoneTiersRaw)
                 Logger.LogInfo($"config reloaded: MaxGrade={MaxGrade}, DesiredLevel={DesiredLevel}, " +
                                $"CycleIntervalSeconds={AfterClearDelay}, AutoStart={AutoStart}, " +
                                $"EnableSynthesis={EnableSynthesis}, AutoOpenChest={AutoOpenChest}, " +
@@ -135,7 +171,12 @@ public class AutoSynthPlugin : BasePlugin
                                $"AutoAlchemy={AutoAlchemy}, AlchemyDryRun={AlchemyDryRun}, " +
                                $"AlchemyLevelThreshold={AlchemyLevelThreshold}, " +
                                $"MaxAlchemyGrade={MaxAlchemyGrade}, " +
-                               $"MaxAlchemyBatchesPerCycle={MaxAlchemyBatchesPerCycle}");
+                               $"MaxAlchemyBatchesPerCycle={MaxAlchemyBatchesPerCycle}, " +
+                               $"AutoConsumeSoulstone={AutoConsumeSoulstone}, " +
+                               $"SoulstoneDryRun={SoulstoneDryRun}, " +
+                               $"SoulstoneTiers={SoulstoneTiersRaw}, " +
+                               $"ActBossRunsPerCycle={ActBossRunsPerCycle}, " +
+                               $"ActBossWatchMinutes={ActBossWatchMinutes}");
         }
         catch (Exception e) { Logger.LogWarning("config reload failed: " + e.Message); }
     }
@@ -168,18 +209,19 @@ public class AutoSynthPlugin : BasePlugin
             "Arm the auto loop as soon as the game starts, and sync the live loop when the " +
             "companion changes this setting. F8 still toggles the live loop without rewriting the cfg.");
         _enableSynthE = Config.Bind("General", "EnableSynthesis", true,
-            "When the loop runs, perform Cube synthesis (fill -> synth -> clear). Turn off to skip the Cube phase.");
+            "When the loop runs, run the Synthesis phase on the Cube (fill -> synth -> clear). " +
+            "Turn it off to skip that phase.");
         _autoOpenE = Config.Bind("General", "AutoOpenCube", true,
             "While the loop is armed, click the Cube menu button to open the Cube panel when a " +
             "cycle is due. Turn this off to only run while you have the Cube panel open yourself.");
         _autoChestE = Config.Bind("General", "AutoOpenChest", false,
-            "After the Cube phase (or at cycle start if synthesis is off), click StageBox chest " +
+            "After the Soulstone phase (or at cycle start if it is off), click StageBox chest " +
             "buttons (Normal / Boss / ActBoss) to open accumulated chests. Does not touch the " +
             "game's built-in auto-open toggle.");
         _afterAlchemyE = Config.Bind("Timing", "AfterAlchemyClickSeconds", 0.35f,
             "Delay between successive items while filling the Alchemy cube");
         _autoAlchemyE = Config.Bind("General", "AutoAlchemy", false,
-            "Before the Cube phase, select the Cube's Alchemy recipe and melt low-level gear " +
+            "Before the Synthesis phase, select the Cube's Alchemy recipe and melt low-level gear " +
             "from the inventory, 9 items per operation. " +
             "Needs AlchemyLevelThreshold > 0.");
         _alchemyDryRunE = Config.Bind("General", "AlchemyDryRun", false,
@@ -196,8 +238,31 @@ public class AutoSynthPlugin : BasePlugin
         _alchemyProtectedE = Config.Bind("Safety", "AlchemyProtectedItemKeys", "",
             "Comma-separated item keys the Alchemy phase must never melt, e.g. '1201,1305'. " +
             "Locked and reserved items are always skipped without listing them here.");
+        _autoSoulstoneE = Config.Bind("General", "AutoConsumeSoulstone", false,
+            "After the other phases, spend surplus soulstones by entering an Act Boss stage " +
+            "(a '*-10' stage) that has already been cleared. The stage is picked from the " +
+            "soulstone tiers in SoulstoneTiers, and the Portal is switched to that tier's " +
+            "difficulty.");
+        _soulstoneTiersE = Config.Bind("General", "SoulstoneTiers", SoulstoneTiersDefault,
+            "Which soulstone tiers the Soulstone phase may spend, comma-separated: " +
+            "Normal, Nightmare, Hell, Torment. Each tier belongs to the difficulty of the " +
+            "same name. e.g. 'Hell,Torment' to leave the lower stones alone.");
+        _autoOpenPortalE = Config.Bind("General", "AutoOpenPortal", true,
+            "During the Soulstone phase, click the Portal menu button to open the stage map.");
+        _soulstoneDryRunE = Config.Bind("General", "SoulstoneDryRun", false,
+            "Run the Soulstone phase without spending anything: it opens the Portal and finds " +
+            "the stage as usual, then logs what it would have entered instead of entering it.");
+        _actBossRunsE = Config.Bind("Safety", "ActBossRunsPerCycle", 5,
+            "Act Boss runs to farm before the hero is walked back. The game's own auto-retry " +
+            "keeps re-entering the boss while soulstones remain, so the phase enters once and " +
+            "then counts runs: soulstones spent, or Act Boss chests gained, whichever is ahead.");
+        _actBossWatchE = Config.Bind("Safety", "ActBossWatchMinutes", 10,
+            "Give up on the chest target after this many minutes and walk the hero back anyway " +
+            "(safety cap).");
+        _afterSoulstoneE = Config.Bind("Timing", "AfterSoulstoneEnterSeconds", 5.0f,
+            "Delay after clicking a stage's enter button, so the stage transition can finish");
         _autoRuneE = Config.Bind("General", "AutoUpgradeRune", false,
-            "After the Cube and Chest phases (or at cycle start if those are off), open the Rune " +
+            "After the other phases (or at cycle start if those are off), open the Rune " +
             "panel and upgrade the cheapest affordable runes.");
         _autoOpenRuneE = Config.Bind("General", "AutoOpenRune", true,
             "During the Rune phase, click the Rune menu button to open the Rune panel.");
@@ -206,7 +271,7 @@ public class AutoSynthPlugin : BasePlugin
         _maxChestOpensE = Config.Bind("Safety", "MaxChestOpensPerCycle", 40,
             "Maximum StageBox chest open clicks in a single cycle (safety cap).");
         _maxSynthRepeatsE = Config.Bind("Safety", "MaxSynthRepeatsPerCycle", 10,
-            "Maximum extra synthesis passes a single Cube phase may run when RepeatFullSynth " +
+            "Maximum extra passes a single Synthesis phase may run when RepeatFullSynth " +
             "keeps finding a full cube (safety cap).");
         _repeatFullSynthE = Config.Bind("General", "RepeatFullSynth", true,
             "When auto-fill fills every cube slot, run another fill -> synth -> clear pass in the " +
@@ -227,15 +292,16 @@ public class AutoSynthPlugin : BasePlugin
             ClassInjector.RegisterTypeInIl2Cpp<AutoSynthBehaviour>();
         AddComponent<AutoSynthBehaviour>();
         Logger.LogInfo($"TBH Auto Synthesis {Version}: " +
-                       "F7 = run one cycle now, F8 = toggle auto loop, F9 = click synth trigger, F10 = dump cube+chest+rune state.");
+                       "F7 = run one cycle now, F8 = toggle auto loop, F9 = click synth trigger, " +
+                       "F10 = dump soulstone+chest+alchemy+synthesis+rune state.");
     }
 }
 
 public class AutoSynthBehaviour : MonoBehaviour
 {
     private enum LoopMode { Off, Armed, OneShot }
-    private enum Phase { Idle, Fill, Synth, Clear, Chest, Rune, Alchemy }
-    private enum CycleStep { Alchemy, Cube, Chest, Rune }
+    private enum Phase { Idle, Fill, Synth, Clear, Chest, Rune, Alchemy, Soulstone }
+    private enum CycleStep { Alchemy, Synthesis, Chest, Rune, Soulstone }
 
     // Game UI (UIManager / EventSystem / stage HUD) is not reliable right after
     // BepInEx loads — wait before AutoStart / Show Main / any click automation.
@@ -260,6 +326,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     private readonly ChestOpenRunner _chests;
     private readonly RuneUpgradeRunner _runes;
     private readonly AlchemyRunner _alchemy;
+    private readonly SoulstoneRunner _soulstones;
     private UI_Cube _cube;
     private bool _legacyInputBroken;
     private bool _autoStartApplied;
@@ -278,6 +345,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         _chests = new ChestOpenRunner();
         _runes = new RuneUpgradeRunner(GameInterop.Click);
         _alchemy = new AlchemyRunner();
+        _soulstones = new SoulstoneRunner();
     }
 
     private bool LoopRunning => _mode != LoopMode.Off;
@@ -301,6 +369,8 @@ public class AutoSynthBehaviour : MonoBehaviour
                 ",\"lastRuneUpgrades\":" + _runes.LastUpgrades +
                 ",\"lastChestOpens\":" + _chests.LastOpens +
                 ",\"lastAlchemized\":" + _alchemy.LastAlchemized +
+                ",\"lastActBossRuns\":" + _soulstones.LastRuns +
+                ",\"autoConsumeSoulstone\":" + (AutoSynthPlugin.AutoConsumeSoulstone ? "true" : "false") +
                 ",\"autoAlchemy\":" + (AutoSynthPlugin.AutoAlchemy ? "true" : "false") +
                 ",\"alchemyLevelThreshold\":" + AutoSynthPlugin.AlchemyLevelThreshold +
                 ",\"maxGrade\":" + AutoSynthPlugin.MaxGrade +
@@ -367,7 +437,9 @@ public class AutoSynthBehaviour : MonoBehaviour
                     (AutoSynthPlugin.AutoAlchemy ? "Alchemy ON. " : "Alchemy OFF. ") +
                     (AutoSynthPlugin.EnableSynthesis ? "Synthesis ON. " : "Synthesis OFF. ") +
                     (AutoSynthPlugin.AutoOpenChest ? "Chest opens ON. " : "Chest opens OFF. ") +
+                    (AutoSynthPlugin.AutoConsumeSoulstone ? "Soulstones ON. " : "Soulstones OFF. ") +
                     (AutoSynthPlugin.AutoUpgradeRune ? "Rune upgrades ON. " : "Rune upgrades OFF. ") +
+
                     "F7 = one cycle, F8 toggles auto.");
             }
             else
@@ -395,7 +467,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         _mode = LoopMode.OneShot;
         BeginCycleWork();
         AutoSynthPlugin.Logger.LogInfo(
-            "F7: starting one-shot cycle (alchemy -> cube -> chest -> rune), then auto OFF");
+            "F7: starting one-shot cycle (soulstone -> chest -> alchemy -> synthesis -> rune), then auto OFF");
     }
 
     void SetAuto(bool on, string reason)
@@ -405,6 +477,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         _chests.ResetSession();
         _runes.ResetSession();
         _alchemy.ResetSession();
+        _soulstones.ResetSession();
         BeginCycleWork();
         string suffix = string.IsNullOrEmpty(reason) ? "" : " (" + reason + ")";
         AutoSynthPlugin.Logger.LogInfo($"Auto-synthesis: {(on ? "ON" : "OFF")}{suffix}");
@@ -428,7 +501,8 @@ public class AutoSynthBehaviour : MonoBehaviour
         if (_steps.Length == 0)
         {
             AutoSynthPlugin.Logger.LogWarning(
-                "cycle skipped: AutoAlchemy, EnableSynthesis, AutoOpenChest, and AutoUpgradeRune are all off");
+                "cycle skipped: AutoConsumeSoulstone, AutoOpenChest, AutoAlchemy, EnableSynthesis, " +
+                "and AutoUpgradeRune are all off");
             _phase = Phase.Idle;
             if (_mode == LoopMode.OneShot)
             {
@@ -443,19 +517,23 @@ public class AutoSynthBehaviour : MonoBehaviour
             return;
         }
         // Cube increments _cycles on Clear; cycles without a Cube step increment here.
-        if (Array.IndexOf(_steps, CycleStep.Cube) < 0)
+        if (Array.IndexOf(_steps, CycleStep.Synthesis) < 0)
             _cycles++;
         StartStep(_steps[0], true);
     }
 
     static CycleStep[] EnabledSteps()
     {
-        var list = new System.Collections.Generic.List<CycleStep>(4);
-        // Alchemy runs first: it frees inventory space before chests refill it, and it
-        // hands the Cube back on the Synthesis recipe that the Cube phase expects.
-        if (AutoSynthPlugin.AutoAlchemy) list.Add(CycleStep.Alchemy);
-        if (AutoSynthPlugin.EnableSynthesis) list.Add(CycleStep.Cube);
+        var list = new System.Collections.Generic.List<CycleStep>(5);
+        // Soulstones run first: the boss runs are what fill the chest stack and the
+        // inventory, so the phases that process the haul come after them. Chests are
+        // opened next, then Alchemy melts the junk that fell out of them, which also
+        // frees inventory space and hands the Cube back on the Synthesis recipe the
+        // Synthesis phase expects.
+        if (AutoSynthPlugin.AutoConsumeSoulstone) list.Add(CycleStep.Soulstone);
         if (AutoSynthPlugin.AutoOpenChest) list.Add(CycleStep.Chest);
+        if (AutoSynthPlugin.AutoAlchemy) list.Add(CycleStep.Alchemy);
+        if (AutoSynthPlugin.EnableSynthesis) list.Add(CycleStep.Synthesis);
         if (AutoSynthPlugin.AutoUpgradeRune) list.Add(CycleStep.Rune);
         return list.ToArray();
     }
@@ -467,7 +545,7 @@ public class AutoSynthBehaviour : MonoBehaviour
             case CycleStep.Alchemy:
                 StartAlchemyPhase(loud);
                 break;
-            case CycleStep.Cube:
+            case CycleStep.Synthesis:
                 _phase = Phase.Fill;
                 _nextTick = 0f;
                 break;
@@ -476,6 +554,9 @@ public class AutoSynthBehaviour : MonoBehaviour
                 break;
             case CycleStep.Rune:
                 StartRunePhase(loud);
+                break;
+            case CycleStep.Soulstone:
+                StartSoulstonePhase(loud);
                 break;
         }
     }
@@ -513,6 +594,14 @@ public class AutoSynthBehaviour : MonoBehaviour
         _phase = Phase.Rune;
         _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
         if (loud) AutoSynthPlugin.Logger.LogInfo($"cycle {_cycles}: starting rune phase");
+    }
+
+    void StartSoulstonePhase(bool loud)
+    {
+        _soulstones.BeginPhase();
+        _phase = Phase.Soulstone;
+        _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
+        if (loud) AutoSynthPlugin.Logger.LogInfo($"cycle {_cycles}: starting soulstone phase");
     }
 
     void EndCycleAndScheduleNext(bool loud, string detail)
@@ -567,6 +656,21 @@ public class AutoSynthBehaviour : MonoBehaviour
                     _nextStatusWrite = 0f;
                     AdvanceAfterStep(loud || _runes.LastUpgrades > 0,
                         "rune upgrades this cycle: " + _runes.LastUpgrades);
+                }
+                else
+                    _nextTick = Time.unscaledTime + delay;
+                return;
+            }
+
+            if (_phase == Phase.Soulstone)
+            {
+                var loud = _cycles < 2 || _cycles % 20 == 0;
+                var result = _soulstones.Tick(loud, out float delay);
+                if (result == SoulstoneRunner.TickResult.Done)
+                {
+                    _nextStatusWrite = 0f;
+                    AdvanceAfterStep(loud || _soulstones.LastRuns > 0,
+                        "act boss runs this cycle: " + _soulstones.LastRuns);
                 }
                 else
                     _nextTick = Time.unscaledTime + delay;
@@ -670,7 +774,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                     if (_lastFillFull && AutoSynthPlugin.RepeatFullSynth)
                         AutoSynthPlugin.Logger.LogInfo(
                             $"cube still full but MaxSynthRepeatsPerCycle " +
-                            $"({AutoSynthPlugin.MaxSynthRepeatsPerCycle}) reached; leaving the Cube phase");
+                            $"({AutoSynthPlugin.MaxSynthRepeatsPerCycle}) reached; leaving the Synthesis phase");
                     _lastFillFull = false;
                     _cycles++;
                     _typeSelected = false;
@@ -1094,6 +1198,7 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
             _chests.Dump();
             _runes.Dump(Describe);
             _alchemy.Dump();
+            _soulstones.Dump();
         }
         catch (Exception e)
         {

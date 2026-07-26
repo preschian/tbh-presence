@@ -10,7 +10,7 @@ namespace TbhAutoSynth;
 // Owns the Alchemy phase: pick the Alchemy recipe on the Cube's main dropdown,
 // send low-level inventory gear into the cube, run the alchemy, repeat for as
 // long as eligible items remain, then hand the cube back on the Synthesis recipe
-// so the Cube phase finds it the way it left it.
+// so the Synthesis phase finds it the way it left it.
 //
 // Eligibility is deliberately narrow: gear only, unlocked, item level strictly
 // below AlchemyLevelThreshold, grade at or below MaxAlchemyGrade, and not in

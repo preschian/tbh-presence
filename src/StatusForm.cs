@@ -81,11 +81,12 @@ namespace TbhCompanion
         WheelRedirectFilter _wheelFilter;
         Toggle _presenceToggle;
         Toggle _autoRestart;
-        Toggle _autoLoop, _enableSynth, _autoChest, _autoRune, _showConsole, _autoAlchemy;
+        Toggle _autoLoop, _enableSynth, _autoChest, _autoRune, _showConsole, _autoAlchemy, _autoSoulstone;
         TypeTile _tEquip, _tMaterials, _tAccessories;
+        TypeTile _tNormal, _tNightmare, _tHell, _tTorment;
         SegmentBar _seg;
         Label _rarityValue;
-        Stepper _cycleMin, _restartDays, _alchemyLevel;
+        Stepper _cycleMin, _restartDays, _alchemyLevel, _actBossRuns;
         FlatDrop _desiredLevel, _alchemyRarity;
         FlatButton _saveBtn, _setupBtn, _removeBtn, _launchBtn, _updateBtn;
         Label _cfgNote, _verNote;
@@ -366,6 +367,30 @@ namespace TbhCompanion
 
             y1 = AddSectionHeader("Runes", Col1X, y1);
             y1 = AddToggleRow("Upgrade runes", Col1X, ref _autoRune, t1, y1);
+            y1 = AddSectionDivider(Col1X, ColW, y1);
+
+            // Re-enters a cleared Act Boss stage to spend surplus soulstones.
+            y1 = AddSectionHeader("Soulstones", Col1X, y1);
+            y1 = AddToggleRow("Spend on Act Bosses", Col1X, ref _autoSoulstone, t1, y1);
+
+            AddMainLabel("Tiers", Col1X, y1, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
+            y1 += 18;
+            _tNormal = new TypeTile { Caption = "Normal" };
+            _tNightmare = new TypeTile { Caption = "Nightmare" };
+            _tHell = new TypeTile { Caption = "Hell" };
+            _tTorment = new TypeTile { Caption = "Torment" };
+            var tierTiles = new[] { _tNormal, _tNightmare, _tHell, _tTorment };
+            int tierGap = 6, tierW = (ColW - tierGap * 3) / 4;
+            for (int i = 0; i < tierTiles.Length; i++)
+            {
+                tierTiles[i].SetBounds(Sc(Col1X + i * (tierW + tierGap)), Sc(y1), Sc(tierW), Sc(ControlH));
+                AddContent(tierTiles[i]);
+            }
+            y1 += ControlH + 12;
+
+            y1 = AddFieldRow("Runs per cycle", "", Col1X, y1, f1, fieldW, out _actBossRuns);
+            _actBossRuns.Min = 1; _actBossRuns.Max = 99; _actBossRuns.Step = 1;
+            _actBossRuns.Decimals = 0; _actBossRuns.Value = 5;
             y1 = AddSectionDivider(Col1X, ColW, y1);
 
             y1 = AddSectionHeader("Synthesis", Col1X, y1);
@@ -912,6 +937,7 @@ namespace TbhCompanion
                 int cycMin = Math.Max(1, Convert.ToInt32(d["cycleIntervalSeconds"]) / 60);
                 int lastRunes = d.ContainsKey("lastRuneUpgrades") ? Convert.ToInt32(d["lastRuneUpgrades"]) : 0;
                 int lastChests = d.ContainsKey("lastChestOpens") ? Convert.ToInt32(d["lastChestOpens"]) : 0;
+                int lastBossRuns = d.ContainsKey("lastActBossRuns") ? Convert.ToInt32(d["lastActBossRuns"]) : 0;
                 bool runeOn = d.ContainsKey("autoUpgradeRune") && (bool)d["autoUpgradeRune"];
                 bool chestOn = d.ContainsKey("autoOpenChest") && (bool)d["autoOpenChest"];
                 bool synthOn = !d.ContainsKey("enableSynthesis") || (bool)d["enableSynthesis"];
@@ -921,6 +947,7 @@ namespace TbhCompanion
                 var bits = new List<string>();
                 if (lastChests > 0) bits.Add(lastChests + " chests");
                 if (lastRunes > 0) bits.Add(lastRunes + " runes");
+                if (lastBossRuns > 0) bits.Add(lastBossRuns + " boss runs");
                 if (bits.Count == 0 && !synthOn)
                 {
                     if (chestOn) bits.Add("chests");
@@ -960,6 +987,8 @@ namespace TbhCompanion
             _autoLoop.Enabled = on; _enableSynth.Enabled = on; _autoChest.Enabled = on;
             _autoRune.Enabled = on; _seg.Enabled = on;
             _autoAlchemy.Enabled = on; _alchemyLevel.Enabled = on; _alchemyRarity.Enabled = on;
+            _autoSoulstone.Enabled = on; _actBossRuns.Enabled = on;
+            _tNormal.Enabled = on; _tNightmare.Enabled = on; _tHell.Enabled = on; _tTorment.Enabled = on;
             _tEquip.Enabled = on; _tMaterials.Enabled = on; _tAccessories.Enabled = on;
             _desiredLevel.Enabled = on; _cycleMin.Enabled = on;
             _saveBtn.Enabled = on;
@@ -983,6 +1012,17 @@ namespace TbhCompanion
                 _autoChest.Checked = !string.Equals(GetVal(text, "General", "AutoOpenChest", "false"), "false", StringComparison.OrdinalIgnoreCase);
                 _autoRune.Checked = !string.Equals(GetVal(text, "General", "AutoUpgradeRune", "false"), "false", StringComparison.OrdinalIgnoreCase);
                 _autoAlchemy.Checked = !string.Equals(GetVal(text, "General", "AutoAlchemy", "false"), "false", StringComparison.OrdinalIgnoreCase);
+                _autoSoulstone.Checked = !string.Equals(GetVal(text, "General", "AutoConsumeSoulstone", "false"), "false", StringComparison.OrdinalIgnoreCase);
+                int runs;
+                if (!int.TryParse(GetVal(text, "Safety", "ActBossRunsPerCycle", "5"), out runs) || runs < 1) runs = 5;
+                _actBossRuns.SetValue(runs);
+                string tiers = GetVal(text, "General", "SoulstoneTiers", "Normal,Nightmare,Hell,Torment").ToLowerInvariant();
+                _tNormal.Selected = tiers.Contains("normal");
+                _tNightmare.Selected = tiers.Contains("nightmare");
+                _tHell.Selected = tiers.Contains("hell");
+                _tTorment.Selected = tiers.Contains("torment");
+                if (!_tNormal.Selected && !_tNightmare.Selected && !_tHell.Selected && !_tTorment.Selected)
+                { _tNormal.Selected = _tNightmare.Selected = _tHell.Selected = _tTorment.Selected = true; }
                 int al;
                 if (!int.TryParse(GetVal(text, "General", "AlchemyLevelThreshold", "0"), out al) || al < 0) al = 0;
                 _alchemyLevel.SetValue(al);
@@ -1033,6 +1073,9 @@ namespace TbhCompanion
                 text = SetVal(text, "General", "AutoOpenChest", _autoChest.Checked ? "true" : "false");
                 text = SetVal(text, "General", "AutoUpgradeRune", _autoRune.Checked ? "true" : "false");
                 text = SetVal(text, "General", "AutoAlchemy", _autoAlchemy.Checked ? "true" : "false");
+                text = SetVal(text, "General", "AutoConsumeSoulstone", _autoSoulstone.Checked ? "true" : "false");
+                text = SetVal(text, "Safety", "ActBossRunsPerCycle",
+                    ((int)_actBossRuns.Value).ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "General", "AlchemyLevelThreshold",
                     ((int)_alchemyLevel.Value).ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "Safety", "MaxAlchemyGrade",
@@ -1050,6 +1093,14 @@ namespace TbhCompanion
                 if (_tAccessories.Selected) types.Add("Accessories");
                 if (types.Count == 0) { types.Add("Equipment"); types.Add("Materials"); types.Add("Accessories"); }
                 text = SetVal(text, "General", "SynthesisTypes", string.Join(",", types.ToArray()));
+                var tiers = new List<string>();
+                if (_tNormal.Selected) tiers.Add("Normal");
+                if (_tNightmare.Selected) tiers.Add("Nightmare");
+                if (_tHell.Selected) tiers.Add("Hell");
+                if (_tTorment.Selected) tiers.Add("Torment");
+                if (tiers.Count == 0)
+                { tiers.Add("Normal"); tiers.Add("Nightmare"); tiers.Add("Hell"); tiers.Add("Torment"); }
+                text = SetVal(text, "General", "SoulstoneTiers", string.Join(",", tiers.ToArray()));
                 File.WriteAllText(_cfgPath, text);
 
                 bool consoleRestart = false;

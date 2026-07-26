@@ -144,6 +144,21 @@ The right pane has the settings in two columns:
     cycle by clicking the stage UI (does not flip the game's built-in auto-open
     toggle).
   - **Runes** — *Upgrade runes* turns on auto-upgrade runes in the shared cycle.
+  - **Soulstones** — *Spend on Act Bosses* re-enters an Act Boss stage (`1-10`,
+    `2-10`, `3-10`, …) you have already cleared, which is what soulstones are
+    spent on. Off by default.
+    - **Tiers** — Normal, Nightmare, Hell, Torment (any combination): which
+      soulstones may be spent. Each tier is the difficulty of the same name.
+    - **Runs per cycle** — how many Act Boss runs to farm before your hero is
+      sent back (default `5`).
+
+    It takes the highest tier you allowed, switches the in-game Portal to that
+    difficulty and act itself, and enters the stage once — the game's own
+    auto-retry keeps the runs going while stones last. When the run target is
+    reached (or the stones run out) your hero is walked back to the stage it was
+    on. To see which stage it would enter without spending anything, set
+    `SoulstoneDryRun = true` in `BepInEx\config\com.pres.tbh.autosynth.cfg` for
+    one round and read the log.
   - **Synthesis**
     - **Synthesize items** — include cube synthesis in the cycle,
     - **Types** — Equipment, Materials, Accessories (any combination; the loop
@@ -152,7 +167,8 @@ The right pane has the settings in two columns:
     - **Target level** — which cube recipe bracket to use (dropdown matching the
       in-game list: Max / `Lv.1~10` … `Lv.65~80`; default Max = highest unlocked).
 
-Cycle order when several are enabled: **Alchemy → Cube → Chest → Rune**.
+Cycle order when several are enabled: **Soulstone → Chest → Alchemy → Synthesis
+→ Rune**.
 
 Press **Save** — with a current plugin, loop settings reach the running game
 within ~10 seconds. If the game is still on an older plugin, restart the game
