@@ -89,20 +89,21 @@ public class AutoSynthPlugin : BasePlugin
     internal static System.Collections.Generic.List<int> EnabledSoulstoneTiers()
     {
         var list = new System.Collections.Generic.List<int>();
-        var raw = _soulstoneTiersE != null ? _soulstoneTiersE.Value : SoulstoneTiersDefault;
-        foreach (var tok in (raw ?? "").Split(','))
+        foreach (var tok in (SoulstoneTiersRaw ?? "").Split(','))
         {
-            var t = tok.Trim().ToLowerInvariant();
-            if (t == "normal") { if (!list.Contains(0)) list.Add(0); }
-            else if (t == "nightmare") { if (!list.Contains(1)) list.Add(1); }
-            else if (t == "hell") { if (!list.Contains(2)) list.Add(2); }
-            else if (t == "torment") { if (!list.Contains(3)) list.Add(3); }
+            int tier = Array.FindIndex(TierNames,
+                n => string.Equals(n, tok.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (tier >= 0 && !list.Contains(tier)) list.Add(tier);
         }
-        if (list.Count == 0) { list.Add(0); list.Add(1); list.Add(2); list.Add(3); }
+        if (list.Count == 0)
+            for (int i = 0; i < TierNames.Length; i++) list.Add(i);
         return list;
     }
 
-    internal const string SoulstoneTiersDefault = "Normal,Nightmare,Hell,Torment";
+    // ESTAGEDIFFICULTY order: one soulstone tier per difficulty.
+    static readonly string[] TierNames = { "Normal", "Nightmare", "Hell", "Torment" };
+
+    internal static readonly string SoulstoneTiersDefault = string.Join(",", TierNames);
 
     internal static string SoulstoneTiersRaw =>
         _soulstoneTiersE != null ? _soulstoneTiersE.Value : SoulstoneTiersDefault;
@@ -143,43 +144,35 @@ public class AutoSynthPlugin : BasePlugin
         if (_conf == null) return;
         try
         {
-            int mg = MaxGrade, dl = DesiredLevel, mr = MaxRuneUpgradesPerCycle, mc = MaxChestOpensPerCycle,
-                ms = MaxSynthRepeatsPerCycle, al = AlchemyLevelThreshold, ag = MaxAlchemyGrade,
-                ab = MaxAlchemyBatchesPerCycle, ac = ActBossRunsPerCycle, aw = ActBossWatchMinutes;
-            float ci = AfterClearDelay;
-            string st = SoulstoneTiersRaw;
-            bool auto = AutoStart, open = AutoOpenCube, rune = AutoUpgradeRune, synth = EnableSynthesis,
-                chest = AutoOpenChest, repeat = RepeatFullSynth, alchemy = AutoAlchemy, dry = AlchemyDryRun,
-                soul = AutoConsumeSoulstone, soulDry = SoulstoneDryRun;
+            string before = Summary();
             _conf.Reload();
-            if (mg != MaxGrade || dl != DesiredLevel || ci != AfterClearDelay || auto != AutoStart
-                || open != AutoOpenCube || rune != AutoUpgradeRune || synth != EnableSynthesis
-                || chest != AutoOpenChest || mr != MaxRuneUpgradesPerCycle || mc != MaxChestOpensPerCycle
-                || ms != MaxSynthRepeatsPerCycle || repeat != RepeatFullSynth || alchemy != AutoAlchemy
-                || dry != AlchemyDryRun || al != AlchemyLevelThreshold || ag != MaxAlchemyGrade
-                || ab != MaxAlchemyBatchesPerCycle || soul != AutoConsumeSoulstone
-                || soulDry != SoulstoneDryRun
-                || ac != ActBossRunsPerCycle || aw != ActBossWatchMinutes || st != SoulstoneTiersRaw)
-                Logger.LogInfo($"config reloaded: MaxGrade={MaxGrade}, DesiredLevel={DesiredLevel}, " +
-                               $"CycleIntervalSeconds={AfterClearDelay}, AutoStart={AutoStart}, " +
-                               $"EnableSynthesis={EnableSynthesis}, AutoOpenChest={AutoOpenChest}, " +
-                               $"AutoUpgradeRune={AutoUpgradeRune}, " +
-                               $"MaxRuneUpgradesPerCycle={MaxRuneUpgradesPerCycle}, " +
-                               $"MaxChestOpensPerCycle={MaxChestOpensPerCycle}, " +
-                               $"RepeatFullSynth={RepeatFullSynth}, " +
-                               $"MaxSynthRepeatsPerCycle={MaxSynthRepeatsPerCycle}, " +
-                               $"AutoAlchemy={AutoAlchemy}, AlchemyDryRun={AlchemyDryRun}, " +
-                               $"AlchemyLevelThreshold={AlchemyLevelThreshold}, " +
-                               $"MaxAlchemyGrade={MaxAlchemyGrade}, " +
-                               $"MaxAlchemyBatchesPerCycle={MaxAlchemyBatchesPerCycle}, " +
-                               $"AutoConsumeSoulstone={AutoConsumeSoulstone}, " +
-                               $"SoulstoneDryRun={SoulstoneDryRun}, " +
-                               $"SoulstoneTiers={SoulstoneTiersRaw}, " +
-                               $"ActBossRunsPerCycle={ActBossRunsPerCycle}, " +
-                               $"ActBossWatchMinutes={ActBossWatchMinutes}");
+            string after = Summary();
+            if (after != before) Logger.LogInfo("config reloaded: " + after);
         }
         catch (Exception e) { Logger.LogWarning("config reload failed: " + e.Message); }
     }
+
+    // Every setting the loop reads, in one line. Comparing it across a reload is
+    // what decides whether anything changed, so a new option only has to be added
+    // here to be both logged and noticed.
+    static string Summary()
+        => $"MaxGrade={MaxGrade}, DesiredLevel={DesiredLevel}, " +
+           $"CycleIntervalSeconds={AfterClearDelay}, AutoStart={AutoStart}, " +
+           $"EnableSynthesis={EnableSynthesis}, AutoOpenChest={AutoOpenChest}, " +
+           $"AutoUpgradeRune={AutoUpgradeRune}, " +
+           $"MaxRuneUpgradesPerCycle={MaxRuneUpgradesPerCycle}, " +
+           $"MaxChestOpensPerCycle={MaxChestOpensPerCycle}, " +
+           $"RepeatFullSynth={RepeatFullSynth}, " +
+           $"MaxSynthRepeatsPerCycle={MaxSynthRepeatsPerCycle}, " +
+           $"AutoAlchemy={AutoAlchemy}, AlchemyDryRun={AlchemyDryRun}, " +
+           $"AlchemyLevelThreshold={AlchemyLevelThreshold}, " +
+           $"MaxAlchemyGrade={MaxAlchemyGrade}, " +
+           $"MaxAlchemyBatchesPerCycle={MaxAlchemyBatchesPerCycle}, " +
+           $"AutoConsumeSoulstone={AutoConsumeSoulstone}, " +
+           $"SoulstoneDryRun={SoulstoneDryRun}, " +
+           $"SoulstoneTiers={SoulstoneTiersRaw}, " +
+           $"ActBossRunsPerCycle={ActBossRunsPerCycle}, " +
+           $"ActBossWatchMinutes={ActBossWatchMinutes}";
 
     // null = no change since last check; otherwise the new AutoStart value to apply.
     internal static bool? ConsumeAutoStartChange()
@@ -439,7 +432,6 @@ public class AutoSynthBehaviour : MonoBehaviour
                     (AutoSynthPlugin.AutoOpenChest ? "Chest opens ON. " : "Chest opens OFF. ") +
                     (AutoSynthPlugin.AutoConsumeSoulstone ? "Soulstones ON. " : "Soulstones OFF. ") +
                     (AutoSynthPlugin.AutoUpgradeRune ? "Rune upgrades ON. " : "Rune upgrades OFF. ") +
-
                     "F7 = one cycle, F8 toggles auto.");
             }
             else
@@ -467,7 +459,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         _mode = LoopMode.OneShot;
         BeginCycleWork();
         AutoSynthPlugin.Logger.LogInfo(
-            "F7: starting one-shot cycle (soulstone -> chest -> alchemy -> synthesis -> rune), then auto OFF");
+            $"F7: starting one-shot cycle ({StepList()}), then auto OFF");
     }
 
     void SetAuto(bool on, string reason)
@@ -521,6 +513,13 @@ public class AutoSynthBehaviour : MonoBehaviour
             _cycles++;
         StartStep(_steps[0], true);
     }
+
+    // The phases this cycle will actually run, in order — read from _steps so the
+    // log can never drift from EnabledSteps.
+    string StepList()
+        => _steps.Length == 0
+            ? "nothing enabled"
+            : string.Join(" -> ", Array.ConvertAll(_steps, s => s.ToString().ToLowerInvariant()));
 
     static CycleStep[] EnabledSteps()
     {

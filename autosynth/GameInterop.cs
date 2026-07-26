@@ -442,18 +442,22 @@ internal static class GameInterop
     static string MName(MethodInfo m) => m != null ? m.Name : "null";
 
     // Cached: Resources.FindObjectsOfTypeAll walks every loaded object, so calling
-    // it per lookup froze the game for seconds during a rune scan. The DB is a
-    // scene-independent asset; callers drop the cache if a wrapper ever goes stale.
+    // it per lookup froze the game for seconds during a rune scan. Both singletons
+    // below are scene-independent; callers drop the cache if a wrapper goes stale.
+    static object WrapFirstLoaded(Type type, ref object cache)
+    {
+        if (type == null) return null;
+        if (cache != null) return cache;
+        var all = UnityEngine.Resources.FindObjectsOfTypeAll(Il2CppInterop.Runtime.Il2CppType.From(type));
+        if (all == null || all.Length == 0) return null;
+        cache = Activator.CreateInstance(type, new object[] { all[0].Pointer });
+        return cache;
+    }
+
     static object DbInstance()
     {
         Resolve();
-        if (_dbType == null) return null;
-        if (_dbInstance != null) return _dbInstance;
-        var t = Il2CppInterop.Runtime.Il2CppType.From(_dbType);
-        var all = UnityEngine.Resources.FindObjectsOfTypeAll(t);
-        if (all == null || all.Length == 0) return null;
-        _dbInstance = Activator.CreateInstance(_dbType, new object[] { all[0].Pointer });
-        return _dbInstance;
+        return WrapFirstLoaded(_dbType, ref _dbInstance);
     }
 
     internal static ERecipeType RecipeTypeOf(SubRecipeComboBoxButton c)
@@ -1052,13 +1056,15 @@ internal static class GameInterop
         foreach (var t in AssemblyTypes())
         {
             if (t == null || !typeof(MonoBehaviour).IsAssignableFrom(t)) continue;
+            bool holder = false;
             foreach (var p in t.GetProperties(DeclInstance))
-            {
-                if (p.PropertyType != typeof(PlayerSaveData)) continue;
-                _saveHolderType = t;
-                _pPlayerSave = p;
-                return;
-            }
+                if (p.PropertyType == typeof(PlayerSaveData)) { holder = true; break; }
+            if (!holder) continue;
+            _saveHolderType = t;
+            // Re-run through OnlyProp so a patch that adds a second PlayerSaveData
+            // property warns like every other member this file resolves.
+            _pPlayerSave = OnlyProp(t, typeof(PlayerSaveData), false);
+            return;
         }
     }
 
@@ -1078,65 +1084,73 @@ internal static class GameInterop
     }
 
     static object _saveHolderInstance;
+    static CommonSaveData _commonSave;
 
-    static object SaveHolderInstance()
-    {
-        Resolve();
-        if (_saveHolderType == null) return null;
-        if (_saveHolderInstance != null) return _saveHolderInstance;
-        var all = UnityEngine.Resources.FindObjectsOfTypeAll(
-            Il2CppInterop.Runtime.Il2CppType.From(_saveHolderType));
-        if (all == null || all.Length == 0) return null;
-        _saveHolderInstance = Activator.CreateInstance(_saveHolderType, new object[] { all[0].Pointer });
-        return _saveHolderInstance;
-    }
-
+    // The save object lives for the session — only its field values change — so the
+    // two reflection hops behind it are done once rather than per stage-key read.
     static CommonSaveData CommonSave()
     {
         try
         {
-            var holder = SaveHolderInstance();
+            if (_commonSave != null) return _commonSave;
+            Resolve();
+            var holder = WrapFirstLoaded(_saveHolderType, ref _saveHolderInstance);
             if (holder == null || _pPlayerSave == null) return null;
             var player = _pPlayerSave.GetValue(holder) as PlayerSaveData;
-            return player != null ? player.commonSaveData : null;
+            _commonSave = player != null ? player.commonSaveData : null;
+            return _commonSave;
         }
         catch
         {
             // Wrapper went stale (scene reload); drop it so the next call re-resolves.
             _saveHolderInstance = null;
+            _commonSave = null;
             return null;
         }
     }
 
     // Highest stage the account has ever completed, or -1 when unreadable. Stage keys
     // run in progression order, so "cleared" is simply StageKey <= this.
-    internal static int MaxCompletedStage()
-    {
-        var save = CommonSave();
-        try { return save != null ? save.maxCompletedStage : -1; }
-        catch { return -1; }
-    }
+    internal static int MaxCompletedStage() => ReadSave(save => save.maxCompletedStage);
 
     // The stage the hero is on right now, or -1 when unreadable.
-    internal static int CurrentStageKey()
+    internal static int CurrentStageKey() => ReadSave(save => save.currentStageKey);
+
+    static int ReadSave(Func<CommonSaveData, int> read)
     {
         var save = CommonSave();
-        try { return save != null ? save.currentStageKey : -1; }
-        catch { return -1; }
+        if (save == null) return -1;
+        try { return read(save); }
+        catch
+        {
+            // Reading through a stale wrapper: drop it and report unknown.
+            _saveHolderInstance = null;
+            _commonSave = null;
+            return -1;
+        }
     }
 
+    static TaskbarHero.Manager.LocalInventoryManager _inventory;
+
     // How many of an item the account holds, or -1 when the accessor is missing.
+    // The manager is cached: the soulstone watch reads counts every few seconds, and
+    // FindObjectOfType(includeInactive) walks the scene on every call.
     internal static int ItemCount(int itemKey)
     {
         try
         {
             Resolve();
             if (_mItemCount == null || itemKey <= 0) return -1;
-            var inv = Object.FindObjectOfType<TaskbarHero.Manager.LocalInventoryManager>(true);
-            if (inv == null) return -1;
-            return (int)_mItemCount.Invoke(inv, new object[] { itemKey });
+            if (_inventory == null)
+                _inventory = Object.FindObjectOfType<TaskbarHero.Manager.LocalInventoryManager>(true);
+            if (_inventory == null) return -1;
+            return (int)_mItemCount.Invoke(_inventory, new object[] { itemKey });
         }
-        catch { return -1; }
+        catch
+        {
+            _inventory = null;
+            return -1;
+        }
     }
 
     // The stage a portal node represents, or null when the node has no cache yet.
@@ -1156,8 +1170,8 @@ internal static class GameInterop
 
     internal static bool CanReadPortalNodes => _pNodeStageCache != null && _pCacheStageInfo != null;
 
-    // Plain UnityEngine.UI.Button (portal act slots / stage enter), which is not a
-    // ButtonBase and therefore has no pointer-effect half to fire.
+    // Plain UnityEngine.UI.Button (rune level-up, portal act slots / stage enter),
+    // which is not a ButtonBase and therefore has no pointer-effect half to fire.
     internal static bool ClickButton(UnityEngine.UI.Button button, string name, bool loud)
     {
         if (button == null)
@@ -1165,9 +1179,14 @@ internal static class GameInterop
             AutoSynthPlugin.Logger.LogWarning($"{name}: null");
             return false;
         }
-        if (!button.gameObject.activeInHierarchy || !button.interactable)
+        if (!button.gameObject.activeInHierarchy)
         {
             if (loud) AutoSynthPlugin.Logger.LogInfo($"{name}: inactive, skipped");
+            return false;
+        }
+        if (!button.interactable)
+        {
+            if (loud) AutoSynthPlugin.Logger.LogInfo($"{name}: not interactable, skipped");
             return false;
         }
         try

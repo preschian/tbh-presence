@@ -80,7 +80,6 @@ internal sealed class SoulstoneRunner
     private int _openAttempts;
     private int _actClicks;
     private int _difficultyClicks;
-    private bool _loggedOpenFailed;
 
     private int _pendingStageKey = -1;
     private int _pendingStoneKey = -1;
@@ -104,7 +103,6 @@ internal sealed class SoulstoneRunner
         _boxLast = -1;
         _stonesAtStart = -1;
         _runsDone = 0;
-        _phaseEnteredAt = Time.unscaledTime;
         ResetNavigationBudgets();
         ClearPending();
     }
@@ -133,7 +131,6 @@ internal sealed class SoulstoneRunner
         _difficultyClicks = 0;
         _nextOpenAttempt = 0f;
         _phaseEnteredAt = Time.unscaledTime;
-        _loggedOpenFailed = false;
         MainMenuAccess.Reset();
     }
 
@@ -251,13 +248,17 @@ internal sealed class SoulstoneRunner
             return LeaveBoss(loud, ref nextDelay);
         }
 
-        int current = GameInterop.CurrentStageKey();
-        if (current >= 0 && current != _boss.StageKey && Time.unscaledTime - _watchStartedAt > 30f)
+        // Grace period first: the stage key needs a moment to catch up with the entry.
+        if (Time.unscaledTime - _watchStartedAt > 30f)
         {
-            AutoSynthPlugin.Logger.LogInfo(
-                $"soulstone phase: the hero left {_boss.Label} on its own after " +
-                $"{_runsDone} run(s) — ending phase");
-            return Finish(loud);
+            int current = GameInterop.CurrentStageKey();
+            if (current >= 0 && current != _boss.StageKey)
+            {
+                AutoSynthPlugin.Logger.LogInfo(
+                    $"soulstone phase: the hero left {_boss.Label} on its own after " +
+                    $"{_runsDone} run(s) — ending phase");
+                return Finish(loud);
+            }
         }
 
         float budget = Math.Max(1, AutoSynthPlugin.ActBossWatchMinutes) * 60f;
@@ -274,7 +275,6 @@ internal sealed class SoulstoneRunner
 
     private TickResult LeaveBoss(bool loud, ref float nextDelay)
     {
-        LastRuns = _runsDone;
         if (!_home.Exists || _home.StageKey == _boss.StageKey)
         {
             AutoSynthPlugin.Logger.LogInfo(
@@ -307,15 +307,7 @@ internal sealed class SoulstoneRunner
     private NavResult Navigate(Target target, bool spendsStone, bool loud, ref float nextDelay)
     {
         if (_pendingStageKey > 0)
-        {
-            var confirm = ConfirmPending(loud);
-            if (confirm == null)
-            {
-                nextDelay = Math.Max(1f, AutoSynthPlugin.AfterSoulstoneEnterDelay);
-                return NavResult.Working;
-            }
-            return confirm.Value ? NavResult.Arrived : NavResult.Failed;
-        }
+            return ConfirmPending(loud, ref nextDelay);
 
         if (GameInterop.CurrentStageKey() == target.StageKey)
             return NavResult.Arrived;
@@ -332,16 +324,12 @@ internal sealed class SoulstoneRunner
             if (Time.unscaledTime - _phaseEnteredAt >= OpenTimeoutSeconds
                 || _openAttempts >= MaxOpenAttempts)
             {
-                if (!_loggedOpenFailed)
-                {
-                    _loggedOpenFailed = true;
-                    AutoSynthPlugin.Logger.LogWarning(
-                        $"soulstone phase: could not open the Portal (attempts={_openAttempts})");
-                }
+                AutoSynthPlugin.Logger.LogWarning(
+                    $"soulstone phase: could not open the Portal (attempts={_openAttempts})");
                 return NavResult.Failed;
             }
-            if (TryOpenPortal(loud, out bool spent) && spent)
-                _openAttempts++;
+            if (!TryOpenPortal(loud, out bool spent)) return NavResult.Failed;
+            if (spent) _openAttempts++;
             nextDelay = Math.Max(0.25f, _nextOpenAttempt - Time.unscaledTime);
             return NavResult.Working;
         }
@@ -423,8 +411,9 @@ internal sealed class SoulstoneRunner
         return NavResult.Working;
     }
 
-    // null = still waiting, true = entered, false = the entry did not take.
-    private bool? ConfirmPending(bool loud)
+    // Did the click take? The stage key is the direct answer; a soulstone leaving
+    // the inventory is the backup for the leg that spends one.
+    private NavResult ConfirmPending(bool loud, ref float nextDelay)
     {
         int current = GameInterop.CurrentStageKey();
         if (current == _pendingStageKey)
@@ -432,26 +421,33 @@ internal sealed class SoulstoneRunner
             if (loud)
                 AutoSynthPlugin.Logger.LogInfo($"soulstone phase: stage {current} entered");
             ClearPending();
-            return true;
+            return NavResult.Arrived;
         }
 
-        int now = GameInterop.ItemCount(_pendingStoneKey);
-        if (_pendingStonesBefore >= 0 && now >= 0 && now < _pendingStonesBefore)
+        if (_pendingStonesBefore >= 0)
         {
-            AutoSynthPlugin.Logger.LogInfo(
-                $"soulstone phase: soulstone spent ({_pendingStonesBefore} -> {now})");
-            ClearPending();
-            return true;
+            int now = GameInterop.ItemCount(_pendingStoneKey);
+            if (now >= 0 && now < _pendingStonesBefore)
+            {
+                AutoSynthPlugin.Logger.LogInfo(
+                    $"soulstone phase: soulstone spent ({_pendingStonesBefore} -> {now})");
+                ClearPending();
+                return NavResult.Arrived;
+            }
         }
 
         _verifyTicks++;
-        if (_verifyTicks < MaxVerifyTicks) return null;
+        if (_verifyTicks < MaxVerifyTicks)
+        {
+            nextDelay = Math.Max(1f, AutoSynthPlugin.AfterSoulstoneEnterDelay);
+            return NavResult.Working;
+        }
 
         AutoSynthPlugin.Logger.LogWarning(
             $"soulstone phase: stage {_pendingStageKey} did not start " +
             "(chest space, or the game refused the entry)");
         ClearPending();
-        return false;
+        return NavResult.Failed;
     }
 
     // Cleared Act Boss stages on an enabled tier that the account can pay for,
@@ -538,8 +534,9 @@ internal sealed class SoulstoneRunner
             {
                 var stage = stages[i];
                 if (stage == null || stage.StageKey != stageKey) continue;
+                // Walking home costs nothing, so the stone half stays empty.
                 return new Target(stage.StageKey, stage.Act, stage.StageNo, stage.STAGEDIFFICULTY,
-                    stage.SoulStoneItemKey, Math.Max(1, stage.SoulStoneAmount), 0);
+                    0, 0, 0);
             }
         }
         catch { }
@@ -553,13 +550,8 @@ internal sealed class SoulstoneRunner
         _nextOpenAttempt = Time.unscaledTime + delay;
         if (result != MainMenuAccess.PanelResult.Failed) return true;
 
-        if (!_loggedOpenFailed)
-        {
-            _loggedOpenFailed = true;
-            AutoSynthPlugin.Logger.LogWarning(
-                "soulstone phase: could not open the main menu for the Portal");
-        }
-        _openAttempts = MaxOpenAttempts;
+        AutoSynthPlugin.Logger.LogWarning(
+            "soulstone phase: could not open the main menu for the Portal");
         return false;
     }
 

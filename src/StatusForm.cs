@@ -33,6 +33,14 @@ namespace TbhCompanion
             new RecipeTier { Label = "Lv.65~80", Lo = 65 }
         };
 
+        // Tile captions double as the cfg tokens the plugin writes back. Reading is
+        // matched on a stem instead, because the plugin also accepts the singular
+        // spellings ("Material", "Accessory") and "Gear" for Equipment.
+        static readonly string[] SynthesisTypes = { "Equipment", "Materials", "Accessories" };
+        static readonly string[] SynthesisTypeStems = { "equipment", "material", "accessor" };
+        static readonly string[] Tiers = { "Normal", "Nightmare", "Hell", "Torment" };
+        static readonly string[] TierStems = { "normal", "nightmare", "hell", "torment" };
+
         static readonly string StatusPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "tbh-companion", "autosynth-status.json");
@@ -82,8 +90,7 @@ namespace TbhCompanion
         Toggle _presenceToggle;
         Toggle _autoRestart;
         Toggle _autoLoop, _enableSynth, _autoChest, _autoRune, _showConsole, _autoAlchemy, _autoSoulstone;
-        TypeTile _tEquip, _tMaterials, _tAccessories;
-        TypeTile _tNormal, _tNightmare, _tHell, _tTorment;
+        TypeTile[] _typeTiles, _tierTiles;
         SegmentBar _seg;
         Label _rarityValue;
         Stepper _cycleMin, _restartDays, _alchemyLevel, _actBossRuns;
@@ -373,20 +380,7 @@ namespace TbhCompanion
             y1 = AddSectionHeader("Soulstones", Col1X, y1);
             y1 = AddToggleRow("Spend on Act Bosses", Col1X, ref _autoSoulstone, t1, y1);
 
-            AddMainLabel("Tiers", Col1X, y1, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
-            y1 += 18;
-            _tNormal = new TypeTile { Caption = "Normal" };
-            _tNightmare = new TypeTile { Caption = "Nightmare" };
-            _tHell = new TypeTile { Caption = "Hell" };
-            _tTorment = new TypeTile { Caption = "Torment" };
-            var tierTiles = new[] { _tNormal, _tNightmare, _tHell, _tTorment };
-            int tierGap = 6, tierW = (ColW - tierGap * 3) / 4;
-            for (int i = 0; i < tierTiles.Length; i++)
-            {
-                tierTiles[i].SetBounds(Sc(Col1X + i * (tierW + tierGap)), Sc(y1), Sc(tierW), Sc(ControlH));
-                AddContent(tierTiles[i]);
-            }
-            y1 += ControlH + 12;
+            y1 = AddTileRow("Tiers", Tiers, Col1X, y1, out _tierTiles);
 
             y1 = AddFieldRow("Runs per cycle", "", Col1X, y1, f1, fieldW, out _actBossRuns);
             _actBossRuns.Min = 1; _actBossRuns.Max = 99; _actBossRuns.Step = 1;
@@ -396,19 +390,7 @@ namespace TbhCompanion
             y1 = AddSectionHeader("Synthesis", Col1X, y1);
             y1 = AddToggleRow("Synthesize items", Col1X, ref _enableSynth, t1, y1);
 
-            AddMainLabel("Types", Col1X, y1, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
-            y1 += 18;
-            _tEquip = new TypeTile { Caption = "Equipment" };
-            _tMaterials = new TypeTile { Caption = "Materials" };
-            _tAccessories = new TypeTile { Caption = "Accessories" };
-            var tiles = new[] { _tEquip, _tMaterials, _tAccessories };
-            int gap = 6, tw = (ColW - gap * 2) / 3;
-            for (int i = 0; i < 3; i++)
-            {
-                tiles[i].SetBounds(Sc(Col1X + i * (tw + gap)), Sc(y1), Sc(tw), Sc(ControlH));
-                AddContent(tiles[i]);
-            }
-            y1 += ControlH + 12;
+            y1 = AddTileRow("Types", SynthesisTypes, Col1X, y1, out _typeTiles);
 
             AddRowLabel("Max rarity", Col1X, y1);
             _rarityValue = AddMainLabelBox("Legendary", f1, y1, fieldW, ControlH, Theme.Amber, Theme.F(9f, FontStyle.Bold), ContentAlignment.MiddleRight);
@@ -668,6 +650,23 @@ namespace TbhCompanion
             if (!string.IsNullOrEmpty(suffix))
                 AddMainLabel(suffix, fieldX - 26, y + (ControlH - 12) / 2, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
             return y + RowH;
+        }
+
+        // A captioned row of equal-width toggle tiles (synthesis types, soulstone tiers).
+        int AddTileRow(string caption, string[] captions, int colX, int y, out TypeTile[] tiles)
+        {
+            AddMainLabel(caption, colX, y, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
+            y += 18;
+            const int gap = 6;
+            int tw = (ColW - gap * (captions.Length - 1)) / captions.Length;
+            tiles = new TypeTile[captions.Length];
+            for (int i = 0; i < captions.Length; i++)
+            {
+                tiles[i] = new TypeTile { Caption = captions[i] };
+                tiles[i].SetBounds(Sc(colX + i * (tw + gap)), Sc(y), Sc(tw), Sc(ControlH));
+                AddContent(tiles[i]);
+            }
+            return y + ControlH + 12;
         }
 
         int AddDropdownRow(string label, string[] items, int colX, int y, int fieldX, int fieldW, out FlatDrop drop)
@@ -988,8 +987,8 @@ namespace TbhCompanion
             _autoRune.Enabled = on; _seg.Enabled = on;
             _autoAlchemy.Enabled = on; _alchemyLevel.Enabled = on; _alchemyRarity.Enabled = on;
             _autoSoulstone.Enabled = on; _actBossRuns.Enabled = on;
-            _tNormal.Enabled = on; _tNightmare.Enabled = on; _tHell.Enabled = on; _tTorment.Enabled = on;
-            _tEquip.Enabled = on; _tMaterials.Enabled = on; _tAccessories.Enabled = on;
+            foreach (var tile in _tierTiles) tile.Enabled = on;
+            foreach (var tile in _typeTiles) tile.Enabled = on;
             _desiredLevel.Enabled = on; _cycleMin.Enabled = on;
             _saveBtn.Enabled = on;
         }
@@ -1016,13 +1015,8 @@ namespace TbhCompanion
                 int runs;
                 if (!int.TryParse(GetVal(text, "Safety", "ActBossRunsPerCycle", "5"), out runs) || runs < 1) runs = 5;
                 _actBossRuns.SetValue(runs);
-                string tiers = GetVal(text, "General", "SoulstoneTiers", "Normal,Nightmare,Hell,Torment").ToLowerInvariant();
-                _tNormal.Selected = tiers.Contains("normal");
-                _tNightmare.Selected = tiers.Contains("nightmare");
-                _tHell.Selected = tiers.Contains("hell");
-                _tTorment.Selected = tiers.Contains("torment");
-                if (!_tNormal.Selected && !_tNightmare.Selected && !_tHell.Selected && !_tTorment.Selected)
-                { _tNormal.Selected = _tNightmare.Selected = _tHell.Selected = _tTorment.Selected = true; }
+                SelectTiles(_tierTiles, TierStems,
+                    GetVal(text, "General", "SoulstoneTiers", string.Join(",", Tiers)));
                 int al;
                 if (!int.TryParse(GetVal(text, "General", "AlchemyLevelThreshold", "0"), out al) || al < 0) al = 0;
                 _alchemyLevel.SetValue(al);
@@ -1037,12 +1031,10 @@ namespace TbhCompanion
                 _desiredLevel.SelectedIndex = RecipeIndex(dl);
                 decimal cycleSec = ParseF(GetVal(text, "Timing", "CycleIntervalSeconds", "300"));
                 _cycleMin.SetValue(Math.Round(cycleSec / 60m));
-                string types = GetVal(text, "General", "SynthesisTypes", "Equipment,Materials,Accessories").ToLowerInvariant();
-                _tEquip.Selected = types.Contains("equipment") || types.Contains("gear");
-                _tMaterials.Selected = types.Contains("material");
-                _tAccessories.Selected = types.Contains("accessor");
-                if (!_tEquip.Selected && !_tMaterials.Selected && !_tAccessories.Selected)
-                { _tEquip.Selected = _tMaterials.Selected = _tAccessories.Selected = true; }
+                string types = GetVal(text, "General", "SynthesisTypes", string.Join(",", SynthesisTypes));
+                SelectTiles(_typeTiles, SynthesisTypeStems, types);
+                if (types.IndexOf("gear", StringComparison.OrdinalIgnoreCase) >= 0)
+                    _typeTiles[0].Selected = true;
 
                 _bepinexCfgPath = BepInExCfg.Path(AutoSynthDeploy.FindGameDir());
                 if (_bepinexCfgPath != null && File.Exists(_bepinexCfgPath))
@@ -1060,6 +1052,29 @@ namespace TbhCompanion
                 SetSettingsEnabled(false);
                 _cfgNote.Text = "config unreadable: " + ex.Message;
             }
+        }
+
+        // A tile is on when the cfg list names it; a list that names none of them
+        // means "all of them", which is how the plugin reads it too.
+        static void SelectTiles(TypeTile[] tiles, string[] stems, string raw)
+        {
+            string list = (raw ?? "").ToLowerInvariant();
+            bool any = false;
+            for (int i = 0; i < tiles.Length; i++)
+            {
+                tiles[i].Selected = list.Contains(stems[i]);
+                any |= tiles[i].Selected;
+            }
+            if (!any) foreach (var tile in tiles) tile.Selected = true;
+        }
+
+        static string SelectedTiles(TypeTile[] tiles, string[] names)
+        {
+            var picked = new List<string>();
+            for (int i = 0; i < tiles.Length; i++)
+                if (tiles[i].Selected) picked.Add(names[i]);
+            if (picked.Count == 0) picked.AddRange(names);
+            return string.Join(",", picked.ToArray());
         }
 
         void SaveConfig()
@@ -1087,20 +1102,8 @@ namespace TbhCompanion
                     Recipes[Math.Max(0, Math.Min(Recipes.Length - 1, _desiredLevel.SelectedIndex))]
                         .Lo.ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "Timing", "CycleIntervalSeconds", (_cycleMin.Value * 60).ToString(CultureInfo.InvariantCulture));
-                var types = new List<string>();
-                if (_tEquip.Selected) types.Add("Equipment");
-                if (_tMaterials.Selected) types.Add("Materials");
-                if (_tAccessories.Selected) types.Add("Accessories");
-                if (types.Count == 0) { types.Add("Equipment"); types.Add("Materials"); types.Add("Accessories"); }
-                text = SetVal(text, "General", "SynthesisTypes", string.Join(",", types.ToArray()));
-                var tiers = new List<string>();
-                if (_tNormal.Selected) tiers.Add("Normal");
-                if (_tNightmare.Selected) tiers.Add("Nightmare");
-                if (_tHell.Selected) tiers.Add("Hell");
-                if (_tTorment.Selected) tiers.Add("Torment");
-                if (tiers.Count == 0)
-                { tiers.Add("Normal"); tiers.Add("Nightmare"); tiers.Add("Hell"); tiers.Add("Torment"); }
-                text = SetVal(text, "General", "SoulstoneTiers", string.Join(",", tiers.ToArray()));
+                text = SetVal(text, "General", "SynthesisTypes", SelectedTiles(_typeTiles, SynthesisTypes));
+                text = SetVal(text, "General", "SoulstoneTiers", SelectedTiles(_tierTiles, Tiers));
                 File.WriteAllText(_cfgPath, text);
 
                 bool consoleRestart = false;

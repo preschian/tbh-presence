@@ -442,8 +442,8 @@ internal sealed class RuneUpgradeRunner
         {
             var runeUi = FindRuneUi();
             if (!IsOpen(runeUi)) return;
-            if (ClickUnityButton(runeUi.Button_Close, "Rune close", loud)) return;
-            if (ClickUnityButton(runeUi.Button_Close_Down, "Rune close (down)", loud)) return;
+            if (GameInterop.ClickButton(runeUi.Button_Close, "Rune close", loud)) return;
+            if (GameInterop.ClickButton(runeUi.Button_Close_Down, "Rune close (down)", loud)) return;
         }
         catch (Exception e)
         {
@@ -484,7 +484,7 @@ internal sealed class RuneUpgradeRunner
 
         try
         {
-            if (!ClickUnityButton(node.m_levelUpButton, "Rune level-up", loud))
+            if (!GameInterop.ClickButton(node.m_levelUpButton, "Rune level-up", loud))
                 return false;
             if (loud)
                 AutoSynthPlugin.Logger.LogInfo(
@@ -609,33 +609,6 @@ internal sealed class RuneUpgradeRunner
                 System.Globalization.CultureInfo.InvariantCulture, out var n))
             return -1;
         return (long)(n * mult);
-    }
-
-    private static bool ClickUnityButton(Button button, string name, bool loud)
-    {
-        if (button == null)
-        {
-            AutoSynthPlugin.Logger.LogWarning($"{name}: null");
-            return false;
-        }
-        if (!button.gameObject.activeInHierarchy)
-        {
-            if (loud) AutoSynthPlugin.Logger.LogInfo($"{name}: inactive, skipped");
-            return false;
-        }
-        if (!button.interactable)
-        {
-            if (loud) AutoSynthPlugin.Logger.LogInfo($"{name}: not interactable, skipped");
-            return false;
-        }
-        if (button.onClick != null)
-        {
-            button.onClick.Invoke();
-            if (loud) AutoSynthPlugin.Logger.LogInfo($"clicked {name}");
-            return true;
-        }
-        AutoSynthPlugin.Logger.LogWarning($"{name}: no onClick");
-        return false;
     }
 
     internal void Dump(Func<ToggleButton, string> describe)
