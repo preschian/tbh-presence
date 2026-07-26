@@ -48,6 +48,7 @@ internal static class GameInterop
     // (runeKey, level) -> gold cost, -1 when the level does not exist. The rune
     // table is static data, so a hit here replaces a full DB lookup.
     static readonly Dictionary<long, int> _runeCostCache = new Dictionary<long, int>();
+    static readonly Dictionary<int, bool> _offeringMaterialCache = new Dictionary<int, bool>();
 
     const BindingFlags DeclInstance =
         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
@@ -811,22 +812,33 @@ internal static class GameInterop
         try
         {
             Resolve();
-            if (itemKey <= 0 || !CanIdentifyOfferingMaterials) return false;
+            if (itemKey <= 0 || _mMaterialInfo == null || _mMaterialInfo.Length == 0
+                || _pMaterialType == null) return false;
+            if (_offeringMaterialCache.TryGetValue(itemKey, out bool cached)) return cached;
             var db = DbInstance();
             if (db == null) return false;
+            bool lookupSucceeded = false;
             foreach (var method in _mMaterialInfo)
             {
                 MaterialInfoData info;
-                try { info = method.Invoke(db, new object[] { itemKey }) as MaterialInfoData; }
+                try
+                {
+                    info = method.Invoke(db, new object[] { itemKey }) as MaterialInfoData;
+                    lookupSucceeded = true;
+                }
                 catch { continue; }
                 if (info == null) continue;
                 try
                 {
                     if ((EMaterialType)_pMaterialType.GetValue(info) == EMaterialType.OFFERING)
+                    {
+                        _offeringMaterialCache[itemKey] = true;
                         return true;
+                    }
                 }
                 catch { }
             }
+            if (lookupSucceeded) _offeringMaterialCache[itemKey] = false;
         }
         catch { }
         return false;

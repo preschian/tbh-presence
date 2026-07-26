@@ -146,8 +146,7 @@ internal sealed class OfferingRunner
 
     private TickResult TickFill(UI_Cube cube, ref float nextDelay)
     {
-        int slotCount;
-        int filled = GameInterop.CubeFilledCount(cube, out slotCount);
+        int filled = GameInterop.CubeFilledCount(cube, out _);
 
         if (_filledBeforeAdd >= 0)
         {
@@ -205,8 +204,7 @@ internal sealed class OfferingRunner
 
     private TickResult TickTrigger(UI_Cube cube, bool loud, ref float nextDelay)
     {
-        int slotCount;
-        int filled = GameInterop.CubeFilledCount(cube, out slotCount);
+        int filled = GameInterop.CubeFilledCount(cube, out _);
         if (filled != 1)
         {
             AutoSynthPlugin.Logger.LogWarning(
@@ -215,8 +213,6 @@ internal sealed class OfferingRunner
             return TickResult.InProgress;
         }
 
-        if (_coinCountBeforeOperation < 0)
-            _coinCountBeforeOperation = GameInterop.ItemCount(_coinItemKey);
         AutoSynthPlugin.Logger.LogInfo($"offering: running operation {_offerings + 1}");
         GameInterop.Click(cube.toggleButton_Trigger, "offering trigger", loud);
         _settleAttempts = 0;
@@ -227,8 +223,7 @@ internal sealed class OfferingRunner
 
     private TickResult TickSettle(UI_Cube cube, ref float nextDelay)
     {
-        int slotCount;
-        int filled = GameInterop.CubeFilledCount(cube, out slotCount);
+        int filled = GameInterop.CubeFilledCount(cube, out _);
         int remaining = GameInterop.ItemCount(_coinItemKey);
         bool countReadable = _coinCountBeforeOperation >= 0 && remaining >= 0;
         bool consumed = countReadable
@@ -276,36 +271,17 @@ internal sealed class OfferingRunner
     }
 
     private TickResult TickRefreshAway(ref float nextDelay)
-    {
-        _refreshAttempts++;
-        if (_refreshAttempts == 1)
-        {
-            OpenRecipeDropdown();
-            return TickResult.InProgress;
-        }
-
-        string detail;
-        if (GameInterop.TrySelectMainRecipe(ERecipeType.SYNTHESIS, out detail))
-        {
-            CloseRecipeDropdown();
-            _refreshAttempts = 0;
-            _step = Step.RefreshBack;
-            nextDelay = AutoSynthPlugin.AfterFillDelay;
-            return TickResult.InProgress;
-        }
-        if (_refreshAttempts >= MaxRecipeAttempts)
-        {
-            AutoSynthPlugin.Logger.LogWarning(
-                "offering: could not refresh inventory via Synthesis (" + detail + ")");
-            _step = Step.Restore;
-            return TickResult.InProgress;
-        }
-        OpenRecipeDropdown();
-        nextDelay = AutoSynthPlugin.AfterFillDelay;
-        return TickResult.InProgress;
-    }
+        => TickRecipeTransition(
+            ERecipeType.SYNTHESIS, Step.RefreshBack,
+            "could not refresh inventory via Synthesis", false, ref nextDelay);
 
     private TickResult TickRefreshBack(ref float nextDelay)
+        => TickRecipeTransition(
+            ERecipeType.OFFERING, Step.Fill,
+            "could not return to Offering after inventory refresh", true, ref nextDelay);
+
+    private TickResult TickRecipeTransition(ERecipeType recipe, Step nextStep,
+        string failure, bool inventoryRefreshed, ref float nextDelay)
     {
         _refreshAttempts++;
         if (_refreshAttempts == 1)
@@ -315,22 +291,24 @@ internal sealed class OfferingRunner
         }
 
         string detail;
-        if (GameInterop.TrySelectMainRecipe(ERecipeType.OFFERING, out detail))
+        if (GameInterop.TrySelectMainRecipe(recipe, out detail))
         {
             CloseRecipeDropdown();
             _refreshAttempts = 0;
-            _offeredPosition = -1;
-            _coinItemKey = 0;
-            _hero = null;
-            _step = Step.Fill;
+            _step = nextStep;
             nextDelay = AutoSynthPlugin.AfterFillDelay;
-            AutoSynthPlugin.Logger.LogInfo("offering: inventory refreshed for the next coin");
+            if (inventoryRefreshed)
+            {
+                _offeredPosition = -1;
+                _coinItemKey = 0;
+                _hero = null;
+                AutoSynthPlugin.Logger.LogInfo("offering: inventory refreshed for the next coin");
+            }
             return TickResult.InProgress;
         }
         if (_refreshAttempts >= MaxRecipeAttempts)
         {
-            AutoSynthPlugin.Logger.LogWarning(
-                "offering: could not return to Offering after inventory refresh (" + detail + ")");
+            AutoSynthPlugin.Logger.LogWarning($"offering: {failure} ({detail})");
             _step = Step.Restore;
             return TickResult.InProgress;
         }
@@ -426,6 +404,7 @@ internal sealed class OfferingRunner
         try
         {
             int coins = 0;
+            var itemKeys = new System.Collections.Generic.HashSet<int>();
             if (_hero == null) _hero = UnityEngine.Object.FindObjectOfType<UI_Hero>(true);
             var slots = _hero != null ? _hero.inventorySlots : null;
             if (slots != null)
@@ -433,13 +412,17 @@ internal sealed class OfferingRunner
                 for (int i = 0; i < slots.Count; i++)
                 {
                     var info = GameInterop.InventoryItemInfo(slots[i]);
-                    if (info != null && GameInterop.IsOfferingMaterial(info.ItemKey)) coins++;
+                    if (info == null || !GameInterop.IsOfferingMaterial(info.ItemKey)
+                        || !itemKeys.Add(info.ItemKey)) continue;
+                    int count = GameInterop.ItemCount(info.ItemKey);
+                    if (count > 0) coins += count;
                 }
             }
             AutoSynthPlugin.Logger.LogInfo(
                 $"dump: autoOffering={AutoSynthPlugin.AutoOffering} " +
                 $"maxOperations={AutoSynthPlugin.MaxOfferingOperationsPerCycle} " +
-                $"offeringCoinSlots={coins} materialDataReadable={GameInterop.CanIdentifyOfferingMaterials}");
+                $"offeringCoins={coins} coinTypes={itemKeys.Count} " +
+                $"materialDataReadable={GameInterop.CanIdentifyOfferingMaterials}");
         }
         catch (Exception e)
         {

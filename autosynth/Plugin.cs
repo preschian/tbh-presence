@@ -17,7 +17,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.32.3";
+    internal const string Version = "0.32.4";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -543,9 +543,8 @@ public class AutoSynthBehaviour : MonoBehaviour
         var list = new System.Collections.Generic.List<CycleStep>(6);
         // Soulstones run first: the boss runs are what fill the chest stack and the
         // inventory, so the phases that process the haul come after them. Chests are
-        // opened next, then Alchemy melts the junk that fell out of them, which also
-        // frees inventory space and hands the Cube back on the Synthesis recipe the
-        // Synthesis phase expects.
+        // opened next, Offering spends coins before Alchemy melts the junk that fell
+        // out of the chests. Both Cube phases return to Synthesis for the next step.
         if (AutoSynthPlugin.AutoConsumeSoulstone) list.Add(CycleStep.Soulstone);
         if (AutoSynthPlugin.AutoOpenChest) list.Add(CycleStep.Chest);
         if (AutoSynthPlugin.AutoOffering) list.Add(CycleStep.Offering);
