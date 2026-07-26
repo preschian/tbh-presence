@@ -139,6 +139,10 @@ The right pane has the settings in two columns:
     Locked, reserved, and equipped items are never touched. To see exactly what
     would be melted before anything is destroyed, set `AlchemyDryRun = true` in
     `BepInEx\config\com.pres.tbh.autosynth.cfg` for one round and read the log.
+  - **Offering** — consume offering coins through the Cube. Off by default.
+    - **Enabled** — include the offering phase in the cycle,
+    - **Max per cycle** — process one coin at a time until inventory runs out,
+      capped at `5` operations by default.
 - **Right**
   - **Chests** — *Open chests* opens StageBox chests (Normal / Boss / ActBoss) each
     cycle by clicking the stage UI (does not flip the game's built-in auto-open
@@ -167,8 +171,8 @@ The right pane has the settings in two columns:
     - **Target level** — which cube recipe bracket to use (dropdown matching the
       in-game list: Max / `Lv.1~10` … `Lv.65~80`; default Max = highest unlocked).
 
-Cycle order when several are enabled: **Soulstone → Chest → Alchemy → Synthesis
-→ Rune**.
+Cycle order when several are enabled: **Soulstone → Chest → Offering → Alchemy
+→ Synthesis → Rune**.
 
 Press **Save** — with a current plugin, loop settings reach the running game
 within ~10 seconds. If the game is still on an older plugin, restart the game

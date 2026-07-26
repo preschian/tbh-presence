@@ -248,10 +248,11 @@ by committing the binary.
 
 **Auto-synthesis plugin** (`autosynth/`, BepInEx, built with the .NET SDK):
 
-- `Plugin.cs` — cycle orchestrator (Soulstone → Chest → Alchemy → Synthesis → Rune); usage/config in `autosynth/README.md`.
+- `Plugin.cs` — cycle orchestrator (Soulstone → Chest → Offering → Alchemy → Synthesis → Rune); usage/config in `autosynth/README.md`.
 - `ChestOpenRunner.cs` — StageBox chest-open phase (`UI_Stage` / `StageBox.m_clickDetector`).
 - `RuneUpgradeRunner.cs` — rune upgrade phase.
 - `AlchemyRunner.cs` — inventory-melting phase (`SlotInteractionManager.MoveToCube`).
+- `OfferingRunner.cs` — offering-coin phase (`EMaterialType.OFFERING` + `SlotInteractionManager.MoveToCube`).
 - `SoulstoneRunner.cs` — soulstone-spending phase (`UI_Portal` / `ActSlot` / `StageNode.button_Enter`).
 - `GameInterop.cs` — signature-based access to obfuscated members (including box counts).
 

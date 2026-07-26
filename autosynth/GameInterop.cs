@@ -28,7 +28,8 @@ internal static class GameInterop
     static PropertyInfo _pRuneNodeSave, _pRuneLevelCost, _pRuneSaveLevel;
     static PropertyInfo[] _pRuneNodeLevelInfos;
     static MethodInfo _mRuneTooltipBind, _mSubRecipeOpen, _mSubRecipeLearned;
-    static MethodInfo[] _mRuneLevelInfo, _mSubRecipeActions;
+    static MethodInfo[] _mRuneLevelInfo, _mMaterialInfo, _mSubRecipeActions;
+    static PropertyInfo _pMaterialType;
     static Type _dbType;
     static PropertyInfo _pStageInfoData;
     static Type _saveHolderType, _stageCacheType;
@@ -47,6 +48,7 @@ internal static class GameInterop
     // (runeKey, level) -> gold cost, -1 when the level does not exist. The rune
     // table is static data, so a hit here replaces a full DB lookup.
     static readonly Dictionary<long, int> _runeCostCache = new Dictionary<long, int>();
+    static readonly Dictionary<int, bool> _offeringMaterialCache = new Dictionary<int, bool>();
 
     const BindingFlags DeclInstance =
         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
@@ -393,6 +395,8 @@ internal static class GameInterop
         _pItemInfoData = _dbType != null ? _dbType.GetProperty("itemInfoData", DeclInstance) : null;
         _pStageInfoData = _dbType != null ? _dbType.GetProperty("stageInfoData", DeclInstance) : null;
         _mRuneLevelInfo = Methods(_dbType, typeof(RuneLevelInfoData), typeof(int), typeof(int));
+        _mMaterialInfo = Methods(_dbType, typeof(MaterialInfoData), typeof(int));
+        _pMaterialType = OnlyProp(typeof(MaterialInfoData), typeof(EMaterialType), false);
         ResolveBoxInventory();
         ResolveSaveHolder();
         ResolveStageCache();
@@ -412,6 +416,8 @@ internal static class GameInterop
             $"subRecipeActions=[{string.Join(",", Array.ConvertAll(_mSubRecipeActions, m => m.Name))}], " +
             $"itemDb={(_dbType != null ? _dbType.Name : "null")}, " +
             $"runeLevelInfo=[{string.Join(",", Array.ConvertAll(_mRuneLevelInfo, m => m.Name))}], " +
+            $"materialInfo=[{string.Join(",", Array.ConvertAll(_mMaterialInfo, m => m.Name))}], " +
+            $"materialType={PName(_pMaterialType)}, " +
             $"boxInv={(_boxInvType != null ? _boxInvType.Name : "null")}, " +
             $"boxCount=[{string.Join(",", Array.ConvertAll(_mBoxCount ?? Array.Empty<MethodInfo>(), m => m.Name))}], " +
             $"accountStatus={PName(_pAccountStatus)}, accountValue={MName(_mAccountStatusValue)}, " +
@@ -779,7 +785,64 @@ internal static class GameInterop
         catch { return null; }
     }
 
-    internal static bool CanReadInventoryItems => _pInvSlotItem != null && _pInvItemInfo != null;
+    internal static bool CanReadInventoryItems
+    {
+        get
+        {
+            Resolve();
+            return _pInvSlotItem != null && _pInvItemInfo != null;
+        }
+    }
+
+    internal static bool CanIdentifyOfferingMaterials
+    {
+        get
+        {
+            Resolve();
+            return _mMaterialInfo != null && _mMaterialInfo.Length > 0 && _pMaterialType != null;
+        }
+    }
+
+    // MaterialInfoData carries the material category, but both the DB lookup
+    // methods and the category property are obfuscated. Try every matching
+    // ItemKey -> MaterialInfoData accessor and accept only the game's OFFERING
+    // category, so no item key or localized coin name is baked into the mod.
+    internal static bool IsOfferingMaterial(int itemKey)
+    {
+        try
+        {
+            Resolve();
+            if (itemKey <= 0 || _mMaterialInfo == null || _mMaterialInfo.Length == 0
+                || _pMaterialType == null) return false;
+            if (_offeringMaterialCache.TryGetValue(itemKey, out bool cached)) return cached;
+            var db = DbInstance();
+            if (db == null) return false;
+            bool lookupSucceeded = false;
+            foreach (var method in _mMaterialInfo)
+            {
+                MaterialInfoData info;
+                try
+                {
+                    info = method.Invoke(db, new object[] { itemKey }) as MaterialInfoData;
+                    lookupSucceeded = true;
+                }
+                catch { continue; }
+                if (info == null) continue;
+                try
+                {
+                    if ((EMaterialType)_pMaterialType.GetValue(info) == EMaterialType.OFFERING)
+                    {
+                        _offeringMaterialCache[itemKey] = true;
+                        return true;
+                    }
+                }
+                catch { }
+            }
+            if (lookupSucceeded) _offeringMaterialCache[itemKey] = false;
+        }
+        catch { }
+        return false;
+    }
 
     internal static ERecipeType MainRecipeTypeOf(MainRecipeSlotButton slot)
     {
@@ -967,7 +1030,13 @@ internal static class GameInterop
     }
 
     internal static bool CanMoveItemsToCube
-        => _mExecuteSlotAction != null && _tSlotRef != null;
+    {
+        get
+        {
+            Resolve();
+            return _mExecuteSlotAction != null && _tSlotRef != null;
+        }
+    }
 
     // Hands the slot to the game as the interface type its own code passes around.
     static object SlotRef(Component slot)
