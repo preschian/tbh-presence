@@ -33,6 +33,14 @@ namespace TbhCompanion
             new RecipeTier { Label = "Lv.65~80", Lo = 65 }
         };
 
+        // Tile captions double as the cfg tokens the plugin writes back. Reading is
+        // matched on a stem instead, because the plugin also accepts the singular
+        // spellings ("Material", "Accessory") and "Gear" for Equipment.
+        static readonly string[] SynthesisTypes = { "Equipment", "Materials", "Accessories" };
+        static readonly string[] SynthesisTypeStems = { "equipment", "material", "accessor" };
+        static readonly string[] Tiers = { "Normal", "Nightmare", "Hell", "Torment" };
+        static readonly string[] TierStems = { "normal", "nightmare", "hell", "torment" };
+
         static readonly string StatusPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "tbh-companion", "autosynth-status.json");
@@ -81,11 +89,11 @@ namespace TbhCompanion
         WheelRedirectFilter _wheelFilter;
         Toggle _presenceToggle;
         Toggle _autoRestart;
-        Toggle _autoLoop, _enableSynth, _autoChest, _autoRune, _showConsole, _autoAlchemy;
-        TypeTile _tEquip, _tMaterials, _tAccessories;
+        Toggle _autoLoop, _enableSynth, _autoChest, _autoRune, _showConsole, _autoAlchemy, _autoSoulstone;
+        TypeTile[] _typeTiles, _tierTiles;
         SegmentBar _seg;
         Label _rarityValue;
-        Stepper _cycleMin, _restartDays, _alchemyLevel;
+        Stepper _cycleMin, _restartDays, _alchemyLevel, _actBossRuns;
         FlatDrop _desiredLevel, _alchemyRarity;
         FlatButton _saveBtn, _setupBtn, _removeBtn, _launchBtn, _updateBtn;
         Label _cfgNote, _verNote;
@@ -368,22 +376,21 @@ namespace TbhCompanion
             y1 = AddToggleRow("Upgrade runes", Col1X, ref _autoRune, t1, y1);
             y1 = AddSectionDivider(Col1X, ColW, y1);
 
+            // Re-enters a cleared Act Boss stage to spend surplus soulstones.
+            y1 = AddSectionHeader("Soulstones", Col1X, y1);
+            y1 = AddToggleRow("Spend on Act Bosses", Col1X, ref _autoSoulstone, t1, y1);
+
+            y1 = AddTileRow("Tiers", Tiers, Col1X, y1, out _tierTiles);
+
+            y1 = AddFieldRow("Runs per cycle", "", Col1X, y1, f1, fieldW, out _actBossRuns);
+            _actBossRuns.Min = 1; _actBossRuns.Max = 99; _actBossRuns.Step = 1;
+            _actBossRuns.Decimals = 0; _actBossRuns.Value = 5;
+            y1 = AddSectionDivider(Col1X, ColW, y1);
+
             y1 = AddSectionHeader("Synthesis", Col1X, y1);
             y1 = AddToggleRow("Synthesize items", Col1X, ref _enableSynth, t1, y1);
 
-            AddMainLabel("Types", Col1X, y1, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
-            y1 += 18;
-            _tEquip = new TypeTile { Caption = "Equipment" };
-            _tMaterials = new TypeTile { Caption = "Materials" };
-            _tAccessories = new TypeTile { Caption = "Accessories" };
-            var tiles = new[] { _tEquip, _tMaterials, _tAccessories };
-            int gap = 6, tw = (ColW - gap * 2) / 3;
-            for (int i = 0; i < 3; i++)
-            {
-                tiles[i].SetBounds(Sc(Col1X + i * (tw + gap)), Sc(y1), Sc(tw), Sc(ControlH));
-                AddContent(tiles[i]);
-            }
-            y1 += ControlH + 12;
+            y1 = AddTileRow("Types", SynthesisTypes, Col1X, y1, out _typeTiles);
 
             AddRowLabel("Max rarity", Col1X, y1);
             _rarityValue = AddMainLabelBox("Legendary", f1, y1, fieldW, ControlH, Theme.Amber, Theme.F(9f, FontStyle.Bold), ContentAlignment.MiddleRight);
@@ -643,6 +650,23 @@ namespace TbhCompanion
             if (!string.IsNullOrEmpty(suffix))
                 AddMainLabel(suffix, fieldX - 26, y + (ControlH - 12) / 2, Theme.TextMuted, Theme.F(8.5f, FontStyle.Regular));
             return y + RowH;
+        }
+
+        // A captioned row of equal-width toggle tiles (synthesis types, soulstone tiers).
+        int AddTileRow(string caption, string[] captions, int colX, int y, out TypeTile[] tiles)
+        {
+            AddMainLabel(caption, colX, y, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
+            y += 18;
+            const int gap = 6;
+            int tw = (ColW - gap * (captions.Length - 1)) / captions.Length;
+            tiles = new TypeTile[captions.Length];
+            for (int i = 0; i < captions.Length; i++)
+            {
+                tiles[i] = new TypeTile { Caption = captions[i] };
+                tiles[i].SetBounds(Sc(colX + i * (tw + gap)), Sc(y), Sc(tw), Sc(ControlH));
+                AddContent(tiles[i]);
+            }
+            return y + ControlH + 12;
         }
 
         int AddDropdownRow(string label, string[] items, int colX, int y, int fieldX, int fieldW, out FlatDrop drop)
@@ -912,6 +936,7 @@ namespace TbhCompanion
                 int cycMin = Math.Max(1, Convert.ToInt32(d["cycleIntervalSeconds"]) / 60);
                 int lastRunes = d.ContainsKey("lastRuneUpgrades") ? Convert.ToInt32(d["lastRuneUpgrades"]) : 0;
                 int lastChests = d.ContainsKey("lastChestOpens") ? Convert.ToInt32(d["lastChestOpens"]) : 0;
+                int lastBossRuns = d.ContainsKey("lastActBossRuns") ? Convert.ToInt32(d["lastActBossRuns"]) : 0;
                 bool runeOn = d.ContainsKey("autoUpgradeRune") && (bool)d["autoUpgradeRune"];
                 bool chestOn = d.ContainsKey("autoOpenChest") && (bool)d["autoOpenChest"];
                 bool synthOn = !d.ContainsKey("enableSynthesis") || (bool)d["enableSynthesis"];
@@ -921,6 +946,7 @@ namespace TbhCompanion
                 var bits = new List<string>();
                 if (lastChests > 0) bits.Add(lastChests + " chests");
                 if (lastRunes > 0) bits.Add(lastRunes + " runes");
+                if (lastBossRuns > 0) bits.Add(lastBossRuns + " boss runs");
                 if (bits.Count == 0 && !synthOn)
                 {
                     if (chestOn) bits.Add("chests");
@@ -960,7 +986,9 @@ namespace TbhCompanion
             _autoLoop.Enabled = on; _enableSynth.Enabled = on; _autoChest.Enabled = on;
             _autoRune.Enabled = on; _seg.Enabled = on;
             _autoAlchemy.Enabled = on; _alchemyLevel.Enabled = on; _alchemyRarity.Enabled = on;
-            _tEquip.Enabled = on; _tMaterials.Enabled = on; _tAccessories.Enabled = on;
+            _autoSoulstone.Enabled = on; _actBossRuns.Enabled = on;
+            foreach (var tile in _tierTiles) tile.Enabled = on;
+            foreach (var tile in _typeTiles) tile.Enabled = on;
             _desiredLevel.Enabled = on; _cycleMin.Enabled = on;
             _saveBtn.Enabled = on;
         }
@@ -983,6 +1011,12 @@ namespace TbhCompanion
                 _autoChest.Checked = !string.Equals(GetVal(text, "General", "AutoOpenChest", "false"), "false", StringComparison.OrdinalIgnoreCase);
                 _autoRune.Checked = !string.Equals(GetVal(text, "General", "AutoUpgradeRune", "false"), "false", StringComparison.OrdinalIgnoreCase);
                 _autoAlchemy.Checked = !string.Equals(GetVal(text, "General", "AutoAlchemy", "false"), "false", StringComparison.OrdinalIgnoreCase);
+                _autoSoulstone.Checked = !string.Equals(GetVal(text, "General", "AutoConsumeSoulstone", "false"), "false", StringComparison.OrdinalIgnoreCase);
+                int runs;
+                if (!int.TryParse(GetVal(text, "Safety", "ActBossRunsPerCycle", "5"), out runs) || runs < 1) runs = 5;
+                _actBossRuns.SetValue(runs);
+                SelectTiles(_tierTiles, TierStems,
+                    GetVal(text, "General", "SoulstoneTiers", string.Join(",", Tiers)));
                 int al;
                 if (!int.TryParse(GetVal(text, "General", "AlchemyLevelThreshold", "0"), out al) || al < 0) al = 0;
                 _alchemyLevel.SetValue(al);
@@ -997,12 +1031,10 @@ namespace TbhCompanion
                 _desiredLevel.SelectedIndex = RecipeIndex(dl);
                 decimal cycleSec = ParseF(GetVal(text, "Timing", "CycleIntervalSeconds", "300"));
                 _cycleMin.SetValue(Math.Round(cycleSec / 60m));
-                string types = GetVal(text, "General", "SynthesisTypes", "Equipment,Materials,Accessories").ToLowerInvariant();
-                _tEquip.Selected = types.Contains("equipment") || types.Contains("gear");
-                _tMaterials.Selected = types.Contains("material");
-                _tAccessories.Selected = types.Contains("accessor");
-                if (!_tEquip.Selected && !_tMaterials.Selected && !_tAccessories.Selected)
-                { _tEquip.Selected = _tMaterials.Selected = _tAccessories.Selected = true; }
+                string types = GetVal(text, "General", "SynthesisTypes", string.Join(",", SynthesisTypes));
+                SelectTiles(_typeTiles, SynthesisTypeStems, types);
+                if (types.IndexOf("gear", StringComparison.OrdinalIgnoreCase) >= 0)
+                    _typeTiles[0].Selected = true;
 
                 _bepinexCfgPath = BepInExCfg.Path(AutoSynthDeploy.FindGameDir());
                 if (_bepinexCfgPath != null && File.Exists(_bepinexCfgPath))
@@ -1022,6 +1054,29 @@ namespace TbhCompanion
             }
         }
 
+        // A tile is on when the cfg list names it; a list that names none of them
+        // means "all of them", which is how the plugin reads it too.
+        static void SelectTiles(TypeTile[] tiles, string[] stems, string raw)
+        {
+            string list = (raw ?? "").ToLowerInvariant();
+            bool any = false;
+            for (int i = 0; i < tiles.Length; i++)
+            {
+                tiles[i].Selected = list.Contains(stems[i]);
+                any |= tiles[i].Selected;
+            }
+            if (!any) foreach (var tile in tiles) tile.Selected = true;
+        }
+
+        static string SelectedTiles(TypeTile[] tiles, string[] names)
+        {
+            var picked = new List<string>();
+            for (int i = 0; i < tiles.Length; i++)
+                if (tiles[i].Selected) picked.Add(names[i]);
+            if (picked.Count == 0) picked.AddRange(names);
+            return string.Join(",", picked.ToArray());
+        }
+
         void SaveConfig()
         {
             if (_cfgPath == null || !File.Exists(_cfgPath)) { _cfgNote.Text = "start the game once to create settings"; return; }
@@ -1033,6 +1088,9 @@ namespace TbhCompanion
                 text = SetVal(text, "General", "AutoOpenChest", _autoChest.Checked ? "true" : "false");
                 text = SetVal(text, "General", "AutoUpgradeRune", _autoRune.Checked ? "true" : "false");
                 text = SetVal(text, "General", "AutoAlchemy", _autoAlchemy.Checked ? "true" : "false");
+                text = SetVal(text, "General", "AutoConsumeSoulstone", _autoSoulstone.Checked ? "true" : "false");
+                text = SetVal(text, "Safety", "ActBossRunsPerCycle",
+                    ((int)_actBossRuns.Value).ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "General", "AlchemyLevelThreshold",
                     ((int)_alchemyLevel.Value).ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "Safety", "MaxAlchemyGrade",
@@ -1044,12 +1102,8 @@ namespace TbhCompanion
                     Recipes[Math.Max(0, Math.Min(Recipes.Length - 1, _desiredLevel.SelectedIndex))]
                         .Lo.ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "Timing", "CycleIntervalSeconds", (_cycleMin.Value * 60).ToString(CultureInfo.InvariantCulture));
-                var types = new List<string>();
-                if (_tEquip.Selected) types.Add("Equipment");
-                if (_tMaterials.Selected) types.Add("Materials");
-                if (_tAccessories.Selected) types.Add("Accessories");
-                if (types.Count == 0) { types.Add("Equipment"); types.Add("Materials"); types.Add("Accessories"); }
-                text = SetVal(text, "General", "SynthesisTypes", string.Join(",", types.ToArray()));
+                text = SetVal(text, "General", "SynthesisTypes", SelectedTiles(_typeTiles, SynthesisTypes));
+                text = SetVal(text, "General", "SoulstoneTiers", SelectedTiles(_tierTiles, Tiers));
                 File.WriteAllText(_cfgPath, text);
 
                 bool consoleRestart = false;

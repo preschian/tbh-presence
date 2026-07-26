@@ -248,9 +248,11 @@ by committing the binary.
 
 **Auto-synthesis plugin** (`autosynth/`, BepInEx, built with the .NET SDK):
 
-- `Plugin.cs` — cycle orchestrator (Cube → Chest → Rune); usage/config in `autosynth/README.md`.
+- `Plugin.cs` — cycle orchestrator (Soulstone → Chest → Alchemy → Synthesis → Rune); usage/config in `autosynth/README.md`.
 - `ChestOpenRunner.cs` — StageBox chest-open phase (`UI_Stage` / `StageBox.m_clickDetector`).
 - `RuneUpgradeRunner.cs` — rune upgrade phase.
+- `AlchemyRunner.cs` — inventory-melting phase (`SlotInteractionManager.MoveToCube`).
+- `SoulstoneRunner.cs` — soulstone-spending phase (`UI_Portal` / `ActSlot` / `StageNode.button_Enter`).
 - `GameInterop.cs` — signature-based access to obfuscated members (including box counts).
 
 The plugin drives the game's real UI components (`UI_Cube`, `StageBox`,
@@ -263,6 +265,10 @@ it:
   against `BepInEx\interop\Assembly-CSharp.dll`.
 - Clicking a `ButtonBase` needs both `OnPointerClick(...)` *and* the wrapped
   `Button.onClick.Invoke()` — the former only plays hover/click effects.
+- Stage progress (`CommonSaveData.maxCompletedStage` / `currentStageKey`) hangs
+  off an obfuscated save-holder MonoBehaviour; it is found by its
+  `PlayerSaveData` property, and a portal `StageNode`'s stage is reached through
+  the `StageCache` type that `TryStageEnterTryResult.NextStageCache` names.
 - The sub-recipe (cube level) dropdown entries carry prefab-default labels
   until populated; the plugin triggers population and picks by
   `DesiredLevel` (0 = highest unlocked lower bound; otherwise exact lower

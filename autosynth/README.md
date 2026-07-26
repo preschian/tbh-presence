@@ -1,8 +1,8 @@
 # TBH Auto Synthesis (BepInEx plugin)
 
-Automates TaskBarHero's shared idle cycle: optional **Cube alchemy**, optional
-**Cube synthesis**, optional **StageBox chest opens**, and optional **Rune
-upgrades** — then wait and repeat.
+Automates TaskBarHero's shared idle cycle: optional **soulstone spending**,
+optional **StageBox chest opens**, optional **Cube alchemy**, optional **Cube
+synthesis**, and optional **Rune upgrades** — then wait and repeat.
 
 > **Unlike the presence app, this is a game mod.** It runs *inside* the game
 > via [BepInEx](https://github.com/BepInEx/BepInEx) and clicks the game's own
@@ -20,24 +20,24 @@ updates this plugin automatically. (Building it from source is covered in
 ## Use
 
 With `AutoStart` on (the default) the loop is already armed when the game starts.
-Each armed cycle runs enabled phases in order: **Alchemy → Cube → Chest → Rune**. If the main
-menu/HUD is closed when Cube or Rune needs the content row, the plugin clicks the
-stage-HUD **Show Main** button (next to auto-retry) — never synthesizes Tab.
-With `AutoOpenCube` on it then clicks the **Cube** menu button when a Cube cycle
-is due. Hotkeys:
+Each armed cycle runs enabled phases in order: **Soulstone → Chest → Alchemy →
+Synthesis → Rune**. If the main menu/HUD is closed when a phase needs the content
+row, the plugin clicks the stage-HUD **Show Main** button (next to auto-retry) —
+never synthesizes Tab. With `AutoOpenCube` on it then clicks the **Cube** menu
+button when the Synthesis phase is due. Hotkeys:
 
 | Key | Action |
 |-----|--------|
-| **F7** | Run one cycle now (alchemy → cube → chest → rune for enabled phases) |
+| **F7** | Run one cycle now (soulstone → chest → alchemy → synthesis → rune for enabled phases) |
 | **F8** | Toggle the auto loop on/off |
 | **F9** | Click the synthesis trigger once |
-| **F10** | Dump alchemy / cube / chest / rune state to `BepInEx\LogOutput.log` |
+| **F10** | Dump soulstone / chest / alchemy / synthesis / rune state to `BepInEx\LogOutput.log` |
 
-The Cube phase only acts while the Cube panel is open. With `AutoOpenCube` off
-it waits for you to open the panel yourself instead of opening it. When auto-fill
-fills every cube slot there are usually more materials left, so with
-`RepeatFullSynth` on (the default) the Cube phase runs another fill → synth →
-clear pass right away, up to `MaxSynthRepeatsPerCycle` extra passes. The Chest
+The Synthesis phase only acts while the Cube panel is open. With `AutoOpenCube`
+off it waits for you to open the panel yourself instead of opening it. When
+auto-fill fills every cube slot there are usually more materials left, so with
+`RepeatFullSynth` on (the default) the phase runs another fill → synth → clear
+pass right away, up to `MaxSynthRepeatsPerCycle` extra passes. The Chest
 phase uses the stage HUD StageBox click-detector:
 
 - with **Rune of Opening** (`OpenOneTypeChestAllAtOnce`) → one **right-click**
@@ -55,7 +55,7 @@ The Alchemy phase (off by default) melts junk gear into gold. It selects
 cube nine at a time, runs the operation — confirming the warning panel if the
 game shows one — and repeats while items remain, up to
 `MaxAlchemyBatchesPerCycle`. It always hands the Cube back on the **Synthesis**
-recipe so the Cube phase finds it where it expects.
+recipe so the Synthesis phase finds it where it expects.
 
 Items are moved with the game's own `MoveToCube` slot action
 (`SlotInteractionManager`), the same one a right click resolves to, rather than
@@ -94,6 +94,56 @@ rune phase: every rune is at max level [196/197 runes unlocked] — leaving the 
 Runes still locked in the tree are ignored by that check: their next level exists
 in the game's data, but the panel would not let anyone buy it.
 
+## Soulstones
+
+The Soulstone phase (off by default) spends surplus soulstones the way the game
+intends: by entering an **Act Boss** stage — the `*-10` stages — that has
+already been cleared. TaskBarHero has one soulstone tier per difficulty (Normal,
+Nightmare, Hell, Torment) and every Act Boss stage names the tier and the number
+of stones it costs, so the phase never has to guess which stone it is spending.
+
+A stage is a candidate only when **all** of these hold:
+
+- it is an Act Boss stage (`STAGETYPE = ACTBOSS`),
+- its stage key is at or below the account's `maxCompletedStage`, i.e. it has
+  been cleared at least once,
+- its soulstone tier is one you allow in `SoulstoneTiers`, and
+- you hold enough stones of that tier to cover its cost.
+
+Among the candidates it takes the highest tier you allowed and the deepest act
+within it, switches the Portal to that tier's difficulty, and enters it — once.
+The game's own auto-retry keeps re-entering the boss while stones remain, so
+there is nothing for the plugin to repeat; instead it counts the runs going by and
+walks the hero back to the stage it came from after `ActBossRunsPerCycle` of them.
+
+A run is counted from **soulstones spent** — one per entry, which the game's
+auto-retry does on its own — or from **Act Boss chests gained**, whichever is
+ahead. The stones are the reliable half: with the game's auto-open on, the chest
+stack may never grow at all, and only chest *gains* count so a drain in between
+never reads as negative progress. The watch also ends early if the tier's stones
+run out or the hero leaves the boss stage on its own, and after
+`ActBossWatchMinutes` it gives up on the target and heads back anyway.
+
+**Entering a boss stage moves your hero off whatever it was farming**, which is
+the point of the feature but worth knowing before arming it — set
+`SoulstoneDryRun = true` for one cycle first and the phase walks the whole path
+(open the Portal, switch difficulty and act, find the node) and stops on the
+doorstep, writing the stage it *would* have entered to the log.
+
+Everything the decision needs — the stage table, `maxCompletedStage`, and the
+soulstone counts — reads fine while every panel is closed, so a cycle with
+nothing to spend never opens the Portal at all, same as the Rune phase:
+
+```
+soulstone phase: no soulstones for the 9 cleared Act Boss stage(s) on the enabled tier(s) (Hell,Torment) — leaving the Portal closed
+```
+
+Both moves go through the Portal's own controls — the difficulty dropdown and
+the act selector. The dropdown's entries are calibrated against the one selected
+right now rather than assumed to be in `ESTAGEDIFFICULTY` order, so an account
+that has not unlocked every difficulty still lands on the right map, and a tier
+the dropdown does not offer is reported instead of guessed at.
+
 ## Config
 
 `<game>\BepInEx\config\com.pres.tbh.autosynth.cfg` (created on first run):
@@ -101,12 +151,19 @@ in the game's data, but the panel would not let anyone buy it.
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `AutoStart` | true | Arm the auto loop at game start, no F8 needed |
-| `EnableSynthesis` | true | Include Cube synthesis in the cycle |
-| `AutoOpenCube` | true | Click the Cube menu button to open the Cube panel when a cycle is due (at most once every 10s, so it doesn't fight you for the tab) |
-| `AutoOpenChest` | false | After Cube (or at cycle start if synthesis is off), click StageBox chests (Normal / Boss / ActBoss) |
-| `AutoUpgradeRune` | false | After Cube/Chest, open the Rune panel and upgrade the cheapest affordable runes |
+| `EnableSynthesis` | true | Include the Synthesis phase (Cube fill → synth → clear) in the cycle |
+| `AutoOpenCube` | true | Click the Cube menu button to open the Cube panel when the Synthesis phase is due (at most once every 10s, so it doesn't fight you for the tab) |
+| `AutoOpenChest` | false | After the Soulstone phase (or at cycle start if it is off), click StageBox chests (Normal / Boss / ActBoss) |
+| `AutoUpgradeRune` | false | After the other phases, open the Rune panel and upgrade the cheapest affordable runes |
 | `AutoOpenRune` | true | During the Rune phase, click the Rune menu button to open the Rune panel |
-| `AutoAlchemy` | false | Run the Alchemy phase before the Cube phase |
+| `AutoConsumeSoulstone` | false | After the other phases, enter a cleared Act Boss stage to spend surplus soulstones |
+| `SoulstoneTiers` | Normal,Nightmare,Hell,Torment | Which soulstone tiers may be spent; each tier is the difficulty of the same name. e.g. `Hell,Torment` to leave the lower stones alone. |
+| `AutoOpenPortal` | true | During the Soulstone phase, click the Portal menu button to open the stage map |
+| `SoulstoneDryRun` | false | Log the Act Boss stages the Soulstone phase would enter instead of entering them |
+| `ActBossRunsPerCycle` | 5 | Act Boss runs to farm before the hero is walked back to the stage it came from |
+| `ActBossWatchMinutes` | 10 | Give up on the chest target after this long and walk back anyway |
+| `AfterSoulstoneEnterSeconds` | 5 | Delay after clicking a stage's enter button |
+| `AutoAlchemy` | false | Run the Alchemy phase before the Synthesis phase |
 | `AlchemyDryRun` | false | Log the items the Alchemy phase would melt instead of clicking them |
 | `AlchemyLevelThreshold` | 0 | Gear below this item level is eligible for alchemy (e.g. `80` melts levels 1–79). `0` disables the phase. |
 | `MaxAlchemyGrade` | 2 | Highest rarity the Alchemy phase may melt (same scale as `MaxGrade`) |
@@ -117,7 +174,7 @@ in the game's data, but the panel would not let anyone buy it.
 | `DesiredLevel` | 0 | Target synthesis recipe. `0` = highest unlocked (default). Otherwise the lower bound of an in-game bracket from the companion Target level dropdown (`1`=`Lv.1~10` … `65`=`Lv.65~80`). If that bracket is locked, uses the highest unlocked bracket with `lo ≤ DesiredLevel`. |
 | `MaxGrade` | 3 | Highest rarity the loop may synthesize (0=Common, 1=Uncommon, 2=Rare, 3=Legendary, 4=Immortal, …). Cycles holding anything above this are skipped. |
 | `RepeatFullSynth` | true | When auto-fill fills every cube slot, run another fill → synth → clear pass in the same cycle instead of waiting for `CycleIntervalSeconds`. Stops on a partial or empty fill, a grade-limit skip, or `MaxSynthRepeatsPerCycle`. |
-| `MaxSynthRepeatsPerCycle` | 10 | Safety cap on the extra synthesis passes `RepeatFullSynth` may run in one Cube phase |
+| `MaxSynthRepeatsPerCycle` | 10 | Safety cap on the extra passes `RepeatFullSynth` may run in one Synthesis phase |
 | `MaxChestOpensPerCycle` | 40 | Safety cap on StageBox open clicks per cycle |
 | `MaxRuneUpgradesPerCycle` | 20 | Safety cap on rune level-ups per cycle |
 | `CycleIntervalSeconds` | 300 | Pause between cycles |
