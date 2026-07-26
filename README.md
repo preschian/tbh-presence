@@ -140,12 +140,12 @@ The right pane has the settings in two columns:
     would be melted before anything is destroyed, set `AlchemyDryRun = true` in
     `BepInEx\config\com.pres.tbh.autosynth.cfg` for one round and read the log.
 - **Right**
-  - **Chests** — *Enabled* opens StageBox chests (Normal / Boss / ActBoss) each
+  - **Chests** — *Open chests* opens StageBox chests (Normal / Boss / ActBoss) each
     cycle by clicking the stage UI (does not flip the game's built-in auto-open
     toggle).
-  - **Runes** — *Enabled* turns on auto-upgrade runes in the shared cycle.
+  - **Runes** — *Upgrade runes* turns on auto-upgrade runes in the shared cycle.
   - **Synthesis**
-    - **Enabled** — include cube synthesis in the cycle,
+    - **Synthesize items** — include cube synthesis in the cycle,
     - **Types** — Equipment, Materials, Accessories (any combination; the loop
       rotates through them),
     - **Max rarity** (default: Legendary),

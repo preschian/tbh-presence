@@ -361,15 +361,15 @@ namespace TbhCompanion
             int t1 = Col1X + ColW - toggleW;
             int f1 = Col1X + ColW - fieldW;
             y1 = AddSectionHeader("Chests", Col1X, y1);
-            y1 = AddToggleRow("Enabled", Col1X, ref _autoChest, t1, y1);
+            y1 = AddToggleRow("Open chests", Col1X, ref _autoChest, t1, y1);
             y1 = AddSectionDivider(Col1X, ColW, y1);
 
             y1 = AddSectionHeader("Runes", Col1X, y1);
-            y1 = AddToggleRow("Enabled", Col1X, ref _autoRune, t1, y1);
+            y1 = AddToggleRow("Upgrade runes", Col1X, ref _autoRune, t1, y1);
             y1 = AddSectionDivider(Col1X, ColW, y1);
 
             y1 = AddSectionHeader("Synthesis", Col1X, y1);
-            y1 = AddToggleRow("Enabled", Col1X, ref _enableSynth, t1, y1);
+            y1 = AddToggleRow("Synthesize items", Col1X, ref _enableSynth, t1, y1);
 
             AddMainLabel("Types", Col1X, y1, Theme.TextDark, Theme.F(9.5f, FontStyle.Regular));
             y1 += 18;
