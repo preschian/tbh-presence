@@ -319,8 +319,10 @@ public class AutoSynthBehaviour : MonoBehaviour
     private string _lastPopulateMethod;
     private bool _typeSelected;
     private int _currentType;
-    // Index into EnabledTypes() for the type being synthesized this pass.
-    // One Synthesis phase walks every enabled type before the cycle advances.
+    // The types this Synthesis phase will run, snapshotted at phase start like
+    // _steps is per cycle, plus the index of the one being synthesized now. One
+    // Synthesis phase walks every enabled type before the cycle advances.
+    private System.Collections.Generic.List<int> _types;
     private int _typeIndex;
     private float _nextTick;
     private float _nextOpenAttempt;
@@ -565,14 +567,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                 StartOfferingPhase(loud);
                 break;
             case CycleStep.Synthesis:
-                _typeIndex = 0;
-                _typeSelected = false;
-                _recipeSelected = false;
-                _recipeAttempts = 0;
-                _synthRepeats = 0;
-                _lastFillFull = false;
-                _phase = Phase.Fill;
-                _nextTick = 0f;
+                StartSynthesisPhase();
                 break;
             case CycleStep.Chest:
                 StartChestPhase(loud);
@@ -595,6 +590,28 @@ public class AutoSynthBehaviour : MonoBehaviour
             return;
         }
         StartStep(_steps[_stepIndex], loud);
+    }
+
+    // Snapshot the enabled types once per Synthesis phase — same reason _steps is
+    // snapshotted per cycle: a mid-cycle config reload must not shift _typeIndex
+    // under the walk.
+    void StartSynthesisPhase()
+    {
+        _types = AutoSynthPlugin.EnabledTypes();
+        _typeIndex = 0;
+        BeginSynthesisTypePass(0f);
+    }
+
+    // Reset the per-type pass state and re-enter Fill for _types[_typeIndex].
+    void BeginSynthesisTypePass(float delay)
+    {
+        _typeSelected = false;
+        _recipeSelected = false;
+        _recipeAttempts = 0;
+        _synthRepeats = 0;
+        _lastFillFull = false;
+        _phase = Phase.Fill;
+        _nextTick = delay <= 0f ? 0f : Time.unscaledTime + delay;
     }
 
     void StartChestPhase(bool loud)
@@ -748,25 +765,16 @@ public class AutoSynthBehaviour : MonoBehaviour
                 case Phase.Fill:
                     if (!_typeSelected)
                     {
-                        var types = AutoSynthPlugin.EnabledTypes();
-                        if (_typeIndex < 0 || _typeIndex >= types.Count)
-                            _typeIndex = 0;
-                        _currentType = types[_typeIndex];
+                        _currentType = _types[_typeIndex];
                         var pick = SelectSynthesisType(cube, _currentType, cubeLoud);
-                        if (pick == TypeSelectResult.Pending)
-                        {
-                            _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
-                            break;
-                        }
                         if (pick == TypeSelectResult.Unavailable)
                         {
                             // Don't auto-fill under the previous type's UI selection.
                             AdvanceToNextSynthesisType(cubeLoud);
                             break;
                         }
-                        _typeSelected = true;
-                        _recipeSelected = false;
-                        _recipeAttempts = 0;
+                        // Selected => fill next tick; Pending => retry the combo.
+                        _typeSelected = pick == TypeSelectResult.Selected;
                         _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
                         break;
                     }
@@ -798,8 +806,6 @@ public class AutoSynthBehaviour : MonoBehaviour
                         _phase = Phase.Clear;
                         break;
                     }
-                    // Full cube (typically 9/9) => repeat this type; partial/empty => next type.
-                    _lastFillFull = slotCount > 0 && itemCount >= slotCount;
                     if (itemCount == 0)
                     {
                         AutoSynthPlugin.Logger.LogInfo(
@@ -808,6 +814,8 @@ public class AutoSynthBehaviour : MonoBehaviour
                         _phase = Phase.Clear;
                         break;
                     }
+                    // Full cube (typically 9/9) => repeat this type; partial => next type.
+                    _lastFillFull = itemCount >= slotCount;
                     GameInterop.Click(cube.toggleButton_Trigger, "synthesis trigger", false);
                     _lastSynthCount = itemCount;
                     _lastSynthGrade = maxGrade;
@@ -830,6 +838,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                         AutoSynthPlugin.Logger.LogInfo(
                             $"cube was full; repeating {TypeName(_currentType)} synthesis " +
                             $"({_synthRepeats}/{AutoSynthPlugin.MaxSynthRepeatsPerCycle})");
+                        // Same type again: keep the type/recipe UI selection as-is.
                         _phase = Phase.Fill;
                         _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
                         break;
@@ -876,24 +885,15 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
     void AdvanceToNextSynthesisType(bool loud)
     {
         _typeIndex++;
-        var remaining = AutoSynthPlugin.EnabledTypes();
-        if (_typeIndex < remaining.Count)
+        if (_typeIndex < _types.Count)
         {
             AutoSynthPlugin.Logger.LogInfo(
-                $"synthesis type done; next: {TypeName(remaining[_typeIndex])} " +
-                $"({_typeIndex + 1}/{remaining.Count})");
-            _typeSelected = false;
-            _recipeSelected = false;
-            _recipeAttempts = 0;
-            _synthRepeats = 0;
-            _lastFillFull = false;
-            _phase = Phase.Fill;
-            _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
+                $"synthesis type done; next: {TypeName(_types[_typeIndex])} " +
+                $"({_typeIndex + 1}/{_types.Count})");
+            BeginSynthesisTypePass(AutoSynthPlugin.AfterFillDelay);
             return;
         }
         _cycles++;
-        _typeSelected = false;
-        _typeIndex = 0;
         AdvanceAfterStep(loud, null);
     }
 
