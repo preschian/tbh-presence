@@ -165,8 +165,8 @@ The right pane has the settings in two columns:
     one round and read the log.
   - **Synthesis**
     - **Synthesize items** — include cube synthesis in the cycle,
-    - **Types** — Equipment, Materials, Accessories (any combination; the loop
-      rotates through them),
+    - **Types** — Equipment, Materials, Accessories (any combination; each cycle
+      runs every enabled type in order),
     - **Max rarity** (default: Legendary),
     - **Target level** — which cube recipe bracket to use (dropdown matching the
       in-game list: Max / `Lv.1~10` … `Lv.65~80`; default Max = highest unlocked).
