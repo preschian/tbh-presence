@@ -37,9 +37,10 @@ button when the Synthesis phase is due. Hotkeys:
 The Synthesis phase only acts while the Cube panel is open. With `AutoOpenCube`
 off it waits for you to open the panel yourself instead of opening it. When
 auto-fill fills every cube slot there are usually more materials left, so with
-`RepeatFullSynth` on (the default) the phase runs another fill → synth → clear
-pass right away, up to `MaxSynthRepeatsPerCycle` extra passes. The Chest
-phase uses the stage HUD StageBox click-detector:
+`RepeatFullSynth` on (the default) that type runs another fill → synth → clear
+pass right away, up to `MaxSynthRepeatsPerCycle` extra passes, then continues
+with the next enabled type (Equipment → Materials → Accessories, skipping any
+that are off). The Chest phase uses the stage HUD StageBox click-detector:
 
 - with **Rune of Opening** (`OpenOneTypeChestAllAtOnce`) → one **right-click**
   per chest type (opens that whole stack)
@@ -185,11 +186,11 @@ the dropdown does not offer is reported instead of guessed at.
 | `AfterAlchemyClickSeconds` | 0.35 | Delay between successive items while filling the Alchemy cube |
 | `AutoOffering` | false | Run the Offering phase before Alchemy |
 | `MaxOfferingOperationsPerCycle` | 5 | Safety cap on one-coin Offering operations per cycle |
-| `SynthesisTypes` | Equipment,Materials,Accessories | Which item types to synthesize; the loop rotates through them each round. e.g. `Equipment,Materials` to skip accessories. |
+| `SynthesisTypes` | Equipment,Materials,Accessories | Which item types each cycle synthesizes in order. e.g. `Equipment,Accessories` to skip materials. |
 | `DesiredLevel` | 0 | Target synthesis recipe. `0` = highest unlocked (default). Otherwise the lower bound of an in-game bracket from the companion Target level dropdown (`1`=`Lv.1~10` … `65`=`Lv.65~80`). If that bracket is locked, uses the highest unlocked bracket with `lo ≤ DesiredLevel`. |
 | `MaxGrade` | 3 | Highest rarity the loop may synthesize (0=Common, 1=Uncommon, 2=Rare, 3=Legendary, 4=Immortal, …). Cycles holding anything above this are skipped. |
-| `RepeatFullSynth` | true | When auto-fill fills every cube slot, run another fill → synth → clear pass in the same cycle instead of waiting for `CycleIntervalSeconds`. Stops on a partial or empty fill, a grade-limit skip, or `MaxSynthRepeatsPerCycle`. |
-| `MaxSynthRepeatsPerCycle` | 10 | Safety cap on the extra passes `RepeatFullSynth` may run in one Synthesis phase |
+| `RepeatFullSynth` | true | When auto-fill fills every cube slot, run another fill → synth → clear pass for the same type instead of moving on. Stops on a partial or empty fill, a grade-limit skip, or `MaxSynthRepeatsPerCycle`, then continues with the next enabled type. |
+| `MaxSynthRepeatsPerCycle` | 10 | Safety cap on the extra passes `RepeatFullSynth` may run per synthesis type in one cycle |
 | `MaxChestOpensPerCycle` | 40 | Safety cap on StageBox open clicks per cycle |
 | `MaxRuneUpgradesPerCycle` | 20 | Safety cap on rune level-ups per cycle |
 | `CycleIntervalSeconds` | 300 | Pause between cycles |

@@ -114,8 +114,9 @@ public class AutoSynthPlugin : BasePlugin
 
     private static ConfigEntry<string> _typesE;
 
-    // Which synthesis types the loop rotates through, as EItemSynthesisType
+    // Which synthesis types each cycle runs in order, as EItemSynthesisType
     // values (0=Gear/Equipment, 1=Accessory, 2=Material). Empty/invalid => all.
+    // A single Synthesis phase walks every enabled type before the cycle ends.
     internal static System.Collections.Generic.List<int> EnabledTypes()
     {
         var list = new System.Collections.Generic.List<int>();
@@ -129,12 +130,6 @@ public class AutoSynthPlugin : BasePlugin
         }
         if (list.Count == 0) { list.Add(0); list.Add(2); list.Add(1); }
         return list;
-    }
-
-    internal static int TypeForCycle(int cycle)
-    {
-        var types = EnabledTypes();
-        return types[cycle % types.Count];
     }
 
     // The tray exe edits the cfg file; picking the change up live means no game restart.
@@ -275,15 +270,15 @@ public class AutoSynthPlugin : BasePlugin
         _maxChestOpensE = Config.Bind("Safety", "MaxChestOpensPerCycle", 40,
             "Maximum StageBox chest open clicks in a single cycle (safety cap).");
         _maxSynthRepeatsE = Config.Bind("Safety", "MaxSynthRepeatsPerCycle", 10,
-            "Maximum extra passes a single Synthesis phase may run when RepeatFullSynth " +
-            "keeps finding a full cube (safety cap).");
+            "Maximum extra passes each synthesis type may run when RepeatFullSynth " +
+            "keeps finding a full cube (safety cap per type within one cycle).");
         _repeatFullSynthE = Config.Bind("General", "RepeatFullSynth", true,
-            "When auto-fill fills every cube slot, run another fill -> synth -> clear pass in the " +
-            "same cycle instead of waiting for CycleIntervalSeconds. Stops on a partial/empty fill, " +
-            "a grade-limit skip, or MaxSynthRepeatsPerCycle.");
+            "When auto-fill fills every cube slot, run another fill -> synth -> clear pass for the " +
+            "same type instead of moving on. Stops on a partial/empty fill, a grade-limit skip, " +
+            "or MaxSynthRepeatsPerCycle, then continues with the next enabled type.");
         _typesE = Config.Bind("General", "SynthesisTypes", "Equipment,Materials,Accessories",
-            "Which synthesis item types the loop rotates through, comma-separated: " +
-            "Equipment, Materials, Accessories. e.g. 'Equipment,Materials' to skip accessories.");
+            "Which synthesis item types each cycle runs in order, comma-separated: " +
+            "Equipment, Materials, Accessories. e.g. 'Equipment,Accessories' to skip materials.");
         _maxGradeE = Config.Bind("Safety", "MaxGrade", 2,
             "Highest item grade the auto loop may synthesize: 0=COMMON 1=UNCOMMON 2=RARE 3=LEGENDARY 4=IMMORTAL ... " +
             "If any cube slot holds an item above this grade, synthesis is skipped and the cube is cleared.");
@@ -306,6 +301,7 @@ public class AutoSynthBehaviour : MonoBehaviour
     private enum LoopMode { Off, Armed, OneShot }
     private enum Phase { Idle, Fill, Synth, Clear, Chest, Rune, Alchemy, Offering, Soulstone }
     private enum CycleStep { Alchemy, Offering, Synthesis, Chest, Rune, Soulstone }
+    private enum TypeSelectResult { Pending, Selected, Unavailable }
 
     // Game UI (UIManager / EventSystem / stage HUD) is not reliable right after
     // BepInEx loads — wait before AutoStart / Show Main / any click automation.
@@ -323,6 +319,11 @@ public class AutoSynthBehaviour : MonoBehaviour
     private string _lastPopulateMethod;
     private bool _typeSelected;
     private int _currentType;
+    // The types this Synthesis phase will run, snapshotted at phase start like
+    // _steps is per cycle, plus the index of the one being synthesized now. One
+    // Synthesis phase walks every enabled type before the cycle advances.
+    private System.Collections.Generic.List<int> _types;
+    private int _typeIndex;
     private float _nextTick;
     private float _nextOpenAttempt;
     private bool _loggedCubeOpenFailed;
@@ -497,6 +498,7 @@ public class AutoSynthBehaviour : MonoBehaviour
         _recipeSelected = false;
         _recipeAttempts = 0;
         _typeSelected = false;
+        _typeIndex = 0;
         _nextTick = 0f;
         _nextOpenAttempt = 0f;
         _loggedCubeOpenFailed = false;
@@ -565,8 +567,7 @@ public class AutoSynthBehaviour : MonoBehaviour
                 StartOfferingPhase(loud);
                 break;
             case CycleStep.Synthesis:
-                _phase = Phase.Fill;
-                _nextTick = 0f;
+                StartSynthesisPhase();
                 break;
             case CycleStep.Chest:
                 StartChestPhase(loud);
@@ -589,6 +590,28 @@ public class AutoSynthBehaviour : MonoBehaviour
             return;
         }
         StartStep(_steps[_stepIndex], loud);
+    }
+
+    // Snapshot the enabled types once per Synthesis phase — same reason _steps is
+    // snapshotted per cycle: a mid-cycle config reload must not shift _typeIndex
+    // under the walk.
+    void StartSynthesisPhase()
+    {
+        _types = AutoSynthPlugin.EnabledTypes();
+        _typeIndex = 0;
+        BeginSynthesisTypePass(0f);
+    }
+
+    // Reset the per-type pass state and re-enter Fill for _types[_typeIndex].
+    void BeginSynthesisTypePass(float delay)
+    {
+        _typeSelected = false;
+        _recipeSelected = false;
+        _recipeAttempts = 0;
+        _synthRepeats = 0;
+        _lastFillFull = false;
+        _phase = Phase.Fill;
+        _nextTick = delay <= 0f ? 0f : Time.unscaledTime + delay;
     }
 
     void StartChestPhase(bool loud)
@@ -742,16 +765,18 @@ public class AutoSynthBehaviour : MonoBehaviour
                 case Phase.Fill:
                     if (!_typeSelected)
                     {
-                        _currentType = AutoSynthPlugin.TypeForCycle(_cycles);
-                        if (SelectSynthesisType(cube, _currentType, cubeLoud))
+                        _currentType = _types[_typeIndex];
+                        var pick = SelectSynthesisType(cube, _currentType, cubeLoud);
+                        if (pick == TypeSelectResult.Unavailable)
                         {
-                            _typeSelected = true;
-                            _recipeSelected = false;
-                            _recipeAttempts = 0;
-                            _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
+                            // Don't auto-fill under the previous type's UI selection.
+                            AdvanceToNextSynthesisType(cubeLoud);
                             break;
                         }
-                        _typeSelected = true;
+                        // Selected => fill next tick; Pending => retry the combo.
+                        _typeSelected = pick == TypeSelectResult.Selected;
+                        _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
+                        break;
                     }
                     if (!_recipeSelected)
                     {
@@ -781,33 +806,39 @@ public class AutoSynthBehaviour : MonoBehaviour
                         _phase = Phase.Clear;
                         break;
                     }
-                    _lastFillFull = slotCount > 0 && itemCount >= slotCount;
-                    GameInterop.Click(cube.toggleButton_Trigger, "synthesis trigger", false);
-                    if (itemCount > 0)
+                    if (itemCount == 0)
                     {
-                        _lastSynthCount = itemCount;
-                        _lastSynthGrade = maxGrade;
-                        _nextStatusWrite = 0f;
                         AutoSynthPlugin.Logger.LogInfo(
-                            $"synthesis started: {TypeName(_currentType)}, {itemCount}/{slotCount} slot(s) filled, " +
-                            $"rarity {GradeName(maxGrade)}");
+                            $"synthesis skip: {TypeName(_currentType)} auto-fill put 0 item(s) — next type");
+                        _lastFillFull = false;
+                        _phase = Phase.Clear;
+                        break;
                     }
+                    // Full cube (typically 9/9) => repeat this type; partial => next type.
+                    _lastFillFull = itemCount >= slotCount;
+                    GameInterop.Click(cube.toggleButton_Trigger, "synthesis trigger", false);
+                    _lastSynthCount = itemCount;
+                    _lastSynthGrade = maxGrade;
+                    _nextStatusWrite = 0f;
+                    AutoSynthPlugin.Logger.LogInfo(
+                        $"synthesis started: {TypeName(_currentType)}, {itemCount}/{slotCount} slot(s) filled, " +
+                        $"rarity {GradeName(maxGrade)}");
                     _phase = Phase.Clear;
                     _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterSynthDelay;
                     break;
                 case Phase.Clear:
                     ClickTrash(cube.m_trashToggleBtn, cubeLoud);
-                    // A full cube usually means there are still materials left, so run
-                    // another pass right away instead of waiting for the next cycle.
-                    // The type/recipe selection stays as-is for the repeat.
+                    // Full fill (9/9) usually means more of this type remains — repeat it.
+                    // Partial fill still clears, then moves on to Materials / Accessories / etc.
                     if (_lastFillFull && AutoSynthPlugin.RepeatFullSynth
                         && _synthRepeats < AutoSynthPlugin.MaxSynthRepeatsPerCycle)
                     {
                         _synthRepeats++;
                         _lastFillFull = false;
                         AutoSynthPlugin.Logger.LogInfo(
-                            $"cube was full; repeating synthesis " +
+                            $"cube was full; repeating {TypeName(_currentType)} synthesis " +
                             $"({_synthRepeats}/{AutoSynthPlugin.MaxSynthRepeatsPerCycle})");
+                        // Same type again: keep the type/recipe UI selection as-is.
                         _phase = Phase.Fill;
                         _nextTick = Time.unscaledTime + AutoSynthPlugin.AfterFillDelay;
                         break;
@@ -815,11 +846,10 @@ public class AutoSynthBehaviour : MonoBehaviour
                     if (_lastFillFull && AutoSynthPlugin.RepeatFullSynth)
                         AutoSynthPlugin.Logger.LogInfo(
                             $"cube still full but MaxSynthRepeatsPerCycle " +
-                            $"({AutoSynthPlugin.MaxSynthRepeatsPerCycle}) reached; leaving the Synthesis phase");
+                            $"({AutoSynthPlugin.MaxSynthRepeatsPerCycle}) reached for " +
+                            $"{TypeName(_currentType)}; moving to next type");
                     _lastFillFull = false;
-                    _cycles++;
-                    _typeSelected = false;
-                    AdvanceAfterStep(cubeLoud, null);
+                    AdvanceToNextSynthesisType(cubeLoud);
                     break;
             }
         }
@@ -850,16 +880,33 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
 
     private static string TypeName(int t) => t >= 0 && t < TypeNames.Length ? TypeNames[t] : "?";
 
+    // After finishing (or skipping) the current synthesis type: either start the
+    // next enabled type in this same cycle, or leave the Synthesis phase.
+    void AdvanceToNextSynthesisType(bool loud)
+    {
+        _typeIndex++;
+        if (_typeIndex < _types.Count)
+        {
+            AutoSynthPlugin.Logger.LogInfo(
+                $"synthesis type done; next: {TypeName(_types[_typeIndex])} " +
+                $"({_typeIndex + 1}/{_types.Count})");
+            BeginSynthesisTypePass(AutoSynthPlugin.AfterFillDelay);
+            return;
+        }
+        _cycles++;
+        AdvanceAfterStep(loud, null);
+    }
+
     // Select the synthesis item type (Equipment/Accessory/Material) on the cube's
-    // type combo. Returns true once done; false if the combo isn't ready yet.
-    private bool SelectSynthesisType(UI_Cube cube, int type, bool loud)
+    // type combo. Pending = UI not ready yet; Unavailable = type not offered.
+    private TypeSelectResult SelectSynthesisType(UI_Cube cube, int type, bool loud)
     {
         try
         {
             var combo = cube.m_synthesisItemTypeButton;
-            if (combo == null) return false;
+            if (combo == null) return TypeSelectResult.Pending;
             var buttons = combo.m_buttons;
-            if (buttons == null || buttons.Count == 0) return false;
+            if (buttons == null || buttons.Count == 0) return TypeSelectResult.Pending;
             for (int i = 0; i < buttons.Count; i++)
             {
                 var b = buttons[i];
@@ -869,18 +916,19 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
                 {
                     btn.onClick.Invoke();
                     if (loud) AutoSynthPlugin.Logger.LogInfo($"type select: {TypeName(type)}");
-                    return true;
+                    return TypeSelectResult.Selected;
                 }
-                return false;
+                return TypeSelectResult.Pending;
             }
-            // type not offered by this cube (e.g. accessories locked) — treat as done
-            if (loud) AutoSynthPlugin.Logger.LogWarning($"type select: {TypeName(type)} not available, skipping");
-            return true;
+            // type not offered by this cube (e.g. accessories locked)
+            if (loud) AutoSynthPlugin.Logger.LogWarning(
+                $"type select: {TypeName(type)} not available, skipping");
+            return TypeSelectResult.Unavailable;
         }
         catch (Exception e)
         {
             AutoSynthPlugin.Logger.LogError($"type select failed: {e}");
-            return true;
+            return TypeSelectResult.Unavailable;
         }
     }
 
