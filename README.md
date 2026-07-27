@@ -68,9 +68,9 @@ The button becomes **Remove mods** afterwards, and the app keeps the mod up to
 date. Removing it deletes BepInEx from the game folder; your save and Discord
 presence are untouched.
 
-The loop then runs on its own while the **Cube** panel is open — it pauses when
-you close it. Everything else is configured in Status & Settings; press **Save**
-and running settings reach the game within ~10 seconds.
+The loop then runs on its own, opening the panels it needs — you can leave the
+game alone. Everything is configured in Status & Settings; press **Save** and
+running settings reach the game within ~10 seconds.
 
 Self-updating needs write access to the app's folder, so keep
 `TbhCompanion.exe` somewhere like Downloads rather than under `Program Files`.
