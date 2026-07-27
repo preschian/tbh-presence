@@ -37,8 +37,9 @@ The [Releases page](../../releases) has two editions:
 | **`TbhCompanion.exe`** | Presence **plus** the in-game automation mod. |
 
 You need Windows 10/11 and the [Discord desktop app](https://discord.com/download)
-(the browser version doesn't support presence). Nothing to install — it's a
-single exe.
+(the browser version doesn't support presence), with **Settings → Activity
+Privacy → "Display current activity as a status message"** turned on. Nothing
+to install — it's a single exe.
 
 ## Getting started
 
@@ -67,54 +68,22 @@ The button becomes **Remove mods** afterwards, and the app keeps the mod up to
 date. Removing it deletes BepInEx from the game folder; your save and Discord
 presence are untouched.
 
-## Using the loop
+The loop then runs on its own while the **Cube** panel is open — it pauses when
+you close it. Everything else is configured in Status & Settings; press **Save**
+and running settings reach the game within ~10 seconds.
 
-Open the **Cube** panel in the game and the loop starts on its own — it must
-stay open while the loop works. Everything is configured in Status & Settings;
-press **Save** and running settings reach the game within ~10 seconds. Console
-visibility needs a game restart.
-
-In-game keys:
-
-| Key | Action |
-|-----|--------|
-| **F8** | Toggle the auto loop |
-| **F9** | Run one cycle manually |
-| **F10** | Write a status report to the log |
-
-Dry-run switches (`AlchemyDryRun`, `SoulstoneDryRun`) in
-`BepInEx\config\com.pres.tbh.autosynth.cfg` log what *would* happen without
-touching anything.
-
-## Keeping the mods in step with the game
-
-The mods target one game build at a time. The **Version** block compares them:
-the mods use a `v3.X.Y` prefix against the game's `v1.X.Y`, matching on `X.Y`
-(so `v3.00.28-1` still matches game `v1.00.28`). When the game moves ahead and
-a matching release exists, **Update mods** downloads it, replaces this app, and
-restarts. If no release exists yet, you'll see *Waiting for release* — the mods
-may misbehave until it lands.
-
-Updating needs write access to the app's folder, so keep `TbhCompanion.exe`
-somewhere like Downloads rather than under `Program Files`.
+Self-updating needs write access to the app's folder, so keep
+`TbhCompanion.exe` somewhere like Downloads rather than under `Program Files`.
 
 ## Start it with Windows
 
 Press <kbd>Win</kbd>+<kbd>R</kbd>, type `shell:startup`, and drop a shortcut to
 `TbhCompanion.exe` in the folder that opens.
 
-## Troubleshooting
+## Something not working?
 
-- **Nothing on my Discord profile.** Discord → **Settings → Activity Privacy →
-  "Display current activity as a status message"** must be on, Streamer Mode
-  off, and use the desktop app.
-- **"Game is not running" / "plugin has not reported".** The mod isn't loaded —
-  check BepInEx is installed, then restart the game while the companion runs.
-- **Loop is ON but nothing happens.** The Cube panel must be open.
-- **Rounds keep getting skipped.** An item above your rarity limit is in the
-  cube — raise the cap or move the item.
-- **Wrong stage after a game update.** Give it a minute to re-read the game; if
-  it stays wrong, see [CONTRIBUTING.md](CONTRIBUTING.md).
+Open a [GitHub issue](../../issues) — include what you were doing and, if the
+mod is involved, the BepInEx log.
 
 ---
 
