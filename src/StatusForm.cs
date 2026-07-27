@@ -875,14 +875,51 @@ namespace TbhCompanion
             _launchBtn.Invalidate();
         }
 
-        // Dev (--shot): freeze the idle launch label so docs don't depend on a live game.
+        // Dev (--shot): freeze the idle launch label so docs don't depend on a live
+        // game, and grow the window so every setting fits without a scrollbar.
         internal void PrepareDocsShot()
         {
             if (_timer != null) _timer.Stop();
-            if (_launchBtn == null) return;
-            _launchBtn.Enabled = true;
-            _launchBtn.Text = "Launch game";
-            _launchBtn.Invalidate();
+            if (_launchBtn != null)
+            {
+                _launchBtn.Enabled = true;
+                _launchBtn.Text = "Launch game";
+                _launchBtn.Invalidate();
+            }
+            GrowToFitContent();
+        }
+
+        // Resizes the form to the settings pane's natural height and re-runs the
+        // absolute layout that normally depends on the fixed design height.
+        void GrowToFitContent()
+        {
+            if (_scroll == null || _main == null || _side == null) return;
+
+            int contentBottom = 0;
+            foreach (Control c in _scroll.Controls)
+                if (c.Bottom > contentBottom) contentBottom = c.Bottom;
+            if (contentBottom <= 0) return;
+
+            int b = BorderInset();
+            int wanted = Sc(TopChrome) + contentBottom + Sc(16) + 2 * b;
+            if (wanted <= ClientSize.Height) return;
+            ClientSize = new Size(ClientSize.Width, wanted);
+
+            _side.Size = new Size(_side.Width, Height - 2 * b);
+            _main.Size = new Size(_main.Width, Height - 2 * b);
+            _scroll.Size = new Size(_main.Width, _main.Height - Sc(TopChrome));
+
+            // Side panel pins its status cards and Launch button to the bottom edge.
+            int rows = Build.Synth ? 2 : 1;
+            int statusH = rows * 68 + (rows - 1) * 8;
+            _live.SetBounds(Sc(12), _side.Height - Sc(14 + statusH), Sc(SideW - 24), Sc(statusH));
+            const int launchH = 30;
+            _launchBtn.SetBounds(Sc(12), _live.Top - Sc(14 + 10 + launchH), Sc(SideW - 24), Sc(launchH));
+
+            FinishContent();
+            ApplyRegion();
+            _side.Invalidate();
+            _main.Invalidate();
         }
 
         // ---- live status ----
