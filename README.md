@@ -10,7 +10,7 @@ automates the game's idle chores.
 ## Features
 
 - **Discord presence** — your profile shows your live stage, difficulty, and
-  party. Read-only; the game is never touched.
+  party. It reads the game's memory and never writes to it.
 - **Auto loop** (needs the mod) — runs every few minutes:
   **Soulstone → Chest → Offering → Alchemy → Synthesis → Rune**.
   - **Soulstones** — re-enters a cleared Act Boss stage at the highest tier you
@@ -22,8 +22,8 @@ automates the game's idle chores.
   - **Synthesis** — cube synthesis for Equipment / Materials / Accessories, up
     to a rarity cap and a target recipe level.
   - **Runes** — auto-upgrades runes.
-- **Scheduled restart** — optionally relaunch TaskBarHero after N days of
-  uptime, to shed RAM on long idle sessions.
+- **Scheduled restart** — optionally close and relaunch TaskBarHero after N days
+  of uptime, to shed RAM on long idle sessions. In both editions.
 - **Self-update** — tells you when a game patch has left the mods behind, and
   updates itself when a matching release exists.
 
@@ -33,8 +33,8 @@ The [Releases page](../../releases) has two editions:
 
 | Download | What it does |
 |----------|--------------|
-| **`TbhCompanion-Presence.exe`** | Discord presence only. Read-only, never touches the game. The safe choice. |
-| **`TbhCompanion.exe`** | Presence **plus** the in-game automation mod. |
+| **`TbhCompanion-Presence.exe`** | Discord presence and scheduled restart. No mod, nothing loaded into the game. The safe choice. |
+| **`TbhCompanion.exe`** | The above **plus** the in-game automation mod. |
 
 You need Windows 10/11 and the [Discord desktop app](https://discord.com/download)
 (the browser version doesn't support presence), with **Settings → Activity
@@ -62,7 +62,8 @@ The automation runs inside the game via the free mod loader **BepInEx**:
 
 1. Close TaskBarHero, open Status & Settings, click **Install mods** and
    confirm. Your save is backed up first.
-2. Start the game once, wait about a minute, then open the **Cube** panel.
+2. Start the game and wait about a minute while BepInEx finishes setting
+   itself up.
 
 The button becomes **Remove mods** afterwards, and the app keeps the mod up to
 date. Removing it deletes BepInEx from the game folder; your save and Discord
@@ -98,7 +99,7 @@ principle, lead to item removal or an account ban — especially for items
 tradable on the Marketplace. Use `TbhCompanion-Presence.exe` if you'd rather
 not take that risk.
 
-The presence feature only ever *reads* the game and is not a game
+The presence feature only ever *reads* the game's memory and is not a game
 modification. The automation mod presses the game's own UI buttons and changes
 nothing else; it is opt-in and only active when BepInEx is installed. Use at
 your own risk.
