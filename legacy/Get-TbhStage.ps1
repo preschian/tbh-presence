@@ -66,16 +66,16 @@ $OFF = @{
     HID_HeroNameKey = 0x38
     HID_ClassType   = 0x48   # EEquipClassType
     # PlayerSaveData
-    PSD_heroSaves   = 0x60   # List<HeroSaveData>
+    PSD_heroSaves   = 0x70   # List<HeroSaveData>
     # HeroSaveData
     HSD_heroKey     = 0x10
     HSD_level       = 0x14
     HSD_unlocked    = 0x18
     HSD_exp         = 0x20
-    # ux.uq static fields (live stage system)
-    UU_currentCache = 0x88   # ux.StageCache bfao: the stage currently loaded
-    # ux.StageCache
-    SC_infoData     = 0x10   # StageInfoData (bfas)
+    # vf.uz static fields (live stage system)
+    UU_currentCache = 0x88   # vf.StageCache bfez: the stage currently loaded
+    # vf.StageCache
+    SC_infoData     = 0x10   # StageInfoData (bffd)
     # Il2CppClass
     KLASS_staticFields = 0xB8
     # StageInfoData
@@ -92,7 +92,7 @@ $DIFF = @('NORMAL','NIGHTMARE','HELL','TORMENT')
 $STYPE = @('NORMAL','ACTBOSS')
 # EEquipClassType: each hero maps 1:1 to a class, which doubles as its name
 $HCLASS = @('All','Knight','Ranger','Sorcerer','Priest','Hunter','Slayer')
-$CACHE_VERSION = 8
+$CACHE_VERSION = 9
 
 function Get-GameStamp($proc) {
     # Key on GameAssembly.dll — patches often leave TaskBarHero.exe untouched.
@@ -156,15 +156,16 @@ function Build-HeroTable($mem) {
 }
 
 function Find-LiveStageStatics($mem) {
-    # Locates the static-field block of ux.uq (the live stage system) and the
+    # Locates the static-field block of vf.uz (the live stage system) and the
     # StageCache class pointer. Self-validating: the block is only accepted if
     # its +0x88 slot points at a StageCache instance.
     # Returns @{ Statics; ScKlass } or $null (non-fatal; save data is the fallback).
-    # NOTE: 'uq' is an obfuscated class name (uu -> up @1.00.27 -> uq @1.01.01);
+    # NOTE: 'uz' is an obfuscated class name (uu -> up @1.00.27 -> uq @1.01.01 -> uz @1.01.03);
     # try current and recent names so a minor rename still resolves.
     $scKlass = $mem.FindClass('StageCache', $null)
     if ($scKlass -eq 0) { return $null }
     $namePats = @(
+        [byte[]](0x00, 0x75, 0x7A, 0x00),  # "\0uz\0" 1.01.03
         [byte[]](0x00, 0x75, 0x71, 0x00),  # "\0uq\0" 1.01.01
         [byte[]](0x00, 0x75, 0x70, 0x00),  # "\0up\0" 1.00.27
         [byte[]](0x00, 0x75, 0x75, 0x00)   # "\0uu\0" older
@@ -283,7 +284,7 @@ function Resolve-Targets($mem, $proc) {
 }
 
 function Read-Stage($mem, $ctx) {
-    # stage identity: prefer the live loaded stage (ux.uq.bfan -> StageInfoData),
+    # stage identity: prefer the live loaded stage (vf.uz.bfez -> StageInfoData),
     # which flips the moment a new stage loads; save data lags until autosave.
     $key = 0
     $source = 'save'

@@ -598,21 +598,30 @@ internal static class GameInterop
         }
     }
 
-    // UI_Main keeps stable button_* names across patches; only the wrapper type
-    // (currently `zm`) is obfuscated, and it still exposes toggleButton.
+    // UI_Main keeps stable button_* field names across patches; only the wrapper
+    // type (currently `zv`) is obfuscated. Resolve via reflection so a rename
+    // does not break the build or runtime against a fresh interop assembly.
     static ToggleButton FromMainUi(string label)
     {
         try
         {
             var main = UnityEngine.Object.FindObjectOfType<UI_Main>(true);
             if (main == null) return null;
-            zm entry = null;
-            if (string.Equals(label, "Cube", StringComparison.OrdinalIgnoreCase)) entry = main.button_Cube;
-            else if (string.Equals(label, "Rune", StringComparison.OrdinalIgnoreCase)) entry = main.button_Rune;
-            else if (string.Equals(label, "Stash", StringComparison.OrdinalIgnoreCase)) entry = main.button_Stash;
-            else if (string.Equals(label, "Stat", StringComparison.OrdinalIgnoreCase)) entry = main.button_Stat;
-            else if (string.Equals(label, "Portal", StringComparison.OrdinalIgnoreCase)) entry = main.button_Portal;
-            return entry != null ? entry.toggleButton : null;
+            string fieldName = null;
+            if (string.Equals(label, "Cube", StringComparison.OrdinalIgnoreCase)) fieldName = "button_Cube";
+            else if (string.Equals(label, "Rune", StringComparison.OrdinalIgnoreCase)) fieldName = "button_Rune";
+            else if (string.Equals(label, "Stash", StringComparison.OrdinalIgnoreCase)) fieldName = "button_Stash";
+            else if (string.Equals(label, "Stat", StringComparison.OrdinalIgnoreCase)) fieldName = "button_Stat";
+            else if (string.Equals(label, "Portal", StringComparison.OrdinalIgnoreCase)) fieldName = "button_Portal";
+            if (fieldName == null) return null;
+
+            var entryField = typeof(UI_Main).GetField(fieldName, DeclInstance);
+            if (entryField == null) return null;
+            object entry = entryField.GetValue(main);
+            if (entry == null) return null;
+
+            var toggle = entry.GetType().GetField("toggleButton", DeclInstance);
+            return toggle != null ? toggle.GetValue(entry) as ToggleButton : null;
         }
         catch (Exception e)
         {
