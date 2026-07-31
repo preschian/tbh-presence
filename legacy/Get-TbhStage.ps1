@@ -73,9 +73,9 @@ $OFF = @{
     HSD_unlocked    = 0x18
     HSD_exp         = 0x20
     # vf.uz static fields (live stage system)
-    UU_currentCache = 0x88   # vf.StageCache bfez: the stage currently loaded
+    UU_currentCache = 0x88   # vf.StageCache bfeo @1.01.04: the stage currently loaded
     # vf.StageCache
-    SC_infoData     = 0x10   # StageInfoData (bffd)
+    SC_infoData     = 0x10   # StageInfoData (bfes)
     # Il2CppClass
     KLASS_staticFields = 0xB8
     # StageInfoData
@@ -284,7 +284,7 @@ function Resolve-Targets($mem, $proc) {
 }
 
 function Read-Stage($mem, $ctx) {
-    # stage identity: prefer the live loaded stage (vf.uz.bfez -> StageInfoData),
+    # stage identity: prefer the live loaded stage (vf.uz.bfeo -> StageInfoData),
     # which flips the moment a new stage loads; save data lags until autosave.
     $key = 0
     $source = 'save'

@@ -110,12 +110,11 @@ The exe caches resolved addresses in `%LOCALAPPDATA%\tbh-companion\cache.txt`
 
 Pass `--no-cache` (exe) / `-NoCache` (scripts) to force a full rescan.
 
-## Field offsets (Il2CppDumper, game build 1.01.03)
+## Field offsets (Il2CppDumper, game build 1.01.04)
 
 Object instance fields begin at `+0x10` (klass ptr `+0x0`, monitor `+0x8`).
-`PlayerSaveData.heroSaveDatas` moved `+0x60` → `+0x70` (two new list fields
-inserted ahead of it). Live-stage holder renamed `ux.uq` → `vf.uz`; static
-`StageCache` slot and `StageInfoData` field offsets are unchanged.
+Unchanged from 1.01.03 (hotfix only re-randomized field names inside `vf.uz` /
+`vf.StageCache`; class names `vf.uz` / `zv` and all offsets below stayed put).
 
 ```
 PlayerSaveData.commonSaveData     +0x10
@@ -140,9 +139,9 @@ StageInfoData.Act                 +0x48   (int)
 StageInfoData.StageNo             +0x4C   (int)
 StageInfoData.StageLevel          +0x50   (int)
 StageInfoData.WaveAmount          +0x54   (int)
-vf.StageCache.StageInfoData       +0x10   (bffd)
+vf.StageCache.StageInfoData       +0x10   (bfes)
 Il2CppClass.static_fields         +0xB8
-vf.uz static block -> StageCache  +0x88   (bfez)
+vf.uz static block -> StageCache  +0x88   (bfeo)
 ```
 
 ### Re-dumping after a game update
