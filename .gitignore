@@ -12,3 +12,4 @@ autosynth/obj/
 
 # local dump / reverse-engineering tools (not shipped)
 .tools/
+_dump/

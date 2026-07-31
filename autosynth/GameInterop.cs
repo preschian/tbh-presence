@@ -599,20 +599,29 @@ internal static class GameInterop
     }
 
     // UI_Main keeps stable button_* names across patches; only the wrapper type
-    // (currently `zm`) is obfuscated, and it still exposes toggleButton.
+    // (currently `zv`) is obfuscated. BepInEx interop exposes IL2CPP instance
+    // fields as properties, so resolve via GetProperty (not GetField).
     static ToggleButton FromMainUi(string label)
     {
         try
         {
             var main = UnityEngine.Object.FindObjectOfType<UI_Main>(true);
             if (main == null) return null;
-            zm entry = null;
-            if (string.Equals(label, "Cube", StringComparison.OrdinalIgnoreCase)) entry = main.button_Cube;
-            else if (string.Equals(label, "Rune", StringComparison.OrdinalIgnoreCase)) entry = main.button_Rune;
-            else if (string.Equals(label, "Stash", StringComparison.OrdinalIgnoreCase)) entry = main.button_Stash;
-            else if (string.Equals(label, "Stat", StringComparison.OrdinalIgnoreCase)) entry = main.button_Stat;
-            else if (string.Equals(label, "Portal", StringComparison.OrdinalIgnoreCase)) entry = main.button_Portal;
-            return entry != null ? entry.toggleButton : null;
+            string memberName = null;
+            if (string.Equals(label, "Cube", StringComparison.OrdinalIgnoreCase)) memberName = "button_Cube";
+            else if (string.Equals(label, "Rune", StringComparison.OrdinalIgnoreCase)) memberName = "button_Rune";
+            else if (string.Equals(label, "Stash", StringComparison.OrdinalIgnoreCase)) memberName = "button_Stash";
+            else if (string.Equals(label, "Stat", StringComparison.OrdinalIgnoreCase)) memberName = "button_Stat";
+            else if (string.Equals(label, "Portal", StringComparison.OrdinalIgnoreCase)) memberName = "button_Portal";
+            if (memberName == null) return null;
+
+            var entryProp = typeof(UI_Main).GetProperty(memberName, DeclInstance);
+            if (entryProp == null) return null;
+            object entry = entryProp.GetValue(main);
+            if (entry == null) return null;
+
+            var toggle = entry.GetType().GetProperty("toggleButton", DeclInstance);
+            return toggle != null ? toggle.GetValue(entry) as ToggleButton : null;
         }
         catch (Exception e)
         {

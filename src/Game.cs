@@ -55,7 +55,7 @@ namespace TbhCompanion
     {
         // object fields start at +0x10 (klass +0x0, monitor +0x8)
         const long PSD_common    = 0x10;   // PlayerSaveData.commonSaveData
-        const long PSD_heroSaves = 0x60;   // PlayerSaveData.heroSaveDatas (List<HeroSaveData>)
+        const long PSD_heroSaves = 0x70;   // PlayerSaveData.heroSaveDatas (List<HeroSaveData>)
         const long CSD_playTime  = 0x20;
         const long CSD_petKey    = 0x40;   // CommonSaveData.ArrangedPetKey
         const long CSD_heroKeys  = 0x48;   // CommonSaveData.arrangedHeroKey (int[])
@@ -75,14 +75,14 @@ namespace TbhCompanion
         const long HID_ClassType = 0x48;
         const long HSD_heroKey   = 0x10;   // HeroSaveData
         const long HSD_level     = 0x14;
-        const long UU_currentCache = 0x88; // ux.uq statics: current StageCache (bfao)
-        const long SC_infoData   = 0x10;   // ux.StageCache.bfas (StageInfoData)
+        const long UU_currentCache = 0x88; // vf.uz statics: current StageCache (bfez)
+        const long SC_infoData   = 0x10;   // vf.StageCache.bffd (StageInfoData)
         const long KLASS_staticFields = 0xB8; // Il2CppClass.static_fields
 
         static readonly string[] DIFFS = { "NORMAL", "NIGHTMARE", "HELL", "TORMENT" };
         static readonly string[] STYPES = { "NORMAL", "ACTBOSS" };
         static readonly string[] HCLASS = { "All", "Knight", "Ranger", "Sorcerer", "Priest", "Hunter", "Slayer" };
-        const int CACHE_VERSION = 8;
+        const int CACHE_VERSION = 9;
 
         readonly Mem _mem;
         readonly Process _proc;
@@ -275,16 +275,17 @@ namespace TbhCompanion
 
         void FindLiveStageStatics()
         {
-            // The static class 'uq' holds the live stage system. Self-validated: the
+            // The static class 'uz' holds the live stage system. Self-validated: the
             // static block is only accepted if its +0x88 slot points at a StageCache
-            // instance. NOTE: 'uq' is an obfuscated class name that the game's obfuscator
-            // re-randomizes on updates (uu -> up @1.00.27 -> uq @1.01.01); try current
-            // and recent names so a minor rename still resolves.
+            // instance. NOTE: 'uz' is an obfuscated class name that the game's obfuscator
+            // re-randomizes on updates (uu -> up @1.00.27 -> uq @1.01.01 -> uz @1.01.03);
+            // try current and recent names so a minor rename still resolves.
             _uuStatics = 0; _scKlass = 0;
             long scKlass = _mem.FindClass("StageCache", null);
             if (scKlass == 0) return;
-            // "\0uq\0" (1.01.01), "\0up\0" (1.00.27), "\0uu\0" (older)
+            // "\0uz\0" (1.01.03), "\0uq\0" (1.01.01), "\0up\0" (1.00.27), "\0uu\0" (older)
             byte[][] namePats = {
+                new byte[] { 0x00, 0x75, 0x7A, 0x00 },
                 new byte[] { 0x00, 0x75, 0x71, 0x00 },
                 new byte[] { 0x00, 0x75, 0x70, 0x00 },
                 new byte[] { 0x00, 0x75, 0x75, 0x00 },
