@@ -34,6 +34,9 @@ internal static class GameInterop
     static PropertyInfo _pStageInfoData;
     static Type _saveHolderType, _stageCacheType;
     static PropertyInfo _pPlayerSave, _pNodeStageCache, _pCacheStageInfo;
+    // A save-holder can expose more than one PlayerSaveData (live save + template);
+    // keep them all so CommonSave can pick the live one.
+    static PropertyInfo[] _playerSaveCandidates = Array.Empty<PropertyInfo>();
     static MethodInfo _mItemCount;
     static Type _boxInvType;
     static PropertyInfo _pBoxInvSingleton;
@@ -426,7 +429,7 @@ internal static class GameInterop
             $"cubeSourceType={PName(_pCubeSourceType)}, cubeUniqueId={PName(_pCubeUniqueId)}, " +
             $"stageDb={PName(_pStageInfoData)}, " +
             $"saveHolder={(_saveHolderType != null ? _saveHolderType.Name : "null")}, " +
-            $"playerSave={PName(_pPlayerSave)}, " +
+            $"playerSave=[{string.Join(",", Array.ConvertAll(_playerSaveCandidates, PName))}], " +
             $"stageCache={(_stageCacheType != null ? _stageCacheType.Name : "null")}, " +
             $"nodeStageCache={PName(_pNodeStageCache)}, cacheStageInfo={PName(_pCacheStageInfo)}, " +
             $"itemCount={MName(_mItemCount)}, " +
@@ -1125,12 +1128,13 @@ internal static class GameInterop
     }
 
     // Stage progress lives on CommonSaveData, reached through the save-data holder
-    // (currently `baq`): a MonoBehaviour singleton whose PlayerSaveData property is
-    // the only one of its kind. PlayerSaveData / CommonSaveData keep real names.
+    // (currently `baq`): a MonoBehaviour singleton that exposes one or more
+    // PlayerSaveData properties. PlayerSaveData / CommonSaveData keep real names.
     static void ResolveSaveHolder()
     {
         _saveHolderType = null;
         _pPlayerSave = null;
+        _playerSaveCandidates = Array.Empty<PropertyInfo>();
         foreach (var t in AssemblyTypes())
         {
             if (t == null || !typeof(MonoBehaviour).IsAssignableFrom(t)) continue;
@@ -1139,9 +1143,11 @@ internal static class GameInterop
                 if (p.PropertyType == typeof(PlayerSaveData)) { holder = true; break; }
             if (!holder) continue;
             _saveHolderType = t;
-            // Re-run through OnlyProp so a patch that adds a second PlayerSaveData
-            // property warns like every other member this file resolves.
-            _pPlayerSave = OnlyProp(t, typeof(PlayerSaveData), false);
+            // Keep every PlayerSaveData property; CommonSave picks the live account
+            // when a patch also exposes a template/default save (e.g. 1.01.04).
+            _playerSaveCandidates = Array.FindAll(
+                t.GetProperties(DeclInstance), p => p.PropertyType == typeof(PlayerSaveData));
+            _pPlayerSave = _playerSaveCandidates.Length > 0 ? _playerSaveCandidates[0] : null;
             return;
         }
     }
@@ -1174,8 +1180,39 @@ internal static class GameInterop
             Resolve();
             var holder = WrapFirstLoaded(_saveHolderType, ref _saveHolderInstance);
             if (holder == null || _pPlayerSave == null) return null;
-            var player = _pPlayerSave.GetValue(holder) as PlayerSaveData;
-            _commonSave = player != null ? player.commonSaveData : null;
+
+            // Prefer the PlayerSaveData whose CommonSaveData reports completed stages.
+            // A template/default save reads maxCompletedStage <= 0 and would make
+            // currentStageKey misread (the 1.01.04 "stage did not start" bug).
+            var candidates = _playerSaveCandidates.Length > 0
+                ? _playerSaveCandidates
+                : new[] { _pPlayerSave };
+            CommonSaveData fallback = null;
+            PropertyInfo fallbackProp = null;
+            foreach (var prop in candidates)
+            {
+                if (prop == null) continue;
+                var player = prop.GetValue(holder) as PlayerSaveData;
+                var csd = player != null ? player.commonSaveData : null;
+                if (csd == null) continue;
+                if (fallback == null)
+                {
+                    fallback = csd;
+                    fallbackProp = prop;
+                }
+                try
+                {
+                    if (csd.maxCompletedStage > 0)
+                    {
+                        _pPlayerSave = prop;
+                        _commonSave = csd;
+                        return _commonSave;
+                    }
+                }
+                catch { /* stage field unreadable; try the next candidate */ }
+            }
+            if (fallbackProp != null) _pPlayerSave = fallbackProp;
+            _commonSave = fallback;
             return _commonSave;
         }
         catch
