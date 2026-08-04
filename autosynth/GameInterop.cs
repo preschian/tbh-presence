@@ -1192,16 +1192,16 @@ internal static class GameInterop
             foreach (var prop in candidates)
             {
                 if (prop == null) continue;
-                var player = prop.GetValue(holder) as PlayerSaveData;
-                var csd = player != null ? player.commonSaveData : null;
-                if (csd == null) continue;
-                if (fallback == null)
-                {
-                    fallback = csd;
-                    fallbackProp = prop;
-                }
                 try
                 {
+                    var player = prop.GetValue(holder) as PlayerSaveData;
+                    var csd = player != null ? player.commonSaveData : null;
+                    if (csd == null) continue;
+                    if (fallback == null)
+                    {
+                        fallback = csd;
+                        fallbackProp = prop;
+                    }
                     if (csd.maxCompletedStage > 0)
                     {
                         _pPlayerSave = prop;
@@ -1209,11 +1209,15 @@ internal static class GameInterop
                         return _commonSave;
                     }
                 }
-                catch { /* stage field unreadable; try the next candidate */ }
+                catch { /* candidate unreadable; try the next property */ }
             }
+            // Ambiguous while every candidate still reads <= 0 (fresh account / save
+            // still loading): return a readable save for this call but do not cache,
+            // so the next read re-probes until one is positively identified.
             if (fallbackProp != null) _pPlayerSave = fallbackProp;
-            _commonSave = fallback;
-            return _commonSave;
+            if (candidates.Length <= 1)
+                _commonSave = fallback;
+            return fallback;
         }
         catch
         {
