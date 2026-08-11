@@ -29,7 +29,7 @@ On each launch the reader:
    object (fixed for the process lifetime → cheap to re-read each poll).
 4. Enumerates all `StageInfoData` and `HeroInfoData` instances once to build
    lookup tables (`stageKey -> {...}`, `heroKey -> class name`).
-5. For the **live** current stage it also resolves the `vf.uz` static-field
+5. For the **live** current stage it also resolves the `vm.vg` static-field
    block and reads `StageCache -> StageInfoData` from it — see below.
 
 Because everything is resolved by class name, the tool keeps working across game
@@ -39,15 +39,15 @@ a patch, re-dump (below) and update the offsets.
 ### Live stage vs. saved stage
 
 `CommonSaveData.currentStageKey` only updates when the game autosaves, so it lags
-behind stage changes. The reader prefers the **live stage system**: the `vf.uz`
-class holds a static `StageCache` (`bfez`) for the currently loaded stage, and
+behind stage changes. The reader prefers the **live stage system**: the `vm.vg`
+class holds a static `StageCache` (`bfih`) for the currently loaded stage, and
 that flips the instant a new stage loads.
 
-`vf.uz` has no unique class-name string to scan for (it's an obfuscated short
+`vm.vg` has no unique class-name string to scan for (it's an obfuscated short
 name that the obfuscator re-randomizes on updates — `vb.uu` → `uw.up` @1.00.27 →
-`ux.uq` @1.01.01 → `vf.uz` @1.01.03), so it's located by:
+`ux.uq` @1.01.01 → `vf.uz` @1.01.03 → `vm.vg` @1.01.05), so it's located by:
 
-1. scanning for the `"uz"` name string (also tries recent `"uq"` / `"up"` / `"uu"`),
+1. scanning for the `"vg"` name string (also tries recent `"uz"` / `"uq"` / `"up"` / `"uu"`),
 2. reading each referencing class's static-field block (`Il2CppClass.static_fields`
    at `+0xB8`),
 3. accepting the block only if its `+0x88` slot points at a valid `StageCache`
@@ -110,20 +110,20 @@ The exe caches resolved addresses in `%LOCALAPPDATA%\tbh-companion\cache.txt`
 
 Pass `--no-cache` (exe) / `-NoCache` (scripts) to force a full rescan.
 
-## Field offsets (Il2CppDumper, game build 1.01.04)
+## Field offsets (Il2CppDumper, game build 1.01.05)
 
 Object instance fields begin at `+0x10` (klass ptr `+0x0`, monitor `+0x8`).
-Unchanged from 1.01.03 (hotfix only re-randomized field names inside `vf.uz` /
-`vf.StageCache`; class names `vf.uz` / `zv` and all offsets below stayed put).
+`CommonSaveData` gained `LastDailyBackUpTime` (+8 from that field onward). Live-stage
+class renamed `vf.uz` → `vm.vg`; `StageCache` / other companion offsets unchanged.
 
 ```
 PlayerSaveData.commonSaveData     +0x10
 PlayerSaveData.heroSaveDatas      +0x70   (List<HeroSaveData>: items +0x10, count +0x18; element ptrs from items+0x20)
-CommonSaveData.ArrangedPetKey     +0x40   (int)
-CommonSaveData.arrangedHeroKey    +0x48   (int[]: length +0x18, elements +0x20)
-CommonSaveData.maxCompletedStage  +0x54   (int)
-CommonSaveData.currentStageKey    +0x58   (int)
-CommonSaveData.currentStageWave   +0x5C   (int)
+CommonSaveData.ArrangedPetKey     +0x48   (int)
+CommonSaveData.arrangedHeroKey    +0x50   (int[]: length +0x18, elements +0x20)
+CommonSaveData.maxCompletedStage  +0x5C   (int)
+CommonSaveData.currentStageKey    +0x60   (int)
+CommonSaveData.currentStageWave   +0x64   (int)
 HeroInfoData.HeroKey              +0x30   (int)
 HeroInfoData.HeroNameKey          +0x38   (System.String)
 HeroInfoData.ClassType            +0x48   (EEquipClassType: 1 Knight, 2 Ranger, 3 Sorcerer, 4 Priest, 5 Hunter, 6 Slayer)
@@ -139,9 +139,9 @@ StageInfoData.Act                 +0x48   (int)
 StageInfoData.StageNo             +0x4C   (int)
 StageInfoData.StageLevel          +0x50   (int)
 StageInfoData.WaveAmount          +0x54   (int)
-vf.StageCache.StageInfoData       +0x10   (bfes)
+vm.StageCache.StageInfoData       +0x10   (bfil)
 Il2CppClass.static_fields         +0xB8
-vf.uz static block -> StageCache  +0x88   (bfeo)
+vm.vg static block -> StageCache  +0x88   (bfih)
 ```
 
 ### Re-dumping after a game update

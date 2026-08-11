@@ -602,8 +602,8 @@ internal static class GameInterop
     }
 
     // UI_Main keeps stable button_* names across patches; only the wrapper type
-    // (currently `zv`) is obfuscated. BepInEx interop exposes IL2CPP instance
-    // fields as properties, so resolve via GetProperty (not GetField).
+    // (currently `baf`, was `zv` @1.01.04) is obfuscated. BepInEx interop exposes
+    // IL2CPP instance fields as properties, so resolve via GetProperty (not GetField).
     static ToggleButton FromMainUi(string label)
     {
         try
