@@ -54,13 +54,13 @@ $GameExe = 'TaskBarHero'
 $OFF = @{
     # PlayerSaveData
     PSD_common      = 0x10
-    # CommonSaveData
-    CSD_maxStage    = 0x54
-    CSD_stageKey    = 0x58
-    CSD_stageWave   = 0x5C
+    # CommonSaveData (+8 @1.01.05: LastDailyBackUpTime)
+    CSD_maxStage    = 0x5C
+    CSD_stageKey    = 0x60
+    CSD_stageWave   = 0x64
     CSD_playTime    = 0x20
-    CSD_petKey      = 0x40
-    CSD_heroKeys    = 0x48   # int[] of deployed hero keys
+    CSD_petKey      = 0x48
+    CSD_heroKeys    = 0x50   # int[] of deployed hero keys
     # HeroInfoData
     HID_HeroKey     = 0x30
     HID_HeroNameKey = 0x38
@@ -72,10 +72,10 @@ $OFF = @{
     HSD_level       = 0x14
     HSD_unlocked    = 0x18
     HSD_exp         = 0x20
-    # vf.uz static fields (live stage system)
-    UU_currentCache = 0x88   # vf.StageCache bfeo @1.01.04: the stage currently loaded
-    # vf.StageCache
-    SC_infoData     = 0x10   # StageInfoData (bfes)
+    # vm.vg static fields (live stage system)
+    UU_currentCache = 0x88   # vm.StageCache bfih @1.01.05: the stage currently loaded
+    # vm.StageCache
+    SC_infoData     = 0x10   # StageInfoData (bfil)
     # Il2CppClass
     KLASS_staticFields = 0xB8
     # StageInfoData
@@ -92,7 +92,7 @@ $DIFF = @('NORMAL','NIGHTMARE','HELL','TORMENT')
 $STYPE = @('NORMAL','ACTBOSS')
 # EEquipClassType: each hero maps 1:1 to a class, which doubles as its name
 $HCLASS = @('All','Knight','Ranger','Sorcerer','Priest','Hunter','Slayer')
-$CACHE_VERSION = 9
+$CACHE_VERSION = 10
 
 function Get-GameStamp($proc) {
     # Key on GameAssembly.dll — patches often leave TaskBarHero.exe untouched.
@@ -156,15 +156,16 @@ function Build-HeroTable($mem) {
 }
 
 function Find-LiveStageStatics($mem) {
-    # Locates the static-field block of vf.uz (the live stage system) and the
+    # Locates the static-field block of vm.vg (the live stage system) and the
     # StageCache class pointer. Self-validating: the block is only accepted if
     # its +0x88 slot points at a StageCache instance.
     # Returns @{ Statics; ScKlass } or $null (non-fatal; save data is the fallback).
-    # NOTE: 'uz' is an obfuscated class name (uu -> up @1.00.27 -> uq @1.01.01 -> uz @1.01.03);
-    # try current and recent names so a minor rename still resolves.
+    # NOTE: 'vg' is an obfuscated class name (uu -> up @1.00.27 -> uq @1.01.01 -> uz @1.01.03
+    # -> vg @1.01.05); try current and recent names so a minor rename still resolves.
     $scKlass = $mem.FindClass('StageCache', $null)
     if ($scKlass -eq 0) { return $null }
     $namePats = @(
+        [byte[]](0x00, 0x76, 0x67, 0x00),  # "\0vg\0" 1.01.05
         [byte[]](0x00, 0x75, 0x7A, 0x00),  # "\0uz\0" 1.01.03
         [byte[]](0x00, 0x75, 0x71, 0x00),  # "\0uq\0" 1.01.01
         [byte[]](0x00, 0x75, 0x70, 0x00),  # "\0up\0" 1.00.27
@@ -284,7 +285,7 @@ function Resolve-Targets($mem, $proc) {
 }
 
 function Read-Stage($mem, $ctx) {
-    # stage identity: prefer the live loaded stage (vf.uz.bfeo -> StageInfoData),
+    # stage identity: prefer the live loaded stage (vm.vg.bfih -> StageInfoData),
     # which flips the moment a new stage loads; save data lags until autosave.
     $key = 0
     $source = 'save'

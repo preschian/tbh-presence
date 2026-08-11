@@ -57,11 +57,11 @@ namespace TbhCompanion
         const long PSD_common    = 0x10;   // PlayerSaveData.commonSaveData
         const long PSD_heroSaves = 0x70;   // PlayerSaveData.heroSaveDatas (List<HeroSaveData>)
         const long CSD_playTime  = 0x20;
-        const long CSD_petKey    = 0x40;   // CommonSaveData.ArrangedPetKey
-        const long CSD_heroKeys  = 0x48;   // CommonSaveData.arrangedHeroKey (int[])
-        const long CSD_maxStage  = 0x54;
-        const long CSD_stageKey  = 0x58;
-        const long CSD_stageWave = 0x5C;
+        const long CSD_petKey    = 0x48;   // CommonSaveData.ArrangedPetKey (+8 @1.01.05: LastDailyBackUpTime)
+        const long CSD_heroKeys  = 0x50;   // CommonSaveData.arrangedHeroKey (int[])
+        const long CSD_maxStage  = 0x5C;
+        const long CSD_stageKey  = 0x60;
+        const long CSD_stageWave = 0x64;
         const long SID_StageKey  = 0x30;   // StageInfoData
         const long SID_NameKey   = 0x38;
         const long SID_Type      = 0x40;
@@ -75,14 +75,14 @@ namespace TbhCompanion
         const long HID_ClassType = 0x48;
         const long HSD_heroKey   = 0x10;   // HeroSaveData
         const long HSD_level     = 0x14;
-        const long UU_currentCache = 0x88; // vf.uz statics: current StageCache (bfeo @1.01.04)
-        const long SC_infoData   = 0x10;   // vf.StageCache.bfes (StageInfoData)
+        const long UU_currentCache = 0x88; // vm.vg statics: current StageCache (bfih @1.01.05)
+        const long SC_infoData   = 0x10;   // vm.StageCache.bfil (StageInfoData)
         const long KLASS_staticFields = 0xB8; // Il2CppClass.static_fields
 
         static readonly string[] DIFFS = { "NORMAL", "NIGHTMARE", "HELL", "TORMENT" };
         static readonly string[] STYPES = { "NORMAL", "ACTBOSS" };
         static readonly string[] HCLASS = { "All", "Knight", "Ranger", "Sorcerer", "Priest", "Hunter", "Slayer" };
-        const int CACHE_VERSION = 9;
+        const int CACHE_VERSION = 10;
 
         readonly Mem _mem;
         readonly Process _proc;
@@ -275,16 +275,17 @@ namespace TbhCompanion
 
         void FindLiveStageStatics()
         {
-            // The static class 'uz' holds the live stage system. Self-validated: the
+            // The static class 'vg' holds the live stage system. Self-validated: the
             // static block is only accepted if its +0x88 slot points at a StageCache
-            // instance. NOTE: 'uz' is an obfuscated class name that the game's obfuscator
-            // re-randomizes on updates (uu -> up @1.00.27 -> uq @1.01.01 -> uz @1.01.03);
-            // try current and recent names so a minor rename still resolves.
+            // instance. NOTE: 'vg' is an obfuscated class name that the game's obfuscator
+            // re-randomizes on updates (uu -> up @1.00.27 -> uq @1.01.01 -> uz @1.01.03
+            // -> vg @1.01.05); try current and recent names so a minor rename still resolves.
             _uuStatics = 0; _scKlass = 0;
             long scKlass = _mem.FindClass("StageCache", null);
             if (scKlass == 0) return;
-            // "\0uz\0" (1.01.03), "\0uq\0" (1.01.01), "\0up\0" (1.00.27), "\0uu\0" (older)
+            // "\0vg\0" (1.01.05), "\0uz\0" (1.01.03), "\0uq\0" (1.01.01), "\0up\0" (1.00.27), "\0uu\0" (older)
             byte[][] namePats = {
+                new byte[] { 0x00, 0x76, 0x67, 0x00 },
                 new byte[] { 0x00, 0x75, 0x7A, 0x00 },
                 new byte[] { 0x00, 0x75, 0x71, 0x00 },
                 new byte[] { 0x00, 0x75, 0x70, 0x00 },
