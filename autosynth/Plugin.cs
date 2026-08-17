@@ -17,18 +17,18 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.32.4";
+    internal const string Version = "0.33.0";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
     private static ConfigEntry<float> _afterFillE, _afterSynthE, _cycleE, _afterRuneE, _afterChestE,
-        _afterAlchemyE, _afterSoulstoneE;
+        _afterAlchemyE, _afterSoulstoneE, _activityIdleE;
     private static ConfigEntry<int> _maxGradeE, _desiredLevelE, _maxRuneUpgradesE, _maxChestOpensE,
         _maxSynthRepeatsE, _alchemyLevelE, _maxAlchemyGradeE, _maxAlchemyBatchesE, _maxOfferingOperationsE,
         _actBossRunsE, _actBossWatchE;
     private static ConfigEntry<bool> _autoStartE, _autoOpenE, _autoRuneE, _autoOpenRuneE, _enableSynthE, _autoChestE,
         _repeatFullSynthE, _autoAlchemyE, _alchemyDryRunE, _autoOfferingE,
-        _autoSoulstoneE, _autoOpenPortalE, _soulstoneDryRunE;
+        _autoSoulstoneE, _autoOpenPortalE, _soulstoneDryRunE, _pauseOnActivityE;
     private static ConfigEntry<string> _alchemyProtectedE, _soulstoneTiersE;
 
     internal static float AfterFillDelay => _afterFillE != null ? _afterFillE.Value : 1.0f;
@@ -45,6 +45,9 @@ public class AutoSynthPlugin : BasePlugin
     internal static int MaxSynthRepeatsPerCycle => _maxSynthRepeatsE != null ? _maxSynthRepeatsE.Value : 10;
     internal static bool RepeatFullSynth => _repeatFullSynthE == null || _repeatFullSynthE.Value;
     internal static bool AutoStart => _autoStartE == null || _autoStartE.Value;
+    internal static bool PauseOnActivity => _pauseOnActivityE != null && _pauseOnActivityE.Value;
+    internal static float ActivityIdleSeconds =>
+        _activityIdleE != null ? Math.Max(5f, _activityIdleE.Value) : 30f;
     internal static bool AutoOpenCube => _autoOpenE == null || _autoOpenE.Value;
     internal static bool AutoUpgradeRune => _autoRuneE != null && _autoRuneE.Value;
     internal static bool AutoOpenRune => _autoOpenRuneE == null || _autoOpenRuneE.Value;
@@ -157,6 +160,7 @@ public class AutoSynthPlugin : BasePlugin
     static string Summary()
         => $"MaxGrade={MaxGrade}, DesiredLevel={DesiredLevel}, " +
            $"CycleIntervalSeconds={AfterClearDelay}, AutoStart={AutoStart}, " +
+           $"PauseOnActivity={PauseOnActivity}, ActivityIdleSeconds={ActivityIdleSeconds}, " +
            $"EnableSynthesis={EnableSynthesis}, AutoOpenChest={AutoOpenChest}, " +
            $"AutoUpgradeRune={AutoUpgradeRune}, " +
            $"MaxRuneUpgradesPerCycle={MaxRuneUpgradesPerCycle}, " +
@@ -202,6 +206,11 @@ public class AutoSynthPlugin : BasePlugin
         _autoStartE = Config.Bind("General", "AutoStart", true,
             "Arm the auto loop as soon as the game starts, and sync the live loop when the " +
             "companion changes this setting. F8 still toggles the live loop without rewriting the cfg.");
+        _pauseOnActivityE = Config.Bind("General", "PauseOnActivity", false,
+            "While the loop is armed, stop clicking when the mouse moves or clicks in the focused " +
+            "game. Starts a fresh cycle after ActivityIdleSeconds of stillness. Off by default.");
+        _activityIdleE = Config.Bind("Timing", "ActivityIdleSeconds", 30f,
+            "How long the mouse must stay still before a loop paused by PauseOnActivity starts a new cycle.");
         _enableSynthE = Config.Bind("General", "EnableSynthesis", true,
             "When the loop runs, run the Synthesis phase on the Cube (fill -> synth -> clear). " +
             "Turn it off to skip that phase.");
@@ -339,6 +348,10 @@ public class AutoSynthBehaviour : MonoBehaviour
     private float _bootReadyAt = -1f;
     private float _nextConfigReload;
     private float _nextStatusWrite;
+    private bool _paused;
+    private float _resumeAt;
+    private bool _haveMouse;
+    private Vector3 _lastMouse;
     private int _lastSynthCount = -1;
     private int _lastSynthGrade = -1;
     // Cube-phase repeat state: how many extra passes this cycle already ran, and
@@ -386,6 +399,8 @@ public class AutoSynthBehaviour : MonoBehaviour
                 ",\"autoUpgradeRune\":" + (AutoSynthPlugin.AutoUpgradeRune ? "true" : "false") +
                 ",\"autoOpenChest\":" + (AutoSynthPlugin.AutoOpenChest ? "true" : "false") +
                 ",\"enableSynthesis\":" + (AutoSynthPlugin.EnableSynthesis ? "true" : "false") +
+                ",\"pauseOnActivity\":" + (AutoSynthPlugin.PauseOnActivity ? "true" : "false") +
+                ",\"paused\":" + (_paused ? "true" : "false") +
                 ",\"cycleIntervalSeconds\":" + (int)AutoSynthPlugin.AfterClearDelay +
                 ",\"updatedUtc\":\"" + DateTime.UtcNow.ToString("o") + "\"}";
             File.WriteAllText(StatusPath, json);
@@ -458,6 +473,9 @@ public class AutoSynthBehaviour : MonoBehaviour
             }
         }
 
+        WatchActivity();
+        if (_paused) return;
+
         if (!LoopRunning || Time.unscaledTime < _nextTick) return;
         _nextTick = Time.unscaledTime + 1.5f;
         Tick();
@@ -465,6 +483,7 @@ public class AutoSynthBehaviour : MonoBehaviour
 
     void StartOneShotCycle()
     {
+        ClearPause();
         // F7 while already armed: restart without switching to OneShot
         // (avoids desyncing companion Auto Loop / AutoStart cfg).
         if (_mode == LoopMode.Armed)
@@ -481,6 +500,7 @@ public class AutoSynthBehaviour : MonoBehaviour
 
     void SetAuto(bool on, string reason)
     {
+        ClearPause();
         _mode = on ? LoopMode.Armed : LoopMode.Off;
         _cycles = 0;
         _chests.ResetSession();
@@ -491,6 +511,80 @@ public class AutoSynthBehaviour : MonoBehaviour
         BeginCycleWork();
         string suffix = string.IsNullOrEmpty(reason) ? "" : " (" + reason + ")";
         AutoSynthPlugin.Logger.LogInfo($"Auto-synthesis: {(on ? "ON" : "OFF")}{suffix}");
+    }
+
+    // Overlay on Armed/OneShot — does not rewrite AutoStart / F8. Off unless PauseOnActivity is on.
+    void WatchActivity()
+    {
+        if (!AutoSynthPlugin.PauseOnActivity)
+        {
+            if (_paused) ResumeFromPause("PauseOnActivity off");
+            return;
+        }
+        if (!LoopRunning)
+        {
+            ClearPause();
+            return;
+        }
+        if (MouseBusy())
+        {
+            _resumeAt = Time.unscaledTime + AutoSynthPlugin.ActivityIdleSeconds;
+            if (!_paused)
+            {
+                _paused = true;
+                _nextStatusWrite = 0f;
+                AutoSynthPlugin.Logger.LogInfo("auto loop paused (mouse activity)");
+            }
+            return;
+        }
+        if (_paused && Time.unscaledTime >= _resumeAt)
+            ResumeFromPause("idle");
+    }
+
+    void ResumeFromPause(string reason)
+    {
+        ClearPause();
+        if (LoopRunning) BeginCycleWork();
+        AutoSynthPlugin.Logger.LogInfo("auto loop resumed (" + reason + ")");
+    }
+
+    void ClearPause()
+    {
+        _paused = false;
+        _resumeAt = 0f;
+        _nextStatusWrite = 0f;
+    }
+
+    // ponytail: mouse only; add keyboard if people play without the mouse
+    bool MouseBusy()
+    {
+        if (!Application.isFocused)
+        {
+            _haveMouse = false;
+            return false;
+        }
+        if (!_legacyInputBroken)
+        {
+            try
+            {
+                var pos = Input.mousePosition;
+                bool moved = _haveMouse && (pos - _lastMouse).sqrMagnitude > 4f;
+                _lastMouse = pos;
+                _haveMouse = true;
+                return moved
+                    || Input.GetMouseButton(0)
+                    || Input.GetMouseButton(1)
+                    || Input.GetMouseButton(2);
+            }
+            catch { _legacyInputBroken = true; }
+        }
+        var mouse = UnityEngine.InputSystem.Mouse.current;
+        if (mouse == null) return false;
+        var d = mouse.delta.ReadValue();
+        return d.sqrMagnitude > 4f
+            || mouse.leftButton.isPressed
+            || mouse.rightButton.isPressed
+            || mouse.middleButton.isPressed;
     }
 
     void BeginCycleWork()

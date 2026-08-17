@@ -22,7 +22,9 @@ updates this plugin automatically. (Building it from source is covered in
 
 With `AutoStart` on (the default) the loop is already armed when the game starts.
 Each armed cycle runs enabled phases in order: **Soulstone → Chest → Offering →
-Alchemy → Synthesis → Rune**. If the main menu/HUD is closed when a phase needs the content
+Alchemy → Synthesis → Rune**. Turn on **Pause on mouse** in Status & Settings
+(`PauseOnActivity`) to stop clicking while you play; the loop starts a fresh
+cycle after 30s of stillness. If the main menu/HUD is closed when a phase needs the content
 row, the plugin clicks the stage-HUD **Show Main** button (next to auto-retry) —
 never synthesizes Tab. With `AutoOpenCube` on it then clicks the **Cube** menu
 button when the Synthesis phase is due. Hotkeys:
@@ -165,6 +167,7 @@ the dropdown does not offer is reported instead of guessed at.
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `AutoStart` | true | Arm the auto loop at game start, no F8 needed |
+| `PauseOnActivity` | false | Pause the armed loop while the mouse moves or clicks in the focused game, then resume after `ActivityIdleSeconds`. Toggle from Status & Settings. |
 | `EnableSynthesis` | true | Include the Synthesis phase (Cube fill → synth → clear) in the cycle |
 | `AutoOpenCube` | true | Click the Cube menu button to open the Cube panel when the Synthesis phase is due (at most once every 10s, so it doesn't fight you for the tab) |
 | `AutoOpenChest` | false | After the Soulstone phase (or at cycle start if it is off), click StageBox chests (Normal / Boss / ActBoss) |
@@ -194,6 +197,7 @@ the dropdown does not offer is reported instead of guessed at.
 | `MaxChestOpensPerCycle` | 40 | Safety cap on StageBox open clicks per cycle |
 | `MaxRuneUpgradesPerCycle` | 20 | Safety cap on rune level-ups per cycle |
 | `CycleIntervalSeconds` | 300 | Pause between cycles |
+| `ActivityIdleSeconds` | 30 | How long the mouse must stay still before a loop paused by `PauseOnActivity` starts a new cycle. Stepper in Status & Settings (5–300). |
 | `AfterFillSeconds` | 1 | Delay between auto-fill and synthesis |
 | `AfterSynthesisSeconds` | 4 | Delay for the synthesis animation to finish |
 | `AfterChestOpenSeconds` | 1.5 | Delay after each chest open click |

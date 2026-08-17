@@ -13,6 +13,8 @@ automates the game's idle chores.
   party. It reads the game's memory and never writes to it.
 - **Auto loop** (needs the mod) — runs every few minutes:
   **Soulstone → Chest → Offering → Alchemy → Synthesis → Rune**.
+  - **Pause on mouse** — optional. Stops the loop while you move or click in
+    the game, then starts a new cycle after you stay still (default 30s).
   - **Soulstones** — re-enters a cleared Act Boss stage at the highest tier you
     allow (Normal/Nightmare/Hell/Torment), then walks your hero back.
   - **Chests** — opens StageBox chests (Normal / Boss / ActBoss).

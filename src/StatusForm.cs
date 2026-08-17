@@ -90,11 +90,11 @@ namespace TbhCompanion
         Toggle _presenceToggle;
         Toggle _autoRestart;
         Toggle _autoLoop, _enableSynth, _autoChest, _autoRune, _showConsole,
-            _autoAlchemy, _autoOffering, _autoSoulstone;
+            _autoAlchemy, _autoOffering, _autoSoulstone, _pauseOnMouse;
         TypeTile[] _typeTiles, _tierTiles;
         SegmentBar _seg;
         Label _rarityValue;
-        Stepper _cycleMin, _restartDays, _alchemyLevel, _offeringMax, _actBossRuns;
+        Stepper _cycleMin, _restartDays, _alchemyLevel, _offeringMax, _actBossRuns, _idleSec;
         FlatDrop _desiredLevel, _alchemyRarity;
         FlatButton _saveBtn, _setupBtn, _removeBtn, _launchBtn, _updateBtn;
         Label _cfgNote, _verNote;
@@ -352,6 +352,11 @@ namespace TbhCompanion
 
             y0 = AddSectionHeader("Enable Mods", Col0X, y0);
             y0 = AddToggleRow("Auto Loop", Col0X, ref _autoLoop, t0, y0);
+            y0 = AddToggleRow("Pause on mouse", Col0X, ref _pauseOnMouse, t0, y0);
+            y0 = AddFieldRow("Resume after", "sec", Col0X, y0, f0, fieldW, out _idleSec);
+            _idleSec.Min = 5; _idleSec.Max = 300; _idleSec.Step = 5; _idleSec.Decimals = 0; _idleSec.Value = 30;
+            _idleSec.Enabled = false;
+            _pauseOnMouse.CheckedChanged += delegate { _idleSec.Enabled = _pauseOnMouse.Enabled && _pauseOnMouse.Checked; };
             y0 = AddToggleRow("Show BepInEx console", Col0X, ref _showConsole, t0, y0);
             y0 = AddFieldRow("Cycle interval", "min", Col0X, y0, f0, fieldW, out _cycleMin);
             _cycleMin.Min = 1; _cycleMin.Max = 1440; _cycleMin.Step = 1; _cycleMin.Decimals = 0; _cycleMin.Value = 5;
@@ -991,6 +996,11 @@ namespace TbhCompanion
 
                 Color synthDot = auto ? Theme.Green : Theme.TextMuted;
                 string synthState = auto ? "On" : "Off";
+                if (auto && d.ContainsKey("paused") && (bool)d["paused"])
+                {
+                    synthDot = Theme.Amber;
+                    synthState = "Paused";
+                }
                 var bits = new List<string>();
                 if (lastChests > 0) bits.Add(lastChests + " chests");
                 if (lastRunes > 0) bits.Add(lastRunes + " runes");
@@ -1035,6 +1045,8 @@ namespace TbhCompanion
         {
             _autoLoop.Enabled = on; _enableSynth.Enabled = on; _autoChest.Enabled = on;
             _autoRune.Enabled = on; _seg.Enabled = on;
+            _pauseOnMouse.Enabled = on;
+            _idleSec.Enabled = on && _pauseOnMouse.Checked;
             _autoAlchemy.Enabled = on; _alchemyLevel.Enabled = on; _alchemyRarity.Enabled = on;
             _autoOffering.Enabled = on; _offeringMax.Enabled = on;
             _autoSoulstone.Enabled = on; _actBossRuns.Enabled = on;
@@ -1058,6 +1070,9 @@ namespace TbhCompanion
             {
                 string text = File.ReadAllText(_cfgPath);
                 _autoLoop.Checked = !string.Equals(GetVal(text, "General", "AutoStart", "true"), "false", StringComparison.OrdinalIgnoreCase);
+                _pauseOnMouse.Checked = string.Equals(GetVal(text, "General", "PauseOnActivity", "false"), "true", StringComparison.OrdinalIgnoreCase);
+                decimal idleSec = ParseF(GetVal(text, "Timing", "ActivityIdleSeconds", "30"));
+                _idleSec.SetValue(Math.Max(5, Math.Min(300, Math.Round(idleSec > 0 ? idleSec : 30))));
                 _enableSynth.Checked = !string.Equals(GetVal(text, "General", "EnableSynthesis", "true"), "false", StringComparison.OrdinalIgnoreCase);
                 _autoChest.Checked = !string.Equals(GetVal(text, "General", "AutoOpenChest", "false"), "false", StringComparison.OrdinalIgnoreCase);
                 _autoRune.Checked = !string.Equals(GetVal(text, "General", "AutoUpgradeRune", "false"), "false", StringComparison.OrdinalIgnoreCase);
@@ -1140,6 +1155,9 @@ namespace TbhCompanion
             {
                 string text = File.ReadAllText(_cfgPath);
                 text = SetVal(text, "General", "AutoStart", _autoLoop.Checked ? "true" : "false");
+                text = SetVal(text, "General", "PauseOnActivity", _pauseOnMouse.Checked ? "true" : "false");
+                text = SetVal(text, "Timing", "ActivityIdleSeconds",
+                    ((int)_idleSec.Value).ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "General", "EnableSynthesis", _enableSynth.Checked ? "true" : "false");
                 text = SetVal(text, "General", "AutoOpenChest", _autoChest.Checked ? "true" : "false");
                 text = SetVal(text, "General", "AutoUpgradeRune", _autoRune.Checked ? "true" : "false");
