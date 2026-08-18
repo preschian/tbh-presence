@@ -80,8 +80,9 @@ Self-updating needs write access to the app's folder, so keep
 
 ## Start it with Windows
 
-Press <kbd>Win</kbd>+<kbd>R</kbd>, type `shell:startup`, and drop a shortcut to
-`TbhCompanion.exe` in the folder that opens.
+Open Status & Settings and turn on **Start with Windows**. Windows launches
+this copy of the companion at logon. If you previously dropped a shortcut in
+the Startup folder, delete it so the app does not start twice.
 
 ## Something not working?
 

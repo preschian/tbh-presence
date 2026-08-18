@@ -87,6 +87,7 @@ namespace TbhCompanion
         VertScrollPanel _scroll;
         WheelRedirectFilter _wheelFilter;
         Toggle _presenceToggle;
+        Toggle _startWithWindows;
         Toggle _autoRestart;
         Toggle _autoLoop, _enableSynth, _autoChest, _autoRune, _showConsole,
             _autoAlchemy, _autoOffering, _autoSoulstone, _pauseOnMouse;
@@ -337,6 +338,7 @@ namespace TbhCompanion
             int fieldX = Col0X + ColW - fieldW;
             int y = 18;
 
+            y = AddGeneralSection(Col0X, ColW, y, toggleX);
             y = AddSectionHeader("Discord Presence", Col0X, y);
             y = AddToggleRow("Show stage on Discord", Col0X, ref _presenceToggle, toggleX, y);
             WirePresenceToggle();
@@ -361,9 +363,10 @@ namespace TbhCompanion
             };
             AddContent(split);
 
-            // ---- left: Discord / Restart / Mods ----
+            // ---- left: General / Discord / Restart / Mods ----
             int t0 = Col0X + ColW - toggleW;
             int f0 = Col0X + ColW - fieldW;
+            y0 = AddGeneralSection(Col0X, ColW, y0, t0);
             y0 = AddSectionHeader("Discord Presence", Col0X, y0);
             y0 = AddToggleRow("Show stage on Discord", Col0X, ref _presenceToggle, t0, y0);
             WirePresenceToggle();
@@ -468,6 +471,18 @@ namespace TbhCompanion
         {
             AddMainLabel(title, colX, y, Theme.TextDark, Theme.F(10f, FontStyle.Bold));
             return y + HeaderAfter;
+        }
+
+        int AddGeneralSection(int colX, int colW, int y, int toggleX)
+        {
+            y = AddSectionHeader("General", colX, y);
+            y = AddToggleRow("Start with Windows", colX, ref _startWithWindows, toggleX, y);
+            _startWithWindows.Checked = AppSettings.StartWithWindows;
+            _startWithWindows.CheckedChanged += delegate
+            {
+                AppSettings.StartWithWindows = _startWithWindows.Checked;
+            };
+            return AddSectionDivider(colX, colW, y);
         }
 
         int AddRestartSection(int colX, int colW, int y, int toggleX, int fieldX, int fieldW)

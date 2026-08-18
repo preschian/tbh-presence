@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace TbhCompanion
 {
@@ -82,6 +84,45 @@ namespace TbhCompanion
         {
             if (AutoRestartEnabled && AutoRestartArmedUtc == null)
                 ArmRestartClock();
+        }
+
+        // HKCU Run is the source of truth — no copy in settings.txt. Enabled
+        // only when the value is this exe; a moved copy shows off until retoggled.
+        const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+        const string RunName = "TbhCompanion";
+
+        static string RunCommand()
+        {
+            return "\"" + Application.ExecutablePath + "\"";
+        }
+
+        public static bool StartWithWindows
+        {
+            get
+            {
+                try
+                {
+                    using (var k = Registry.CurrentUser.OpenSubKey(RunKey, false))
+                    {
+                        var v = k == null ? null : k.GetValue(RunName) as string;
+                        return string.Equals(v, RunCommand(), StringComparison.OrdinalIgnoreCase);
+                    }
+                }
+                catch { return false; }
+            }
+            set
+            {
+                try
+                {
+                    using (var k = Registry.CurrentUser.CreateSubKey(RunKey))
+                    {
+                        if (k == null) return;
+                        if (value) k.SetValue(RunName, RunCommand());
+                        else k.DeleteValue(RunName, false);
+                    }
+                }
+                catch { }
+            }
         }
 
         static int ClampDays(int d)
