@@ -68,8 +68,7 @@ namespace TbhCompanion
         readonly Timer _timer;
         string _cfgPath, _bepinexCfgPath;
         bool _modOpRunning;          // install or remove in flight
-        bool _modsLayoutReady;
-        bool _modsPresent;
+        string _modOpNote;           // last progress/error from the background op
         bool _verCheckRunning;       // background release lookup in flight
         bool _updateOpRunning;       // self-update download in flight
         DateTime _verCheckedAt = DateTime.MinValue;
@@ -96,7 +95,7 @@ namespace TbhCompanion
         Label _rarityValue;
         Stepper _cycleMin, _restartDays, _alchemyLevel, _offeringMax, _actBossRuns, _idleSec;
         FlatDrop _desiredLevel, _alchemyRarity;
-        FlatButton _saveBtn, _setupBtn, _removeBtn, _launchBtn, _updateBtn;
+        FlatButton _saveBtn, _modsBtn, _launchBtn, _updateBtn;
         Label _cfgNote, _verNote;
         readonly ToolTip _verTip = new ToolTip();
 
@@ -167,23 +166,45 @@ namespace TbhCompanion
 
             // Live status at the bottom: Presence + Synth/cycles as compact cards.
             int rows = Build.Synth ? 2 : 1;
-            int statusH = rows * 68 + (rows - 1) * 8;
             _live = new LiveStrip { Columns = rows };
-            _live.SetBounds(Sc(12), _side.Height - Sc(14 + statusH), Sc(SideW - 24), Sc(statusH));
             _live.SetRow(0, "Presence", "—", "", "Off", Theme.TextMuted);
             if (Build.Synth)
                 _live.SetRow(1, "Loop", "—", "", "Off", Theme.TextMuted);
             _side.Controls.Add(_live);
 
-            // Launch sits just above the status rule.
-            const int launchH = 30;
+            // Launch sits just above the status rule. Synth edition stacks
+            // Install/Remove mods directly above it (setup → play).
             _launchBtn = new FlatButton { Text = "Launch game", Fill = Theme.Accent };
-            _launchBtn.SetBounds(Sc(12), _live.Top - Sc(14 + 10 + launchH), Sc(SideW - 24), Sc(launchH));
             _launchBtn.Click += delegate { LaunchGame(); };
             _side.Controls.Add(_launchBtn);
             RefreshLaunchButton();
 
+            if (Build.Synth)
+            {
+                _modsBtn = new FlatButton { Fill = Theme.Secondary };
+                _modsBtn.Click += delegate
+                {
+                    if (BepInExSetup.HasRemnants()) RunRemove();
+                    else RunSetup();
+                };
+                _side.Controls.Add(_modsBtn);
+                RefreshModsButton();
+            }
+
+            PinSideBottom();
             AddVersionBlock();
+        }
+
+        // Pins status cards, Launch, and (synth) mods to the rail's bottom edge.
+        void PinSideBottom()
+        {
+            int rows = Build.Synth ? 2 : 1;
+            int statusH = rows * 68 + (rows - 1) * 8;
+            _live.SetBounds(Sc(12), _side.Height - Sc(14 + statusH), Sc(SideW - 24), Sc(statusH));
+            const int btnH = 30;
+            _launchBtn.SetBounds(Sc(12), _live.Top - Sc(14 + 10 + btnH), Sc(SideW - 24), Sc(btnH));
+            if (_modsBtn != null)
+                _modsBtn.SetBounds(Sc(12), _launchBtn.Top - Sc(8 + btnH), Sc(SideW - 24), Sc(btnH));
         }
 
         void PaintSide(object sender, PaintEventArgs e)
@@ -428,23 +449,11 @@ namespace TbhCompanion
             _saveBtn.Click += delegate { SaveConfig(); };
             AddContent(_saveBtn);
 
-            _removeBtn = new FlatButton { Text = "Remove mods", Fill = Theme.Secondary };
-            _removeBtn.SetBounds(Sc(Col0X + 96), Sc(y), Sc(120), Sc(30));
-            _removeBtn.Click += delegate { RunRemove(); };
-            _removeBtn.Visible = false;
-            AddContent(_removeBtn);
-
-            _setupBtn = new FlatButton { Text = "Install mods", Fill = Theme.Secondary };
-            _setupBtn.SetBounds(Sc(Col0X), Sc(y), Sc(120), Sc(30));
-            _setupBtn.Click += delegate { RunSetup(); };
-            _setupBtn.Visible = false;
-            AddContent(_setupBtn);
-
             _cfgNote = new Label
             {
                 AutoSize = false,
-                Location = new Point(Sc(Col0X + 228), Sc(y)),
-                Size = new Size(Sc(Col1X + ColW - (Col0X + 228)), Sc(30)),
+                Location = new Point(Sc(Col0X + 96), Sc(y)),
+                Size = new Size(Sc(Col1X + ColW - (Col0X + 96)), Sc(30)),
                 ForeColor = Theme.TextMuted,
                 BackColor = Theme.FormBg,
                 Font = Theme.F(8.5f, FontStyle.Regular),
@@ -453,7 +462,6 @@ namespace TbhCompanion
             AddContent(_cfgNote);
 
             EndContent(y + 30);
-            RefreshModsRow(forceLayout: true);
         }
 
         int AddSectionHeader(string title, int colX, int y)
@@ -692,27 +700,12 @@ namespace TbhCompanion
             return y + RowH;
         }
 
-        void RefreshModsRow(bool forceLayout = false)
+        void RefreshModsButton()
         {
-            bool present = BepInExSetup.HasRemnants();
-            _setupBtn.Visible = !present;
-            _saveBtn.Visible = present;
-            _removeBtn.Visible = present;
-            if (!forceLayout && _modsLayoutReady && _modsPresent == present) return;
-            _modsLayoutReady = true;
-            _modsPresent = present;
-            int y = _cfgNote.Top;
-            int right = Col1X + ColW;
-            if (present)
-            {
-                _cfgNote.Location = new Point(Sc(Col0X + 228), y);
-                _cfgNote.Size = new Size(Sc(right - (Col0X + 228)), Sc(30));
-            }
-            else
-            {
-                _cfgNote.Location = new Point(Sc(Col0X + 128), y);
-                _cfgNote.Size = new Size(Sc(right - (Col0X + 128)), Sc(30));
-            }
+            if (_modsBtn == null || _modOpRunning) return;
+            _modsBtn.Enabled = true;
+            _modsBtn.Text = BepInExSetup.HasRemnants() ? "Remove mods" : "Install mods";
+            _modsBtn.Invalidate();
         }
 
         // ---- helpers ----
@@ -786,7 +779,7 @@ namespace TbhCompanion
                 "  - downloading BepInEx (the mod loader, ~35 MB)\n" +
                 "  - installing it into the TaskBarHero folder\n\n" +
                 "The presence feature is unaffected. Continue?",
-                delegate { _setupBtn.Enabled = false; },
+                "Installing…",
                 BepInExSetup.Install);
         }
 
@@ -796,11 +789,11 @@ namespace TbhCompanion
                 "Remove mods",
                 "This will remove mods by deleting BepInEx from the TaskBarHero folder.\n\n" +
                 "Your save and Discord presence are unaffected. Continue?",
-                delegate { _saveBtn.Enabled = false; _removeBtn.Enabled = false; },
+                "Removing…",
                 BepInExSetup.Uninstall);
         }
 
-        void ConfirmAndRunModOp(string title, string body, Action onBusy, Func<Action<string>, bool> work)
+        void ConfirmAndRunModOp(string title, string body, string busyLabel, Func<Action<string>, bool> work)
         {
             if (_modOpRunning) return;
             if (!BepInExSetup.GameFound)
@@ -819,24 +812,24 @@ namespace TbhCompanion
                 return;
 
             _modOpRunning = true;
-            onBusy();
-            _cfgNote.Text = "working...";
+            _modOpNote = null;
+            if (_modsBtn != null)
+            {
+                _modsBtn.Enabled = false;
+                _modsBtn.Text = busyLabel;
+                _modsBtn.Invalidate();
+            }
+            RefreshLaunchButton();
             var t = new System.Threading.Thread(delegate()
             {
-                bool success = work(delegate(string s) { PostNote(s); });
-                PostModOpDone(success);
+                work(delegate(string s) { _modOpNote = s; });
+                PostModOpDone();
             });
             t.IsBackground = true;
             t.Start();
         }
 
-        void PostNote(string s)
-        {
-            try { if (!IsDisposed) BeginInvoke((Action)delegate { _cfgNote.Text = s; }); }
-            catch { }
-        }
-
-        void PostModOpDone(bool success)
+        void PostModOpDone()
         {
             try
             {
@@ -844,13 +837,12 @@ namespace TbhCompanion
                 BeginInvoke((Action)delegate
                 {
                     _modOpRunning = false;
-                    _setupBtn.Enabled = true;
-                    _removeBtn.Enabled = true;
-                    string note = _cfgNote.Text;
+                    string note = _modOpNote;
                     LoadConfig();
-                    if (!success && !string.IsNullOrEmpty(note) && note != "working...")
+                    if (!string.IsNullOrEmpty(note))
                         _cfgNote.Text = note;
-                    RefreshModsRow(forceLayout: true);
+                    RefreshModsButton();
+                    RefreshLaunchButton();
                     EnsureVersionCheck(true);
                 });
             }
@@ -891,6 +883,11 @@ namespace TbhCompanion
                 _launchBtn.Text = "Launch game";
                 _launchBtn.Invalidate();
             }
+            if (_modsBtn != null)
+            {
+                _modOpRunning = false;
+                RefreshModsButton();
+            }
             GrowToFitContent();
         }
 
@@ -914,12 +911,7 @@ namespace TbhCompanion
             _main.Size = new Size(_main.Width, Height - 2 * b);
             _scroll.Size = new Size(_main.Width, _main.Height - Sc(TopChrome));
 
-            // Side panel pins its status cards and Launch button to the bottom edge.
-            int rows = Build.Synth ? 2 : 1;
-            int statusH = rows * 68 + (rows - 1) * 8;
-            _live.SetBounds(Sc(12), _side.Height - Sc(14 + statusH), Sc(SideW - 24), Sc(statusH));
-            const int launchH = 30;
-            _launchBtn.SetBounds(Sc(12), _live.Top - Sc(14 + 10 + launchH), Sc(SideW - 24), Sc(launchH));
+            PinSideBottom();
 
             FinishContent();
             ApplyRegion();
@@ -972,7 +964,7 @@ namespace TbhCompanion
 
             if (!Build.Synth) return;
 
-            if (!_modOpRunning) RefreshModsRow();
+            if (!_modOpRunning) RefreshModsButton();
 
             try
             {
