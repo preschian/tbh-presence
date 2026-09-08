@@ -1,5 +1,6 @@
 using System;
 using TaskbarHero;
+using TaskbarHero.Data;
 using TaskbarHero.StatusSystem;
 using TaskbarHero.UI;
 using UnityEngine;
@@ -28,7 +29,7 @@ internal sealed class ChestOpenRunner
         if (mode == OpenMode.AllTypesKey)
             return perOpen * (1 + KeyMaxRetries) * KeySettleTicks + 15f;
         if (mode == OpenMode.OneTypeRight)
-            return 3f * perOpen + 15f;
+            return SlotCap * perOpen + 15f;
         return AutoSynthPlugin.MaxChestOpensPerCycle * perOpen + 15f;
     }
 
@@ -40,9 +41,12 @@ internal sealed class ChestOpenRunner
     private bool _keyFired;
     private int _keyRetries;
     private int _keySettleTicks;
-    private readonly bool[] _slotDone = new bool[3];
-    private readonly int[] _staleFails = new int[3];
-    private readonly int[] _countBeforeClick = { -1, -1, -1 };
+    private const int SlotCap = 12;
+    private readonly bool[] _slotDone = new bool[SlotCap];
+    private readonly int[] _staleFails = new int[SlotCap];
+    private readonly int[] _countBeforeClick = {
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    };
 
     internal int OpensThisCycle => _opensThisCycle;
     internal int LastOpens { get; private set; }
@@ -71,7 +75,7 @@ internal sealed class ChestOpenRunner
         _keyRetries = 0;
         _keySettleTicks = 0;
         _stageUi = null;
-        for (int i = 0; i < 3; i++)
+        for (int i = 0; i < SlotCap; i++)
         {
             _slotDone[i] = false;
             _staleFails[i] = 0;
@@ -229,7 +233,7 @@ internal sealed class ChestOpenRunner
 
             anyWork = true;
             _index = (i + 1) % boxes.Length;
-            int before = GameInterop.BoxCount(box.m_boxType);
+            int before = GameInterop.BoxCount(box);
             if (!TryClickOpen(box, button, loud))
             {
                 if (onePerSlot) _slotDone[i] = true;
@@ -253,7 +257,7 @@ internal sealed class ChestOpenRunner
     private void NotePriorClickResult(int slot, StageBox box)
     {
         if (_countBeforeClick[slot] < 0 || box == null) return;
-        int now = GameInterop.BoxCount(box.m_boxType);
+        int now = GameInterop.BoxCount(box);
         if (now < 0) { _countBeforeClick[slot] = -1; return; }
 
         if (now < _countBeforeClick[slot])
@@ -288,7 +292,14 @@ internal sealed class ChestOpenRunner
     private static StageBox[] Boxes(UI_Stage stage)
     {
         if (stage == null) return Array.Empty<StageBox>();
-        return new[] { stage.m_normalBox, stage.m_bossBox, stage.m_actBossBox };
+        return new[]
+        {
+            stage.m_normalBox, stage.m_bossBox, stage.m_actBossBox,
+            stage.m_contaminNormalbox, stage.m_contaminBossBox, stage.m_contaminActBossBox,
+            stage.m_normalBoxSmall, stage.m_bossBoxSmall, stage.m_actBossBoxSmall,
+            stage.m_contaminNormalboxSmall, stage.m_contaminBossBoxSmall,
+            stage.m_contaminActBossBoxSmall,
+        };
     }
 
     private static int TotalCount(StageBox[] boxes)
@@ -298,7 +309,7 @@ internal sealed class ChestOpenRunner
         foreach (var box in boxes)
         {
             if (!SlotOpenable(box, out _)) continue;
-            int c = GameInterop.BoxCount(box.m_boxType);
+            int c = GameInterop.BoxCount(box);
             if (c > 0) sum += c;
             else if (c < 0) anyUnknown = true;
         }
@@ -311,13 +322,14 @@ internal sealed class ChestOpenRunner
         if (box == null) return "?";
         try
         {
-            return box.m_boxType switch
+            string kind = box.m_boxType switch
             {
                 EBoxType.NORMAL => "Normal",
                 EBoxType.BOSS => "Boss",
                 EBoxType.ACTBOSS => "ActBoss",
                 _ => box.m_boxType.ToString(),
             };
+            return box.m_contentType == EContentType.PLAGUE ? "Plague " + kind : kind;
         }
         catch { return box.name ?? "StageBox"; }
     }
@@ -342,7 +354,7 @@ internal sealed class ChestOpenRunner
         }
         catch { }
 
-        int count = GameInterop.BoxCount(box.m_boxType);
+        int count = GameInterop.BoxCount(box);
         if (count > 0) return true;
         if (count == 0)
         {
@@ -424,7 +436,7 @@ internal sealed class ChestOpenRunner
                     AutoSynthPlugin.Logger.LogInfo("dump: StageBox null");
                     continue;
                 }
-                int count = GameInterop.BoxCount(box.m_boxType);
+                int count = GameInterop.BoxCount(box);
                 var det = box.m_clickDetector;
                 string detState = det == null ? "null"
                     : $"active={det.gameObject.activeInHierarchy}";

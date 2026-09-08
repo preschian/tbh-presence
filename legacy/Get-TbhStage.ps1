@@ -54,10 +54,10 @@ $GameExe = 'TaskBarHero'
 $OFF = @{
     # PlayerSaveData
     PSD_common      = 0x10
-    # CommonSaveData (+8 @1.01.05: LastDailyBackUpTime)
+    # CommonSaveData (+4 @1.02.01: lastClearedStageKey before currentStageKey)
     CSD_maxStage    = 0x5C
-    CSD_stageKey    = 0x60
-    CSD_stageWave   = 0x64
+    CSD_stageKey    = 0x64
+    CSD_stageWave   = 0x68
     CSD_playTime    = 0x20
     CSD_petKey      = 0x48
     CSD_heroKeys    = 0x50   # int[] of deployed hero keys
@@ -66,14 +66,14 @@ $OFF = @{
     HID_HeroNameKey = 0x38
     HID_ClassType   = 0x48   # EEquipClassType
     # PlayerSaveData
-    PSD_heroSaves   = 0x70   # List<HeroSaveData>
+    PSD_heroSaves   = 0x68   # List<HeroSaveData>
     # HeroSaveData
     HSD_heroKey     = 0x10
     HSD_level       = 0x14
     HSD_unlocked    = 0x18
     HSD_exp         = 0x20
-    # vm.vg static fields (live stage system)
-    UU_currentCache = 0x88   # vm.StageCache bfih @1.01.05: the stage currently loaded
+    # we.vy static fields (live stage system)
+    UU_currentCache = 0xA8   # we.StageCache bgev @1.02.01: the stage currently loaded
     # vm.StageCache
     SC_infoData     = 0x10   # StageInfoData (bfil)
     # Il2CppClass
@@ -89,10 +89,10 @@ $OFF = @{
     SID_WaveAmount  = 0x54
 }
 $DIFF = @('NORMAL','NIGHTMARE','HELL','TORMENT')
-$STYPE = @('NORMAL','ACTBOSS')
+$STYPE = @('NORMAL','ACTBOSS','PLAGUE','CONTAMINACTBOSS')
 # EEquipClassType: each hero maps 1:1 to a class, which doubles as its name
 $HCLASS = @('All','Knight','Ranger','Sorcerer','Priest','Hunter','Slayer')
-$CACHE_VERSION = 10
+$CACHE_VERSION = 11
 
 function Get-GameStamp($proc) {
     # Key on GameAssembly.dll — patches often leave TaskBarHero.exe untouched.
@@ -128,7 +128,7 @@ function Build-StageTable($mem) {
                     Level      = $lvl
                     WaveAmount = $mem.ReadInt($r + $OFF.SID_WaveAmount)
                     Difficulty = $DIFF[[Math]::Max(0,[Math]::Min(3,$mem.ReadInt($r + $OFF.SID_Difficulty)))]
-                    StageType  = $STYPE[[Math]::Max(0,[Math]::Min(1,$mem.ReadInt($r + $OFF.SID_StageType)))]
+                    StageType  = $STYPE[[Math]::Max(0,[Math]::Min($STYPE.Count-1,$mem.ReadInt($r + $OFF.SID_StageType)))]
                     NameKey    = $mem.ReadIl2CppString($mem.ReadPtr($r + $OFF.SID_StageNameKey), 64)
                 }
             }
@@ -156,20 +156,20 @@ function Build-HeroTable($mem) {
 }
 
 function Find-LiveStageStatics($mem) {
-    # Locates the static-field block of vm.vg (the live stage system) and the
+    # Locates the static-field block of we.vy (the live stage system) and the
     # StageCache class pointer. Self-validating: the block is only accepted if
-    # its +0x88 slot points at a StageCache instance.
+    # its +0xA8 slot points at a StageCache instance.
     # Returns @{ Statics; ScKlass } or $null (non-fatal; save data is the fallback).
-    # NOTE: 'vg' is an obfuscated class name (uu -> up @1.00.27 -> uq @1.01.01 -> uz @1.01.03
-    # -> vg @1.01.05); try current and recent names so a minor rename still resolves.
+    # NOTE: 'vy' is an obfuscated class name (uu -> up @1.00.27 -> uq @1.01.01 -> uz @1.01.03
+    # -> vg @1.01.05 -> vy @1.02.01); try current and recent names so a minor rename still resolves.
     $scKlass = $mem.FindClass('StageCache', $null)
     if ($scKlass -eq 0) { return $null }
     $namePats = @(
+        [byte[]](0x00, 0x76, 0x79, 0x00),  # "\0vy\0" 1.02.01
         [byte[]](0x00, 0x76, 0x67, 0x00),  # "\0vg\0" 1.01.05
         [byte[]](0x00, 0x75, 0x7A, 0x00),  # "\0uz\0" 1.01.03
         [byte[]](0x00, 0x75, 0x71, 0x00),  # "\0uq\0" 1.01.01
-        [byte[]](0x00, 0x75, 0x70, 0x00),  # "\0up\0" 1.00.27
-        [byte[]](0x00, 0x75, 0x75, 0x00)   # "\0uu\0" older
+        [byte[]](0x00, 0x75, 0x70, 0x00)   # "\0up\0" 1.00.27
     )
     foreach ($pat in $namePats) {
         $strHits = $mem.FindBytes($pat, 256)
@@ -285,7 +285,7 @@ function Resolve-Targets($mem, $proc) {
 }
 
 function Read-Stage($mem, $ctx) {
-    # stage identity: prefer the live loaded stage (vm.vg.bfih -> StageInfoData),
+    # stage identity: prefer the live loaded stage (we.vy.bgev -> StageInfoData),
     # which flips the moment a new stage loads; save data lags until autosave.
     $key = 0
     $source = 'save'
