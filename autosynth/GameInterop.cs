@@ -190,8 +190,9 @@ internal static class GameInterop
         return null;
     }
 
-    // Box inventory singleton (currently `yx`): static self-property + instance
-    // Int32(EBoxType) / OpenBoxStats(EBoxType). Names reshuffle each patch.
+    // Box inventory singleton (currently `bao`): static self-property + instance
+    // Int32(EBoxType, EContentType) / OpenBoxStats(EBoxType, EContentType).
+    // Names reshuffle each patch. 1.02 split stacks by EContentType (NONE vs PLAGUE).
     static void ResolveBoxInventory()
     {
         _boxInvType = null;
@@ -210,12 +211,12 @@ internal static class GameInterop
                 if (p.PropertyType == t && p.CanRead) { self = p; break; }
             }
             if (self == null) continue;
-            var counts = Methods(t, typeof(int), typeof(EBoxType));
+            var counts = Methods(t, typeof(int), typeof(EBoxType), typeof(EContentType));
             if (counts.Length == 0) continue;
             bool hasStats = false;
             if (openStats != null)
             {
-                foreach (var m in Methods(t, openStats, typeof(EBoxType)))
+                foreach (var m in Methods(t, openStats, typeof(EBoxType), typeof(EContentType)))
                 { hasStats = true; break; }
             }
             if (!hasStats && counts.Length < 2) continue;
@@ -238,14 +239,24 @@ internal static class GameInterop
         catch { return null; }
     }
 
-    // Current chest count for a box type, or -1 if unknown.
-    // Several Int32(EBoxType) methods exist (live count vs caps / free slots).
-    // Rule: among candidates in 0..500, prefer the smallest sum that is still
-    // strictly positive on at least one type (live stacks beat flat caps, and
-    // beat "free/remaining slots" which can read 0 when the stash is full).
-    // If every candidate sums to 0, leave unlearned so callers get -1 and can
-    // fall back to the StageBox click detector.
+    // Current chest count for a box type + content, or -1 if unknown.
+    // Several Int32(EBoxType, EContentType) methods can exist (live count vs caps
+    // / free slots). Rule: among candidates in 0..500, prefer the smallest sum
+    // that is still strictly positive on at least one probe (live stacks beat
+    // flat caps, and beat "free/remaining slots" which can read 0 when the stash
+    // is full). If every candidate sums to 0, leave unlearned so callers get -1
+    // and can fall back to the StageBox click detector.
     internal static int BoxCount(EBoxType type)
+        => BoxCount(type, EContentType.NONE);
+
+    internal static int BoxCount(StageBox box)
+    {
+        if (box == null) return -1;
+        try { return BoxCount(box.m_boxType, box.m_contentType); }
+        catch { return BoxCount(box.m_boxType, EContentType.NONE); }
+    }
+
+    internal static int BoxCount(EBoxType type, EContentType content)
     {
         try
         {
@@ -256,14 +267,14 @@ internal static class GameInterop
                 _mBoxCountLearned = LearnBoxCountMethod(inv);
             if (_mBoxCountLearned == null) return -1;
             int n;
-            try { n = (int)_mBoxCountLearned.Invoke(inv, new object[] { type }); }
+            try { n = (int)_mBoxCountLearned.Invoke(inv, new object[] { type, content }); }
             catch { _mBoxCountLearned = null; return -1; }
             if (n < 0 || n > 500) return -1;
             // Sticky wrong learn (e.g. free-slots accessor locked in at capacity):
             // if learned says 0 but another candidate reports >0, forget and use it.
             if (n == 0)
             {
-                int alt = ProbePositiveCount(inv, type);
+                int alt = ProbePositiveCount(inv, type, content);
                 if (alt > 0)
                 {
                     _mBoxCountLearned = null;
@@ -275,14 +286,24 @@ internal static class GameInterop
         catch { return -1; }
     }
 
-    static int ProbePositiveCount(object inv, EBoxType type)
+    static readonly (EBoxType box, EContentType content)[] BoxCountProbes =
+    {
+        (EBoxType.NORMAL, EContentType.NONE),
+        (EBoxType.BOSS, EContentType.NONE),
+        (EBoxType.ACTBOSS, EContentType.NONE),
+        (EBoxType.NORMAL, EContentType.PLAGUE),
+        (EBoxType.BOSS, EContentType.PLAGUE),
+        (EBoxType.ACTBOSS, EContentType.PLAGUE),
+    };
+
+    static int ProbePositiveCount(object inv, EBoxType type, EContentType content)
     {
         int best = 0;
         foreach (var m in _mBoxCount)
         {
             try
             {
-                int n = (int)m.Invoke(inv, new object[] { type });
+                int n = (int)m.Invoke(inv, new object[] { type, content });
                 if (n > best && n <= 500) best = n;
             }
             catch { }
@@ -292,7 +313,6 @@ internal static class GameInterop
 
     static MethodInfo LearnBoxCountMethod(object inv)
     {
-        var types = new[] { EBoxType.NORMAL, EBoxType.BOSS, EBoxType.ACTBOSS };
         MethodInfo best = null;
         int bestSum = int.MaxValue;
         int bestSpread = -1;
@@ -302,11 +322,11 @@ internal static class GameInterop
             int min = int.MaxValue, max = int.MinValue;
             bool ok = true;
             bool anyPositive = false;
-            foreach (var t in types)
+            foreach (var probe in BoxCountProbes)
             {
                 try
                 {
-                    int n = (int)m.Invoke(inv, new object[] { t });
+                    int n = (int)m.Invoke(inv, new object[] { probe.box, probe.content });
                     if (n < 0 || n > 500) { ok = false; break; }
                     sum += n;
                     if (n > 0) anyPositive = true;

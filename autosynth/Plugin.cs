@@ -17,7 +17,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.33.0";
+    internal const string Version = "0.34.0";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
@@ -219,8 +219,8 @@ public class AutoSynthPlugin : BasePlugin
             "cycle is due. Turn this off to only run while you have the Cube panel open yourself.");
         _autoChestE = Config.Bind("General", "AutoOpenChest", false,
             "After the Soulstone phase (or at cycle start if it is off), click StageBox chest " +
-            "buttons (Normal / Boss / ActBoss) to open accumulated chests. Does not touch the " +
-            "game's built-in auto-open toggle.");
+            "buttons (Normal / Boss / ActBoss, including Plaguelands) to open accumulated " +
+            "chests. Does not touch the game's built-in auto-open toggle.");
         _afterAlchemyE = Config.Bind("Timing", "AfterAlchemyClickSeconds", 0.35f,
             "Delay between successive items while filling the Alchemy cube");
         _autoAlchemyE = Config.Bind("General", "AutoAlchemy", false,
@@ -247,10 +247,10 @@ public class AutoSynthPlugin : BasePlugin
         _maxOfferingOperationsE = Config.Bind("Safety", "MaxOfferingOperationsPerCycle", 5,
             "Maximum one-coin Offering operations in a single cycle (safety cap).");
         _autoSoulstoneE = Config.Bind("General", "AutoConsumeSoulstone", false,
-            "After the other phases, spend surplus soulstones by entering an Act Boss stage " +
-            "(a '*-10' stage) that has already been cleared. The stage is picked from the " +
-            "soulstone tiers in SoulstoneTiers, and the Portal is switched to that tier's " +
-            "difficulty.");
+            "After the other phases, spend surplus soulstones by entering an Act Boss or " +
+            "Contamin Act Boss stage (a '*-10' stage) that has already been cleared. The " +
+            "stage is picked from the soulstone tiers in SoulstoneTiers, and the Portal is " +
+            "switched to that tier's difficulty (and to Plaguelands for contamin bosses).");
         _soulstoneTiersE = Config.Bind("General", "SoulstoneTiers", SoulstoneTiersDefault,
             "Which soulstone tiers the Soulstone phase may spend, comma-separated: " +
             "Normal, Nightmare, Hell, Torment. Each tier belongs to the difficulty of the " +

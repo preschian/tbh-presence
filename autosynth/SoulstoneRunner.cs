@@ -8,8 +8,10 @@ using UnityEngine;
 namespace TbhAutoSynth;
 
 // Owns the Soulstone phase: spends surplus soulstones by entering an Act Boss
-// stage (the `*-10` stages) the account has already cleared, which is where the
-// stones are consumed and the red Act Boss chests drop.
+// or Contamin Act Boss stage (the `*-10` stages) the account has already
+// cleared, which is where the stones are consumed and the red Act Boss chests
+// drop. Contamin Act Boss runs use the Plaguelands map and the PLAGUE chest
+// stack.
 //
 // The game's own auto-retry keeps re-entering the boss while stones remain, so
 // the phase enters once and then just counts the runs going by: one soulstone is
@@ -38,6 +40,7 @@ internal sealed class SoulstoneRunner
     private const float OpenTimeoutSeconds = 60f;
     private const int MaxActClicks = 4;
     private const int MaxDifficultyClicks = 4;
+    private const int MaxMapClicks = 4;
     private const int MaxVerifyTicks = 6;
     private const float WatchPollSeconds = 3f;
 
@@ -48,17 +51,19 @@ internal sealed class SoulstoneRunner
         internal readonly int Act;
         internal readonly int StageNo;
         internal readonly ESTAGEDIFFICULTY Difficulty;
+        internal readonly EStageType StageType;
         internal readonly int StoneKey;
         internal readonly int StoneCost;
         internal readonly int StonesOwned;
 
         internal Target(int stageKey, int act, int stageNo, ESTAGEDIFFICULTY difficulty,
-            int stoneKey, int stoneCost, int stonesOwned)
+            EStageType stageType, int stoneKey, int stoneCost, int stonesOwned)
         {
             StageKey = stageKey;
             Act = act;
             StageNo = stageNo;
             Difficulty = difficulty;
+            StageType = stageType;
             StoneKey = stoneKey;
             StoneCost = stoneCost;
             StonesOwned = stonesOwned;
@@ -66,7 +71,23 @@ internal sealed class SoulstoneRunner
 
         internal bool Exists => StageKey > 0;
 
-        internal string Label => $"{Difficulty} {Act}-{StageNo} (stage {StageKey})";
+        internal bool UsesPlagueMap =>
+            StageType == EStageType.PLAGUE || StageType == EStageType.CONTAMINACTBOSS;
+
+        internal EContentType ChestContent =>
+            UsesPlagueMap ? EContentType.PLAGUE : EContentType.NONE;
+
+        internal string Label
+        {
+            get
+            {
+                string kind = StageType == EStageType.CONTAMINACTBOSS ? "Contamin Act Boss"
+                    : StageType == EStageType.PLAGUE ? "Plague"
+                    : StageType == EStageType.ACTBOSS ? "Act Boss"
+                    : "stage";
+                return $"{Difficulty} {Act}-{StageNo} {kind} (stage {StageKey})";
+            }
+        }
     }
 
     private UI_Portal _portal;
@@ -80,6 +101,7 @@ internal sealed class SoulstoneRunner
     private int _openAttempts;
     private int _actClicks;
     private int _difficultyClicks;
+    private int _mapClicks;
 
     private int _pendingStageKey = -1;
     private int _pendingStoneKey = -1;
@@ -129,6 +151,7 @@ internal sealed class SoulstoneRunner
         _openAttempts = 0;
         _actClicks = 0;
         _difficultyClicks = 0;
+        _mapClicks = 0;
         _nextOpenAttempt = 0f;
         _phaseEnteredAt = Time.unscaledTime;
         MainMenuAccess.Reset();
@@ -163,7 +186,7 @@ internal sealed class SoulstoneRunner
         _boss = candidates[0];
         _home = StageByKey(GameInterop.CurrentStageKey());
         AutoSynthPlugin.Logger.LogInfo(
-            $"soulstone phase: {candidates.Count} cleared Act Boss stage(s) affordable; " +
+            $"soulstone phase: {candidates.Count} cleared Act Boss / Contamin Act Boss stage(s) affordable; " +
             $"taking {_boss.Label} with {_boss.StonesOwned} stone(s) held (costs {_boss.StoneCost}), " +
             $"farming {AutoSynthPlugin.ActBossRunsPerCycle} run(s) " +
             $"then back to {(_home.Exists ? _home.Label : "wherever the hero ends up")}");
@@ -189,7 +212,7 @@ internal sealed class SoulstoneRunner
         // the phase only counts the Act Boss chests that drop.
         _step = Step.Watch;
         _watchStartedAt = Time.unscaledTime;
-        _boxLast = GameInterop.BoxCount(EBoxType.ACTBOSS);
+        _boxLast = GameInterop.BoxCount(EBoxType.ACTBOSS, _boss.ChestContent);
         _chestsGained = 0;
         _runsDone = 1;  // the entry itself is run 1
         // That entry already cost a stone, so the baseline is what is left now.
@@ -215,7 +238,7 @@ internal sealed class SoulstoneRunner
         // the stack between polls, and that must not read as negative progress. With
         // auto-open on the stack may never grow at all, which is why the stones —
         // one per entry — are the primary counter.
-        int now = GameInterop.BoxCount(EBoxType.ACTBOSS);
+        int now = GameInterop.BoxCount(EBoxType.ACTBOSS, _boss.ChestContent);
         if (now >= 0)
         {
             if (_boxLast >= 0 && now > _boxLast) _chestsGained += now - _boxLast;
@@ -355,6 +378,31 @@ internal sealed class SoulstoneRunner
             }
             _difficultyClicks++;
             _actClicks = 0; // the new map rebuilds its act panels
+            _mapClicks = 0;
+            nextDelay = 1f;
+            return NavResult.Working;
+        }
+
+        if (!ContentMapMatches(portal, target))
+        {
+            if (_mapClicks >= MaxMapClicks)
+            {
+                AutoSynthPlugin.Logger.LogWarning(
+                    target.UsesPlagueMap
+                        ? "soulstone phase: the Plaguelands map never opened"
+                        : "soulstone phase: the map stayed on Plaguelands instead of the normal acts");
+                return NavResult.Failed;
+            }
+            if (!TryShowContentMap(portal, target, loud))
+            {
+                AutoSynthPlugin.Logger.LogWarning(
+                    target.UsesPlagueMap
+                        ? "soulstone phase: could not open the Plaguelands map"
+                        : "soulstone phase: could not leave the Plaguelands map");
+                return NavResult.Failed;
+            }
+            _mapClicks++;
+            _actClicks = 0;
             nextDelay = 1f;
             return NavResult.Working;
         }
@@ -450,8 +498,10 @@ internal sealed class SoulstoneRunner
         return NavResult.Failed;
     }
 
-    // Cleared Act Boss stages on an enabled tier that the account can pay for,
-    // best first (highest tier, then the deepest act).
+    // Cleared Act Boss / Contamin Act Boss stages on an enabled tier that the
+    // account can pay for, best first (highest tier, then the deepest act).
+    // Contamin keys live outside the normal maxCompleted range, so those stages
+    // are kept when stones remain and the portal node is unlocked.
     private List<Target> CollectTargets(out string reason)
     {
         var found = new List<Target>();
@@ -481,8 +531,10 @@ internal sealed class SoulstoneRunner
         for (int i = 0; i < stages.Count; i++)
         {
             var stage = stages[i];
-            if (stage == null || stage.STAGETYPE != EStageType.ACTBOSS) continue;
-            if (stage.StageKey > maxCompleted) continue; // never entered / never cleared
+            if (stage == null) continue;
+            bool contamin = stage.STAGETYPE == EStageType.CONTAMINACTBOSS;
+            if (stage.STAGETYPE != EStageType.ACTBOSS && !contamin) continue;
+            if (!contamin && stage.StageKey > maxCompleted) continue; // never entered / never cleared
             int stoneKey = stage.SoulStoneItemKey;
             if (stoneKey <= 0) continue;
             cleared++;
@@ -499,7 +551,7 @@ internal sealed class SoulstoneRunner
             if (owned < cost) { unaffordable++; continue; }
 
             found.Add(new Target(stage.StageKey, stage.Act, stage.StageNo, stage.STAGEDIFFICULTY,
-                stoneKey, cost, owned));
+                stage.STAGETYPE, stoneKey, cost, owned));
         }
 
         // Highest tier first, then the deepest act within it: the stones a tier
@@ -511,7 +563,7 @@ internal sealed class SoulstoneRunner
 
         if (found.Count == 0)
         {
-            if (cleared == 0) reason = "no Act Boss stage has been cleared yet";
+            if (cleared == 0) reason = "no Act Boss or Contamin Act Boss stage has been cleared yet";
             else if (unknownStones > 0) reason = "soulstone counts are unreadable on this game build";
             else if (unaffordable == 0 && offTier > 0)
                 reason = $"every cleared Act Boss stage is on a tier SoulstoneTiers leaves out " +
@@ -536,7 +588,7 @@ internal sealed class SoulstoneRunner
                 if (stage == null || stage.StageKey != stageKey) continue;
                 // Walking home costs nothing, so the stone half stays empty.
                 return new Target(stage.StageKey, stage.Act, stage.StageNo, stage.STAGEDIFFICULTY,
-                    0, 0, 0);
+                    stage.STAGETYPE, 0, 0, 0);
             }
         }
         catch { }
@@ -609,6 +661,39 @@ internal sealed class SoulstoneRunner
         {
             AutoSynthPlugin.Logger.LogWarning($"soulstone phase: act select failed: {e.Message}");
             return false;
+        }
+    }
+
+    private static bool ContentMapMatches(UI_Portal portal, Target target)
+    {
+        try
+        {
+            var elements = portal != null ? portal.plaguelandsElements : null;
+            if (elements == null) return !target.UsesPlagueMap;
+            return elements.activeSelf == target.UsesPlagueMap;
+        }
+        catch { return !target.UsesPlagueMap; }
+    }
+
+    private static bool TryShowContentMap(UI_Portal portal, Target target, bool loud)
+    {
+        try
+        {
+            var elements = portal != null ? portal.plaguelandsElements : null;
+            if (elements == null) return !target.UsesPlagueMap;
+            bool want = target.UsesPlagueMap;
+            if (elements.activeSelf == want) return true;
+            elements.SetActive(want);
+            if (loud)
+                AutoSynthPlugin.Logger.LogInfo(
+                    want ? "soulstone phase: showing the Plaguelands map"
+                         : "soulstone phase: showing the normal act map");
+            return true;
+        }
+        catch (Exception e)
+        {
+            AutoSynthPlugin.Logger.LogWarning($"soulstone phase: map switch failed: {e.Message}");
+            return !target.UsesPlagueMap;
         }
     }
 
@@ -685,6 +770,7 @@ internal sealed class SoulstoneRunner
                 $"step={_step} runsDone={_runsDone} chestsGained={_chestsGained} " +
                 $"portalOpen={IsOpen(portal)} " +
                 $"actBossBoxes={GameInterop.BoxCount(EBoxType.ACTBOSS)} " +
+                $"plagueActBossBoxes={GameInterop.BoxCount(EBoxType.ACTBOSS, EContentType.PLAGUE)} " +
                 $"maxCompletedStage={GameInterop.MaxCompletedStage()} " +
                 $"currentStageKey={GameInterop.CurrentStageKey()} " +
                 $"canReadNodes={GameInterop.CanReadPortalNodes}");
@@ -701,12 +787,13 @@ internal sealed class SoulstoneRunner
             for (int i = 0; i < stages.Count; i++)
             {
                 var stage = stages[i];
-                if (stage == null || stage.STAGETYPE != EStageType.ACTBOSS) continue;
+                if (stage == null || (stage.STAGETYPE != EStageType.ACTBOSS
+                    && stage.STAGETYPE != EStageType.CONTAMINACTBOSS)) continue;
                 int key = stage.SoulStoneItemKey;
                 if (key <= 0 || seen.ContainsKey(key)) continue;
                 seen[key] = stage.STAGEDIFFICULTY;
                 AutoSynthPlugin.Logger.LogInfo(
-                    $"dump: soulstone item {key} ({stage.STAGEDIFFICULTY}) held={GameInterop.ItemCount(key)}");
+                    $"dump: soulstone item {key} ({stage.STAGEDIFFICULTY}/{stage.STAGETYPE}) held={GameInterop.ItemCount(key)}");
             }
 
             var targets = CollectTargets(out string reason);

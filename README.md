@@ -15,9 +15,11 @@ automates the game's idle chores.
   **Soulstone → Chest → Offering → Alchemy → Synthesis → Rune**.
   - **Pause on mouse** — optional. Stops the loop while you move or click in
     the game, then starts a new cycle after you stay still (default 30s).
-  - **Soulstones** — re-enters a cleared Act Boss stage at the highest tier you
-    allow (Normal/Nightmare/Hell/Torment), then walks your hero back.
-  - **Chests** — opens StageBox chests (Normal / Boss / ActBoss).
+  - **Soulstones** — re-enters a cleared Act Boss or Contamin Act Boss stage at
+    the highest tier you allow (Normal/Nightmare/Hell/Torment), then walks your
+    hero back.
+  - **Chests** — opens StageBox chests (Normal / Boss / ActBoss, including
+    Plaguelands).
   - **Offering** — spends offering coins through the Cube.
   - **Alchemy** — melts junk gear into gold below a level and rarity you set.
     Locked, reserved, and equipped items are never touched.

@@ -50,7 +50,8 @@ that are off). The Chest phase uses the stage HUD StageBox click-detector:
   open-all key (Space)
 - otherwise → left-click one chest at a time
 
-It does **not** flip the game's built-in auto-open toggle.
+It does **not** flip the game's built-in auto-open toggle. Since 1.02 it also
+opens the Plaguelands StageBox slots when those HUD widgets are active.
 
 ## Alchemy
 
@@ -113,16 +114,19 @@ in the game's data, but the panel would not let anyone buy it.
 ## Soulstones
 
 The Soulstone phase (off by default) spends surplus soulstones the way the game
-intends: by entering an **Act Boss** stage — the `*-10` stages — that has
-already been cleared. TaskBarHero has one soulstone tier per difficulty (Normal,
-Nightmare, Hell, Torment) and every Act Boss stage names the tier and the number
-of stones it costs, so the phase never has to guess which stone it is spending.
+intends: by entering an **Act Boss** or **Contamin Act Boss** stage — the `*-10`
+stages — that has already been cleared. TaskBarHero has one soulstone tier per
+difficulty (Normal, Nightmare, Hell, Torment) and every Act Boss stage names the
+tier and the number of stones it costs, so the phase never has to guess which
+stone it is spending. Contamin Act Boss stages use the Portal's Plaguelands map
+and drop on the Plague Act Boss chest stack.
 
 A stage is a candidate only when **all** of these hold:
 
-- it is an Act Boss stage (`STAGETYPE = ACTBOSS`),
-- its stage key is at or below the account's `maxCompletedStage`, i.e. it has
-  been cleared at least once,
+- it is an Act Boss (`STAGETYPE = ACTBOSS`) or Contamin Act Boss
+  (`CONTAMINACTBOSS`) stage,
+- a normal Act Boss is at or below the account's `maxCompletedStage` (Contamin
+  Act Boss stages are kept when stones remain and the portal node is unlocked),
 - its soulstone tier is one you allow in `SoulstoneTiers`, and
 - you hold enough stones of that tier to cover its cost.
 
@@ -170,10 +174,10 @@ the dropdown does not offer is reported instead of guessed at.
 | `PauseOnActivity` | false | Pause the armed loop while the mouse moves or clicks in the focused game, then resume after `ActivityIdleSeconds`. Toggle from Status & Settings. |
 | `EnableSynthesis` | true | Include the Synthesis phase (Cube fill → synth → clear) in the cycle |
 | `AutoOpenCube` | true | Click the Cube menu button to open the Cube panel when the Synthesis phase is due (at most once every 10s, so it doesn't fight you for the tab) |
-| `AutoOpenChest` | false | After the Soulstone phase (or at cycle start if it is off), click StageBox chests (Normal / Boss / ActBoss) |
+| `AutoOpenChest` | false | After the Soulstone phase (or at cycle start if it is off), click StageBox chests (Normal / Boss / ActBoss, including Plaguelands) |
 | `AutoUpgradeRune` | false | After the other phases, open the Rune panel and upgrade the cheapest affordable runes |
 | `AutoOpenRune` | true | During the Rune phase, click the Rune menu button to open the Rune panel |
-| `AutoConsumeSoulstone` | false | After the other phases, enter a cleared Act Boss stage to spend surplus soulstones |
+| `AutoConsumeSoulstone` | false | After the other phases, enter a cleared Act Boss or Contamin Act Boss stage to spend surplus soulstones |
 | `SoulstoneTiers` | Normal,Nightmare,Hell,Torment | Which soulstone tiers may be spent; each tier is the difficulty of the same name. e.g. `Hell,Torment` to leave the lower stones alone. |
 | `AutoOpenPortal` | true | During the Soulstone phase, click the Portal menu button to open the stage map |
 | `SoulstoneDryRun` | false | Log the Act Boss stages the Soulstone phase would enter instead of entering them |
