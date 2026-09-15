@@ -190,7 +190,7 @@ internal static class GameInterop
         return null;
     }
 
-    // Box inventory singleton (currently `bao`): static self-property + instance
+    // Box inventory singleton (currently `bav` @1.02.03, was `bao` @1.02.01): static self-property + instance
     // Int32(EBoxType, EContentType) / OpenBoxStats(EBoxType, EContentType).
     // Names reshuffle each patch. 1.02 split stacks by EContentType (NONE vs PLAGUE).
     static void ResolveBoxInventory()
