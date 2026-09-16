@@ -40,7 +40,7 @@ a patch, re-dump (below) and update the offsets.
 
 `CommonSaveData.currentStageKey` only updates when the game autosaves, so it lags
 behind stage changes. The reader prefers the **live stage system**: the `we.vy`
-class holds a static `StageCache` (`bgft`) for the currently loaded stage, and
+class holds a static `StageCache` (`bgfn`) for the currently loaded stage, and
 that flips the instant a new stage loads.
 
 `we.vy` has no unique class-name string to scan for (it's an obfuscated short
@@ -110,10 +110,10 @@ The exe caches resolved addresses in `%LOCALAPPDATA%\tbh-companion\cache.txt`
 
 Pass `--no-cache` (exe) / `-NoCache` (scripts) to force a full rescan.
 
-## Field offsets (Il2CppDumper, game build 1.02.03)
+## Field offsets (Il2CppDumper, game build 1.02.04)
 
 Object instance fields begin at `+0x10` (klass ptr `+0x0`, monitor `+0x8`).
-Unchanged from 1.02.01 (1.02.03 is a Plaguelands balance/bugfix patch; only inner
+Unchanged from 1.02.01 (1.02.04 / Steam "1.2.4" is a chest-timer hotfix; only inner
 field names inside `we.vy` / `we.StageCache` re-randomized). `CommonSaveData`
 gained `lastClearedStageKey` at 1.02.01 (+4 from `currentStageKey` onward).
 Live-stage class renamed `vm.vg` → `we.vy`; current `StageCache` static slot moved
@@ -144,9 +144,9 @@ StageInfoData.Act                 +0x48   (int)
 StageInfoData.StageNo             +0x4C   (int)
 StageInfoData.StageLevel          +0x50   (int)
 StageInfoData.WaveAmount          +0x54   (int)
-we.StageCache.StageInfoData       +0x10   (bgfx)
+we.StageCache.StageInfoData       +0x10   (bgfr)
 Il2CppClass.static_fields         +0xB8
-we.vy static block -> StageCache  +0xA8   (bgft)
+we.vy static block -> StageCache  +0xA8   (bgfn)
 ```
 
 ### Re-dumping after a game update

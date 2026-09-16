@@ -190,7 +190,7 @@ internal static class GameInterop
         return null;
     }
 
-    // Box inventory singleton (currently `bav` @1.02.03, was `bao` @1.02.01): static self-property + instance
+    // Box inventory singleton (currently `bav` @1.02.04, was `bao` @1.02.01): static self-property + instance
     // Int32(EBoxType, EContentType) / OpenBoxStats(EBoxType, EContentType).
     // Names reshuffle each patch. 1.02 split stacks by EContentType (NONE vs PLAGUE).
     static void ResolveBoxInventory()
@@ -1148,8 +1148,8 @@ internal static class GameInterop
     }
 
     // Stage progress lives on CommonSaveData, reached through the save-data holder
-    // (currently `baq`): a MonoBehaviour singleton that exposes one or more
-    // PlayerSaveData properties. PlayerSaveData / CommonSaveData keep real names.
+    // (currently `bcq` @1.02.04, was `baq` @1.02.03): a MonoBehaviour singleton that
+    // exposes one or more PlayerSaveData properties. PlayerSaveData / CommonSaveData keep real names.
     static void ResolveSaveHolder()
     {
         _saveHolderType = null;
