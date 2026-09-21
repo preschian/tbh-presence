@@ -72,10 +72,10 @@ $OFF = @{
     HSD_level       = 0x14
     HSD_unlocked    = 0x18
     HSD_exp         = 0x20
-    # we.vy static fields (live stage system)
-    UU_currentCache = 0xA8   # we.StageCache bgfn @1.02.04: the stage currently loaded
-    # we.StageCache
-    SC_infoData     = 0x10   # StageInfoData (bgfr)
+    # wh.wb static fields (live stage system)
+    UU_currentCache = 0xA8   # wh.StageCache bgpr @1.02.05: the stage currently loaded
+    # wh.StageCache
+    SC_infoData     = 0x10   # StageInfoData (bgpv)
     # Il2CppClass
     KLASS_staticFields = 0xB8
     # StageInfoData
@@ -156,15 +156,16 @@ function Build-HeroTable($mem) {
 }
 
 function Find-LiveStageStatics($mem) {
-    # Locates the static-field block of we.vy (the live stage system) and the
+    # Locates the static-field block of wh.wb (the live stage system) and the
     # StageCache class pointer. Self-validating: the block is only accepted if
     # its +0xA8 slot points at a StageCache instance.
     # Returns @{ Statics; ScKlass } or $null (non-fatal; save data is the fallback).
-    # NOTE: 'vy' is an obfuscated class name (uu -> up @1.00.27 -> uq @1.01.01 -> uz @1.01.03
-    # -> vg @1.01.05 -> vy @1.02.01); try current and recent names so a minor rename still resolves.
+    # NOTE: 'wb' is an obfuscated class name (uu -> up @1.00.27 -> uq @1.01.01 -> uz @1.01.03
+    # -> vg @1.01.05 -> vy @1.02.01 -> wb @1.02.05); try current and recent names so a minor rename still resolves.
     $scKlass = $mem.FindClass('StageCache', $null)
     if ($scKlass -eq 0) { return $null }
     $namePats = @(
+        [byte[]](0x00, 0x77, 0x62, 0x00),  # "\0wb\0" 1.02.05
         [byte[]](0x00, 0x76, 0x79, 0x00),  # "\0vy\0" 1.02.01
         [byte[]](0x00, 0x76, 0x67, 0x00),  # "\0vg\0" 1.01.05
         [byte[]](0x00, 0x75, 0x7A, 0x00),  # "\0uz\0" 1.01.03
@@ -285,7 +286,7 @@ function Resolve-Targets($mem, $proc) {
 }
 
 function Read-Stage($mem, $ctx) {
-    # stage identity: prefer the live loaded stage (we.vy.bgfn -> StageInfoData),
+    # stage identity: prefer the live loaded stage (wh.wb.bgpr -> StageInfoData),
     # which flips the moment a new stage loads; save data lags until autosave.
     $key = 0
     $source = 'save'

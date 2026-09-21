@@ -75,8 +75,8 @@ namespace TbhCompanion
         const long HID_ClassType = 0x48;
         const long HSD_heroKey   = 0x10;   // HeroSaveData
         const long HSD_level     = 0x14;
-        const long UU_currentCache = 0xA8; // we.vy statics: current StageCache (bgfn @1.02.04)
-        const long SC_infoData   = 0x10;   // we.StageCache.bgfr (StageInfoData)
+        const long UU_currentCache = 0xA8; // wh.wb statics: current StageCache (bgpr @1.02.05)
+        const long SC_infoData   = 0x10;   // wh.StageCache.bgpv (StageInfoData)
         const long KLASS_staticFields = 0xB8; // Il2CppClass.static_fields
 
         static readonly string[] DIFFS = { "NORMAL", "NIGHTMARE", "HELL", "TORMENT" };
@@ -275,17 +275,18 @@ namespace TbhCompanion
 
         void FindLiveStageStatics()
         {
-            // The static class 'vy' holds the live stage system. Self-validated: the
+            // The static class 'wb' holds the live stage system. Self-validated: the
             // static block is only accepted if its +0xA8 slot points at a StageCache
-            // instance. NOTE: 'vy' is an obfuscated class name that the game's obfuscator
+            // instance. NOTE: 'wb' is an obfuscated class name that the game's obfuscator
             // re-randomizes on updates (uu -> up @1.00.27 -> uq @1.01.01 -> uz @1.01.03
-            // -> vg @1.01.05 -> vy @1.02.01); try current and recent names so a minor
-            // rename still resolves.
+            // -> vg @1.01.05 -> vy @1.02.01 -> wb @1.02.05); try current and recent
+            // names so a minor rename still resolves.
             _uuStatics = 0; _scKlass = 0;
             long scKlass = _mem.FindClass("StageCache", null);
             if (scKlass == 0) return;
-            // "\0vy\0" (1.02.01), "\0vg\0" (1.01.05), "\0uz\0" (1.01.03), "\0uq\0" (1.01.01), "\0up\0" (1.00.27)
+            // "\0wb\0" (1.02.05), "\0vy\0" (1.02.01), "\0vg\0" (1.01.05), "\0uz\0" (1.01.03), "\0uq\0" (1.01.01), "\0up\0" (1.00.27)
             byte[][] namePats = {
+                new byte[] { 0x00, 0x77, 0x62, 0x00 },
                 new byte[] { 0x00, 0x76, 0x79, 0x00 },
                 new byte[] { 0x00, 0x76, 0x67, 0x00 },
                 new byte[] { 0x00, 0x75, 0x7A, 0x00 },

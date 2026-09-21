@@ -29,7 +29,7 @@ On each launch the reader:
    object (fixed for the process lifetime → cheap to re-read each poll).
 4. Enumerates all `StageInfoData` and `HeroInfoData` instances once to build
    lookup tables (`stageKey -> {...}`, `heroKey -> class name`).
-5. For the **live** current stage it also resolves the `we.vy` static-field
+5. For the **live** current stage it also resolves the `wh.wb` static-field
    block and reads `StageCache -> StageInfoData` from it — see below.
 
 Because everything is resolved by class name, the tool keeps working across game
@@ -39,15 +39,15 @@ a patch, re-dump (below) and update the offsets.
 ### Live stage vs. saved stage
 
 `CommonSaveData.currentStageKey` only updates when the game autosaves, so it lags
-behind stage changes. The reader prefers the **live stage system**: the `we.vy`
-class holds a static `StageCache` (`bgfn`) for the currently loaded stage, and
+behind stage changes. The reader prefers the **live stage system**: the `wh.wb`
+class holds a static `StageCache` (`bgpr`) for the currently loaded stage, and
 that flips the instant a new stage loads.
 
-`we.vy` has no unique class-name string to scan for (it's an obfuscated short
+`wh.wb` has no unique class-name string to scan for (it's an obfuscated short
 name that the obfuscator re-randomizes on updates — `vb.uu` → `uw.up` @1.00.27 →
-`ux.uq` @1.01.01 → `vf.uz` @1.01.03 → `vm.vg` @1.01.05 → `we.vy` @1.02.01), so it's located by:
+`ux.uq` @1.01.01 → `vf.uz` @1.01.03 → `vm.vg` @1.01.05 → `we.vy` @1.02.01 → `wh.wb` @1.02.05), so it's located by:
 
-1. scanning for the `"vy"` name string (also tries recent `"vg"` / `"uz"` / `"uq"` / `"up"`),
+1. scanning for the `"wb"` name string (also tries recent `"vy"` / `"vg"` / `"uz"` / `"uq"` / `"up"`),
 2. reading each referencing class's static-field block (`Il2CppClass.static_fields`
    at `+0xB8`),
 3. accepting the block only if its `+0xA8` slot points at a valid `StageCache`
@@ -110,14 +110,14 @@ The exe caches resolved addresses in `%LOCALAPPDATA%\tbh-companion\cache.txt`
 
 Pass `--no-cache` (exe) / `-NoCache` (scripts) to force a full rescan.
 
-## Field offsets (Il2CppDumper, game build 1.02.04)
+## Field offsets (Il2CppDumper, game build 1.02.05)
 
 Object instance fields begin at `+0x10` (klass ptr `+0x0`, monitor `+0x8`).
-Unchanged from 1.02.01 (1.02.04 / Steam "1.2.4" is a chest-timer hotfix; only inner
-field names inside `we.vy` / `we.StageCache` re-randomized). `CommonSaveData`
+Unchanged from 1.02.01 (1.02.05 / Steam "1.2.5" only re-randomized obfuscated names; only inner
+field names inside `wh.wb` / `wh.StageCache` re-randomized). `CommonSaveData`
 gained `lastClearedStageKey` at 1.02.01 (+4 from `currentStageKey` onward).
-Live-stage class renamed `vm.vg` → `we.vy`; current `StageCache` static slot moved
-`+0x88` → `+0xA8`. `PlayerSaveData.heroSaveDatas` is `+0x68` (`mailSaveDatas` sits
+Live-stage class renamed `we.vy` → `wh.wb` at 1.02.05; current `StageCache` static slot still
+`+0xA8` (moved `+0x88` → `+0xA8` at 1.02.01). `PlayerSaveData.heroSaveDatas` is `+0x68` (`mailSaveDatas` sits
 at `+0x70`). `EStageType` includes `PLAGUE` and `CONTAMINACTBOSS`.
 
 ```
@@ -144,9 +144,9 @@ StageInfoData.Act                 +0x48   (int)
 StageInfoData.StageNo             +0x4C   (int)
 StageInfoData.StageLevel          +0x50   (int)
 StageInfoData.WaveAmount          +0x54   (int)
-we.StageCache.StageInfoData       +0x10   (bgfr)
+wh.StageCache.StageInfoData       +0x10   (bgpv)
 Il2CppClass.static_fields         +0xB8
-we.vy static block -> StageCache  +0xA8   (bgfn)
+wh.wb static block -> StageCache  +0xA8   (bgpr)
 ```
 
 ### Re-dumping after a game update
@@ -265,7 +265,7 @@ by committing the binary.
 
 The plugin drives the game's real UI components (`UI_Cube`, `StageBox`,
 `TS.ButtonBase`) and reads cube-slot item grades from the game's own item table
-(`ItemKey → GRADE` via the `bas` singleton). Gotchas when a game update breaks
+(`ItemKey → GRADE` via the `bdc` singleton). Gotchas when a game update breaks
 it:
 
 - Obfuscated member names differ between Il2CppDumper output and BepInEx's
