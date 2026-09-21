@@ -73,9 +73,9 @@ $OFF = @{
     HSD_unlocked    = 0x18
     HSD_exp         = 0x20
     # wh.wb static fields (live stage system)
-    UU_currentCache = 0xA8   # wh.StageCache bgpr @1.02.05: the stage currently loaded
+    UU_currentCache = 0xA8   # wh.StageCache bgpz @1.02.06: the stage currently loaded
     # wh.StageCache
-    SC_infoData     = 0x10   # StageInfoData (bgpv)
+    SC_infoData     = 0x10   # StageInfoData (bgqd)
     # Il2CppClass
     KLASS_staticFields = 0xB8
     # StageInfoData
@@ -286,7 +286,7 @@ function Resolve-Targets($mem, $proc) {
 }
 
 function Read-Stage($mem, $ctx) {
-    # stage identity: prefer the live loaded stage (wh.wb.bgpr -> StageInfoData),
+    # stage identity: prefer the live loaded stage (wh.wb.bgpz -> StageInfoData),
     # which flips the moment a new stage loads; save data lags until autosave.
     $key = 0
     $source = 'save'

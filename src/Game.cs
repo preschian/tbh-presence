@@ -75,8 +75,8 @@ namespace TbhCompanion
         const long HID_ClassType = 0x48;
         const long HSD_heroKey   = 0x10;   // HeroSaveData
         const long HSD_level     = 0x14;
-        const long UU_currentCache = 0xA8; // wh.wb statics: current StageCache (bgpr @1.02.05)
-        const long SC_infoData   = 0x10;   // wh.StageCache.bgpv (StageInfoData)
+        const long UU_currentCache = 0xA8; // wh.wb statics: current StageCache (bgpz @1.02.06)
+        const long SC_infoData   = 0x10;   // wh.StageCache.bgqd (StageInfoData)
         const long KLASS_staticFields = 0xB8; // Il2CppClass.static_fields
 
         static readonly string[] DIFFS = { "NORMAL", "NIGHTMARE", "HELL", "TORMENT" };

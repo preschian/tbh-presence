@@ -190,7 +190,7 @@ internal static class GameInterop
         return null;
     }
 
-    // Box inventory singleton (currently `bbd` @1.02.05, was `bav` @1.02.04): static self-property + instance
+    // Box inventory singleton (currently `bbd` @1.02.06, was `bav` @1.02.04): static self-property + instance
     // Int32(EBoxType, EContentType) / OpenBoxStats(EBoxType, EContentType).
     // Names reshuffle each patch. 1.02 split stacks by EContentType (NONE vs PLAGUE).
     static void ResolveBoxInventory()
@@ -622,7 +622,7 @@ internal static class GameInterop
     }
 
     // UI_Main keeps stable button_* names across patches; only the wrapper type
-    // (currently `bbs` @1.02.05, was `baf` @1.01.05) is obfuscated. BepInEx interop exposes
+    // (currently `bbs` @1.02.06, was `baf` @1.01.05) is obfuscated. BepInEx interop exposes
     // IL2CPP instance fields as properties, so resolve via GetProperty (not GetField).
     static ToggleButton FromMainUi(string label)
     {
@@ -1148,7 +1148,7 @@ internal static class GameInterop
     }
 
     // Stage progress lives on CommonSaveData, reached through the save-data holder
-    // (currently `bde` @1.02.05, was `bcq` @1.02.04): a MonoBehaviour singleton that
+    // (currently `bde` @1.02.06, was `bcq` @1.02.04): a MonoBehaviour singleton that
     // exposes one or more PlayerSaveData properties. PlayerSaveData / CommonSaveData keep real names.
     static void ResolveSaveHolder()
     {
