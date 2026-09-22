@@ -40,7 +40,7 @@ a patch, re-dump (below) and update the offsets.
 
 `CommonSaveData.currentStageKey` only updates when the game autosaves, so it lags
 behind stage changes. The reader prefers the **live stage system**: the `wh.wb`
-class holds a static `StageCache` (`bgpz`) for the currently loaded stage, and
+class holds a static `StageCache` (`bgqa`) for the currently loaded stage, and
 that flips the instant a new stage loads.
 
 `wh.wb` has no unique class-name string to scan for (it's an obfuscated short
@@ -110,10 +110,10 @@ The exe caches resolved addresses in `%LOCALAPPDATA%\tbh-companion\cache.txt`
 
 Pass `--no-cache` (exe) / `-NoCache` (scripts) to force a full rescan.
 
-## Field offsets (Il2CppDumper, game build 1.02.06)
+## Field offsets (Il2CppDumper, game build 1.2.8)
 
 Object instance fields begin at `+0x10` (klass ptr `+0x0`, monitor `+0x8`).
-Unchanged from 1.02.01 (1.02.06 / Steam "1.2.6" is a hotfix; only inner
+Unchanged from 1.02.01 (1.2.8 is a hotfix; only inner
 field names inside `wh.wb` / `wh.StageCache` re-randomized). `CommonSaveData`
 gained `lastClearedStageKey` at 1.02.01 (+4 from `currentStageKey` onward).
 Live-stage class renamed `we.vy` → `wh.wb` at 1.02.05; current `StageCache` static slot still
@@ -144,9 +144,9 @@ StageInfoData.Act                 +0x48   (int)
 StageInfoData.StageNo             +0x4C   (int)
 StageInfoData.StageLevel          +0x50   (int)
 StageInfoData.WaveAmount          +0x54   (int)
-wh.StageCache.StageInfoData       +0x10   (bgqd)
+wh.StageCache.StageInfoData       +0x10   (bgqe)
 Il2CppClass.static_fields         +0xB8
-wh.wb static block -> StageCache  +0xA8   (bgpz)
+wh.wb static block -> StageCache  +0xA8   (bgqa)
 ```
 
 ### Re-dumping after a game update

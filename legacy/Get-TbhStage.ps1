@@ -73,9 +73,9 @@ $OFF = @{
     HSD_unlocked    = 0x18
     HSD_exp         = 0x20
     # wh.wb static fields (live stage system)
-    UU_currentCache = 0xA8   # wh.StageCache bgpz @1.02.06: the stage currently loaded
+    UU_currentCache = 0xA8   # wh.StageCache bgqa @1.2.8: the stage currently loaded
     # wh.StageCache
-    SC_infoData     = 0x10   # StageInfoData (bgqd)
+    SC_infoData     = 0x10   # StageInfoData (bgqe)
     # Il2CppClass
     KLASS_staticFields = 0xB8
     # StageInfoData
@@ -92,7 +92,7 @@ $DIFF = @('NORMAL','NIGHTMARE','HELL','TORMENT')
 $STYPE = @('NORMAL','ACTBOSS','PLAGUE','CONTAMINACTBOSS')
 # EEquipClassType: each hero maps 1:1 to a class, which doubles as its name
 $HCLASS = @('All','Knight','Ranger','Sorcerer','Priest','Hunter','Slayer')
-$CACHE_VERSION = 11
+$CACHE_VERSION = 12
 
 function Get-GameStamp($proc) {
     # Key on GameAssembly.dll — patches often leave TaskBarHero.exe untouched.
@@ -286,7 +286,7 @@ function Resolve-Targets($mem, $proc) {
 }
 
 function Read-Stage($mem, $ctx) {
-    # stage identity: prefer the live loaded stage (wh.wb.bgpz -> StageInfoData),
+    # stage identity: prefer the live loaded stage (wh.wb.bgqa -> StageInfoData),
     # which flips the moment a new stage loads; save data lags until autosave.
     $key = 0
     $source = 'save'
