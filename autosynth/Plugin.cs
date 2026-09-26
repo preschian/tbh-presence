@@ -17,13 +17,14 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto Synthesis", AutoSynthPlugin.Version)]
 public class AutoSynthPlugin : BasePlugin
 {
-    internal const string Version = "0.34.0";
+    internal const string Version = "0.35.0";
 
     internal static ManualLogSource Logger;
     private static ConfigFile _conf;
     private static ConfigEntry<float> _afterFillE, _afterSynthE, _cycleE, _afterRuneE, _afterChestE,
         _afterAlchemyE, _afterSoulstoneE, _activityIdleE;
-    private static ConfigEntry<int> _maxGradeE, _desiredLevelE, _maxRuneUpgradesE, _maxChestOpensE,
+    private static ConfigEntry<int> _maxGradeE, _maxGradeEquipmentE, _maxGradeMaterialsE, _maxGradeAccessoriesE,
+        _desiredLevelE, _maxRuneUpgradesE, _maxChestOpensE,
         _maxSynthRepeatsE, _alchemyLevelE, _maxAlchemyGradeE, _maxAlchemyBatchesE, _maxOfferingOperationsE,
         _actBossRunsE, _actBossWatchE;
     private static ConfigEntry<bool> _autoStartE, _autoOpenE, _autoRuneE, _autoOpenRuneE, _enableSynthE, _autoChestE,
@@ -37,6 +38,22 @@ public class AutoSynthPlugin : BasePlugin
     internal static float AfterRuneUpgradeDelay => _afterRuneE != null ? _afterRuneE.Value : 0.5f;
     internal static float AfterChestOpenDelay => _afterChestE != null ? _afterChestE.Value : 1.5f;
     internal static int MaxGrade => _maxGradeE != null ? _maxGradeE.Value : 2;
+    // Per-type synthesis caps (EItemSynthesisType: 0=Equipment, 1=Accessory,
+    // 2=Material). Fresh configs inherit the legacy MaxGrade once at bind time;
+    // afterwards each type is independent and MaxGrade is only its seed.
+    internal static int MaxGradeEquipment => _maxGradeEquipmentE != null ? _maxGradeEquipmentE.Value : MaxGrade;
+    internal static int MaxGradeMaterials => _maxGradeMaterialsE != null ? _maxGradeMaterialsE.Value : MaxGrade;
+    internal static int MaxGradeAccessories => _maxGradeAccessoriesE != null ? _maxGradeAccessoriesE.Value : MaxGrade;
+    internal static int MaxGradeForType(int type)
+    {
+        switch (type)
+        {
+            case 0: return MaxGradeEquipment;
+            case 1: return MaxGradeAccessories;
+            case 2: return MaxGradeMaterials;
+            default: return MaxGrade;
+        }
+    }
     // 0 = highest unlocked recipe (default). >0 = exact lower-bound match, else
     // the highest unlocked bracket with lo <= DesiredLevel.
     internal static int DesiredLevel => _desiredLevelE != null ? _desiredLevelE.Value : 0;
@@ -158,7 +175,8 @@ public class AutoSynthPlugin : BasePlugin
     // what decides whether anything changed, so a new option only has to be added
     // here to be both logged and noticed.
     static string Summary()
-        => $"MaxGrade={MaxGrade}, DesiredLevel={DesiredLevel}, " +
+        => $"MaxGrade={MaxGrade} (Equipment={MaxGradeEquipment}, Materials={MaxGradeMaterials}, Accessories={MaxGradeAccessories}), " +
+           $"DesiredLevel={DesiredLevel}, " +
            $"CycleIntervalSeconds={AfterClearDelay}, AutoStart={AutoStart}, " +
            $"PauseOnActivity={PauseOnActivity}, ActivityIdleSeconds={ActivityIdleSeconds}, " +
            $"EnableSynthesis={EnableSynthesis}, AutoOpenChest={AutoOpenChest}, " +
@@ -289,8 +307,18 @@ public class AutoSynthPlugin : BasePlugin
             "Which synthesis item types each cycle runs in order, comma-separated: " +
             "Equipment, Materials, Accessories. e.g. 'Equipment,Accessories' to skip materials.");
         _maxGradeE = Config.Bind("Safety", "MaxGrade", 2,
-            "Highest item grade the auto loop may synthesize: 0=COMMON 1=UNCOMMON 2=RARE 3=LEGENDARY 4=IMMORTAL ... " +
-            "If any cube slot holds an item above this grade, synthesis is skipped and the cube is cleared.");
+            "Legacy global synthesis cap, kept as the seed for the per-type caps below on first run: " +
+            "0=COMMON 1=UNCOMMON 2=RARE 3=LEGENDARY 4=IMMORTAL ... Set the per-type caps instead.");
+        _maxGradeEquipmentE = Config.Bind("Safety", "MaxGradeEquipment", MaxGrade,
+            "Highest equipment grade the loop may synthesize (same scale as MaxGrade). " +
+            "If any equipment cube slot holds a grade above this, that pass is skipped and the cube is cleared.");
+        _maxGradeMaterialsE = Config.Bind("Safety", "MaxGradeMaterials", MaxGrade,
+            "Highest materials grade the loop may synthesize (same scale as MaxGrade). " +
+            "If any materials cube slot holds a grade above this, that pass is skipped and the cube is cleared.");
+        _maxGradeAccessoriesE = Config.Bind("Safety", "MaxGradeAccessories", MaxGrade,
+            "Highest accessories grade the loop may synthesize (same scale as MaxGrade). " +
+            "If any accessories cube slot holds a grade above this, that pass is skipped and the cube is cleared.");
+
         _desiredLevelE = Config.Bind("General", "DesiredLevel", 0,
             "Target synthesis recipe: 0 = highest unlocked (default). " +
             "Otherwise the lower bound of an in-game bracket " +
@@ -1244,6 +1272,7 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
         var slots = setter != null ? setter.m_cubeInventorySlots : null;
         if (slots == null) return true;
         slotCount = slots.Count;
+        int cap = AutoSynthPlugin.MaxGradeForType(_currentType);
         EnsureGradeMap();
         for (int i = 0; i < slots.Count; i++)
         {
@@ -1257,9 +1286,9 @@ private System.Collections.Generic.Dictionary<int, int> _gradeByItemKey;
                 offender = $"slot {i}: itemKey {key} has unknown grade";
                 return false; // safety: never synthesize what we can't identify
             }
-            if (grade > AutoSynthPlugin.MaxGrade)
+            if (grade > cap)
             {
-                offender = $"slot {i}: itemKey {key} grade {grade} > max {AutoSynthPlugin.MaxGrade}";
+                offender = $"slot {i}: itemKey {key} grade {grade} > {TypeName(_currentType)} max {cap}";
                 return false;
             }
             itemCount++;
