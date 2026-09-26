@@ -195,7 +195,10 @@ the dropdown does not offer is reported instead of guessed at.
 | `MaxOfferingOperationsPerCycle` | 5 | Safety cap on one-coin Offering operations per cycle |
 | `SynthesisTypes` | Equipment,Materials,Accessories | Which item types each cycle synthesizes in order. e.g. `Equipment,Accessories` to skip materials. |
 | `DesiredLevel` | 0 | Target synthesis recipe. `0` = highest unlocked (default). Otherwise the lower bound of an in-game bracket from the companion Target level dropdown (`1`=`Lv.1~10` … `65`=`Lv.65~80`). If that bracket is locked, uses the highest unlocked bracket with `lo ≤ DesiredLevel`. |
-| `MaxGrade` | 3 | Highest rarity the loop may synthesize (0=Common, 1=Uncommon, 2=Rare, 3=Legendary, 4=Immortal, …). Cycles holding anything above this are skipped. |
+| `MaxGrade` | 2 | Legacy global synthesis cap (0=Common, 1=Uncommon, 2=Rare, 3=Legendary, 4=Immortal, … 9=Cosmic). Only seeds the per-type caps on first run; set those instead. |
+| `MaxGradeEquipment` | =MaxGrade | Highest equipment rarity the loop may synthesize. A pass holding anything above it is skipped and the cube is cleared. |
+| `MaxGradeMaterials` | =MaxGrade | Same, for materials. |
+| `MaxGradeAccessories` | =MaxGrade | Same, for accessories. |
 | `RepeatFullSynth` | true | When auto-fill fills every cube slot, run another fill → synth → clear pass for the same type instead of moving on. Stops on a partial or empty fill, a grade-limit skip, or `MaxSynthRepeatsPerCycle`, then continues with the next enabled type. |
 | `MaxSynthRepeatsPerCycle` | 10 | Safety cap on the extra passes `RepeatFullSynth` may run per synthesis type in one cycle |
 | `MaxChestOpensPerCycle` | 40 | Safety cap on StageBox open clicks per cycle |

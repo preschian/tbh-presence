@@ -92,8 +92,8 @@ namespace TbhCompanion
         Toggle _autoLoop, _enableSynth, _autoChest, _autoRune, _showConsole,
             _autoAlchemy, _autoOffering, _autoSoulstone, _pauseOnMouse;
         TypeTile[] _typeTiles, _tierTiles;
-        SegmentBar _seg;
-        Label _rarityValue;
+        SegmentBar _equipSeg, _matSeg, _accSeg;
+        Label _equipRarityValue, _matRarityValue, _accRarityValue;
         Stepper _cycleMin, _restartDays, _alchemyLevel, _offeringMax, _actBossRuns, _idleSec;
         FlatDrop _desiredLevel, _alchemyRarity;
         FlatButton _saveBtn, _modsBtn, _launchBtn, _updateBtn;
@@ -430,14 +430,9 @@ namespace TbhCompanion
 
             y1 = AddTileRow("Types", SynthesisTypes, Col1X, y1, out _typeTiles);
 
-            AddRowLabel("Max rarity", Col1X, y1);
-            _rarityValue = AddMainLabelBox("Legendary", f1, y1, fieldW, ControlH, Theme.Amber, Theme.F(9f, FontStyle.Bold), ContentAlignment.MiddleRight);
-            y1 += RowH;
-            _seg = new SegmentBar { Value = 2 };
-            _seg.SetBounds(Sc(Col1X), Sc(y1), Sc(ColW), Sc(8));
-            _seg.ValueChanged += delegate { UpdateRarityLabel(); };
-            AddContent(_seg);
-            y1 += 16;
+            y1 = AddRarityBarRow("Equipment max", Col1X, ColW, y1, f1, fieldW, out _equipSeg, out _equipRarityValue);
+            y1 = AddRarityBarRow("Materials max", Col1X, ColW, y1, f1, fieldW, out _matSeg, out _matRarityValue);
+            y1 = AddRarityBarRow("Accessories max", Col1X, ColW, y1, f1, fieldW, out _accSeg, out _accRarityValue);
 
             var recipeLabels = new string[Recipes.Length];
             for (int i = 0; i < Recipes.Length; i++) recipeLabels[i] = Recipes[i].Label;
@@ -706,6 +701,26 @@ namespace TbhCompanion
             return y + ControlH + 12;
         }
 
+        // A per-type max-rarity row: caption + current grade label, then a 10-segment bar.
+        int AddRarityBarRow(string caption, int colX, int colW, int y, int fieldX, int fieldW, out SegmentBar seg, out Label value)
+        {
+            AddRowLabel(caption, colX, y);
+            value = AddMainLabelBox(Grades[2], fieldX, y, fieldW, ControlH, Theme.GradeColors[2], Theme.F(9f, FontStyle.Bold), ContentAlignment.MiddleRight);
+            y += RowH;
+            seg = new SegmentBar { Value = 2 };
+            seg.SetBounds(Sc(colX), Sc(y), Sc(colW), Sc(8));
+            var s = seg; var v = value;
+            s.ValueChanged += delegate { UpdateRarityLabel(s, v); };
+            AddContent(s);
+            return y + 16;
+        }
+
+        void UpdateRarityLabel(SegmentBar seg, Label value)
+        {
+            value.Text = Grades[seg.Value];
+            value.ForeColor = Theme.GradeColors[seg.Value];
+        }
+
         int AddDropdownRow(string label, string[] items, int colX, int y, int fieldX, int fieldW, out FlatDrop drop)
         {
             AddRowLabel(label, colX, y);
@@ -757,13 +772,6 @@ namespace TbhCompanion
                 Size = new Size(Sc(colW), 1)
             };
             AddContent(p);
-        }
-
-        void UpdateRarityLabel()
-        {
-            int v = _seg.Value;
-            _rarityValue.Text = Grades[v];
-            _rarityValue.ForeColor = Theme.GradeColors[v];
         }
 
         // ---- window paint / drag ----
@@ -1051,7 +1059,7 @@ namespace TbhCompanion
         void SetSettingsEnabled(bool on)
         {
             _autoLoop.Enabled = on; _enableSynth.Enabled = on; _autoChest.Enabled = on;
-            _autoRune.Enabled = on; _seg.Enabled = on;
+            _autoRune.Enabled = on; _equipSeg.Enabled = on; _matSeg.Enabled = on; _accSeg.Enabled = on;
             _pauseOnMouse.Enabled = on;
             _idleSec.Enabled = on && _pauseOnMouse.Checked;
             _autoAlchemy.Enabled = on; _alchemyLevel.Enabled = on; _alchemyRarity.Enabled = on;
@@ -1101,9 +1109,14 @@ namespace TbhCompanion
                 if (!int.TryParse(GetVal(text, "Safety", "MaxOfferingOperationsPerCycle", "5"), out offeringMax)
                     || offeringMax < 1) offeringMax = 5;
                 _offeringMax.SetValue(offeringMax);
-                int mg;
-                if (!int.TryParse(GetVal(text, "Safety", "MaxGrade", "2"), out mg) || mg < 0 || mg > 9) mg = 2;
-                _seg.Value = mg; UpdateRarityLabel();
+                int legacyGrade;
+                if (!int.TryParse(GetVal(text, "Safety", "MaxGrade", "2"), out legacyGrade) || legacyGrade < 0 || legacyGrade > 9) legacyGrade = 2;
+                _equipSeg.Value = CfgGrade(text, "MaxGradeEquipment", legacyGrade);
+                _matSeg.Value = CfgGrade(text, "MaxGradeMaterials", legacyGrade);
+                _accSeg.Value = CfgGrade(text, "MaxGradeAccessories", legacyGrade);
+                UpdateRarityLabel(_equipSeg, _equipRarityValue);
+                UpdateRarityLabel(_matSeg, _matRarityValue);
+                UpdateRarityLabel(_accSeg, _accRarityValue);
                 int dl;
                 if (!int.TryParse(GetVal(text, "General", "DesiredLevel", "0"), out dl) || dl < 0) dl = 0;
                 _desiredLevel.SelectedIndex = RecipeIndex(dl);
@@ -1181,7 +1194,14 @@ namespace TbhCompanion
                 text = SetVal(text, "Safety", "MaxOfferingOperationsPerCycle",
                     ((int)_offeringMax.Value).ToString(CultureInfo.InvariantCulture));
                 // AutoOpenCube / AutoOpenRune / AfterFill / AfterSynthesis / AfterChestOpen are not exposed in the UI — leave cfg values alone.
-                text = SetVal(text, "Safety", "MaxGrade", _seg.Value.ToString(CultureInfo.InvariantCulture));
+                int equipGrade = _equipSeg.Value;
+                int matGrade = _matSeg.Value;
+                int accGrade = _accSeg.Value;
+                text = SetVal(text, "Safety", "MaxGradeEquipment", equipGrade.ToString(CultureInfo.InvariantCulture));
+                text = SetVal(text, "Safety", "MaxGradeMaterials", matGrade.ToString(CultureInfo.InvariantCulture));
+                text = SetVal(text, "Safety", "MaxGradeAccessories", accGrade.ToString(CultureInfo.InvariantCulture));
+                // Legacy global cap: keep it at the strictest type so an older plugin stays safe.
+                text = SetVal(text, "Safety", "MaxGrade", Math.Min(equipGrade, Math.Min(matGrade, accGrade)).ToString(CultureInfo.InvariantCulture));
                 text = SetVal(text, "General", "DesiredLevel",
                     Recipes[Math.Max(0, Math.Min(Recipes.Length - 1, _desiredLevel.SelectedIndex))]
                         .Lo.ToString(CultureInfo.InvariantCulture));
@@ -1273,6 +1293,15 @@ namespace TbhCompanion
         {
             decimal v;
             return decimal.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out v) ? v : 0;
+        }
+
+        // Per-type synthesis cap from the cfg; falls back to the legacy global
+        // MaxGrade on old cfgs that predate the per-type keys.
+        static int CfgGrade(string text, string key, int fallback)
+        {
+            int g;
+            if (!int.TryParse(GetVal(text, "Safety", key, fallback.ToString(CultureInfo.InvariantCulture)), out g) || g < 0 || g > 9) g = fallback;
+            return g;
         }
 
         // Map a cfg DesiredLevel to a dropdown index. Unknown values fall back to Max
