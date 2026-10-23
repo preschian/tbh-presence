@@ -75,14 +75,14 @@ namespace TbhCompanion
         const long HID_ClassType = 0x48;
         const long HSD_heroKey   = 0x10;   // HeroSaveData
         const long HSD_level     = 0x14;
-        const long UU_currentCache = 0xA8; // wh.wb statics: current StageCache (bgqa @1.2.8)
-        const long SC_infoData   = 0x10;   // wh.StageCache.bgqe (StageInfoData)
+        const long UU_currentCache = 0xA8; // xo.xi statics: current StageCache (bizb @1.3.0)
+        const long SC_infoData   = 0x10;   // xo.StageCache.bizi (StageInfoData)
         const long KLASS_staticFields = 0xB8; // Il2CppClass.static_fields
 
         static readonly string[] DIFFS = { "NORMAL", "NIGHTMARE", "HELL", "TORMENT" };
-        static readonly string[] STYPES = { "NORMAL", "ACTBOSS", "PLAGUE", "CONTAMINACTBOSS" };
+        static readonly string[] STYPES = { "NORMAL", "ACTBOSS", "PLAGUE", "CONTAMINACTBOSS", "EVENT" };
         static readonly string[] HCLASS = { "All", "Knight", "Ranger", "Sorcerer", "Priest", "Hunter", "Slayer" };
-        const int CACHE_VERSION = 12;
+        const int CACHE_VERSION = 13;
 
         readonly Mem _mem;
         readonly Process _proc;
@@ -275,17 +275,18 @@ namespace TbhCompanion
 
         void FindLiveStageStatics()
         {
-            // The static class 'wb' holds the live stage system. Self-validated: the
+            // The static class 'xi' holds the live stage system. Self-validated: the
             // static block is only accepted if its +0xA8 slot points at a StageCache
-            // instance. NOTE: 'wb' is an obfuscated class name that the game's obfuscator
+            // instance. NOTE: 'xi' is an obfuscated class name that the game's obfuscator
             // re-randomizes on updates (uu -> up @1.00.27 -> uq @1.01.01 -> uz @1.01.03
-            // -> vg @1.01.05 -> vy @1.02.01 -> wb @1.02.05); try current and recent
+            // -> vg @1.01.05 -> vy @1.02.01 -> wb @1.02.05 -> xi @1.3.0); try current and recent
             // names so a minor rename still resolves.
             _uuStatics = 0; _scKlass = 0;
             long scKlass = _mem.FindClass("StageCache", null);
             if (scKlass == 0) return;
-            // "\0wb\0" (1.02.05), "\0vy\0" (1.02.01), "\0vg\0" (1.01.05), "\0uz\0" (1.01.03), "\0uq\0" (1.01.01), "\0up\0" (1.00.27)
+            // "\0xi\0" (1.3.0), "\0wb\0" (1.02.05), "\0vy\0" (1.02.01), "\0vg\0" (1.01.05), "\0uz\0" (1.01.03), "\0uq\0" (1.01.01), "\0up\0" (1.00.27)
             byte[][] namePats = {
+                new byte[] { 0x00, 0x78, 0x69, 0x00 },
                 new byte[] { 0x00, 0x77, 0x62, 0x00 },
                 new byte[] { 0x00, 0x76, 0x79, 0x00 },
                 new byte[] { 0x00, 0x76, 0x67, 0x00 },
