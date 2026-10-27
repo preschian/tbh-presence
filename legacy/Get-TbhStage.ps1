@@ -73,9 +73,9 @@ $OFF = @{
     HSD_unlocked    = 0x18
     HSD_exp         = 0x20
     # xo.xi static fields (live stage system)
-    UU_currentCache = 0xA8   # xo.xi statics bizb @1.3.0: the stage currently loaded
+    UU_currentCache = 0xA8   # xo.xi statics bizp @1.3.2 (was bizb @1.3.0): the stage currently loaded
     # xo.StageCache
-    SC_infoData     = 0x10   # StageInfoData (bizi)
+    SC_infoData     = 0x10   # StageInfoData (bizw @1.3.2, was bizi @1.3.0)
     # Il2CppClass
     KLASS_staticFields = 0xB8
     # StageInfoData
@@ -92,7 +92,7 @@ $DIFF = @('NORMAL','NIGHTMARE','HELL','TORMENT')
 $STYPE = @('NORMAL','ACTBOSS','PLAGUE','CONTAMINACTBOSS','EVENT')
 # EEquipClassType: each hero maps 1:1 to a class, which doubles as its name
 $HCLASS = @('All','Knight','Ranger','Sorcerer','Priest','Hunter','Slayer')
-$CACHE_VERSION = 13
+$CACHE_VERSION = 14
 
 function Get-GameStamp($proc) {
     # Key on GameAssembly.dll — patches often leave TaskBarHero.exe untouched.
@@ -161,11 +161,11 @@ function Find-LiveStageStatics($mem) {
     # its +0xA8 slot points at a StageCache instance.
     # Returns @{ Statics; ScKlass } or $null (non-fatal; save data is the fallback).
     # NOTE: 'xi' is an obfuscated class name (uu -> up @1.00.27 -> uq @1.01.01 -> uz @1.01.03
-    # -> vg @1.01.05 -> vy @1.02.01 -> wb @1.02.05 -> xi @1.3.0); try current and recent names so a minor rename still resolves.
+    # -> vg @1.01.05 -> vy @1.02.01 -> wb @1.02.05 -> xi @1.3.0, still xi @1.3.2); try current and recent names so a minor rename still resolves.
     $scKlass = $mem.FindClass('StageCache', $null)
     if ($scKlass -eq 0) { return $null }
     $namePats = @(
-        [byte[]](0x00, 0x78, 0x69, 0x00),  # "\0xi\0" 1.3.0
+        [byte[]](0x00, 0x78, 0x69, 0x00),  # "\0xi\0" 1.3.0, still 1.3.2
         [byte[]](0x00, 0x77, 0x62, 0x00),  # "\0wb\0" 1.02.05
         [byte[]](0x00, 0x76, 0x79, 0x00),  # "\0vy\0" 1.02.01
         [byte[]](0x00, 0x76, 0x67, 0x00),  # "\0vg\0" 1.01.05

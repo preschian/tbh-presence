@@ -45,7 +45,7 @@ that flips the instant a new stage loads.
 
 `xo.xi` has no unique class-name string to scan for (it's an obfuscated short
 name that the obfuscator re-randomizes on updates — `vb.uu` → `uw.up` @1.00.27 →
-`ux.uq` @1.01.01 → `vf.uz` @1.01.03 → `vm.vg` @1.01.05 → `we.vy` @1.02.01 → `wh.wb` @1.02.05 → `xo.xi` @1.3.0), so it's located by:
+`ux.uq` @1.01.01 → `vf.uz` @1.01.03 → `vm.vg` @1.01.05 → `we.vy` @1.02.01 → `wh.wb` @1.02.05 → `xo.xi` @1.3.0, still `xo.xi` @1.3.2), so it's located by:
 
 1. scanning for the `"xi"` name string (also tries recent `"wb"` / `"vy"` / `"vg"` / `"uz"` / `"uq"` / `"up"`),
 2. reading each referencing class's static-field block (`Il2CppClass.static_fields`
@@ -110,14 +110,14 @@ The exe caches resolved addresses in `%LOCALAPPDATA%\tbh-companion\cache.txt`
 
 Pass `--no-cache` (exe) / `-NoCache` (scripts) to force a full rescan.
 
-## Field offsets (Il2CppDumper, game build 1.3.0)
+## Field offsets (Il2CppDumper, game build 1.3.2)
 
 Object instance fields begin at `+0x10` (klass ptr `+0x0`, monitor `+0x8`).
-Unchanged from 1.02.01 (1.3.0 only renamed the live-stage
-class and re-randomized inner field names in `xo.xi` / `xo.StageCache`). `CommonSaveData`
+Unchanged from 1.3.0 (1.3.2 only re-randomized inner field names in `xo.xi` /
+`xo.StageCache`; the live-stage class is still `xo.xi`). `CommonSaveData`
 gained `lastClearedStageKey` at 1.02.01 (+4 from `currentStageKey` onward).
-Live-stage class renamed `wh.wb` → `xo.xi` at 1.3.0 (`we.vy` → `wh.wb` at 1.02.05); current `StageCache` static slot still
-`+0xA8` (moved `+0x88` → `+0xA8` at 1.02.01). `PlayerSaveData.heroSaveDatas` is `+0x68` (`mailSaveDatas` sits
+Live-stage class renamed `wh.wb` → `xo.xi` at 1.3.0 (`we.vy` → `wh.wb` at 1.02.05) and stayed `xo.xi` through 1.3.2; current `StageCache` static slot still
+`+0xA8` (moved `+0x88` → `+0xA8` at 1.02.01; field `bizb` → `bizp` @1.3.2). `PlayerSaveData.heroSaveDatas` is `+0x68` (`mailSaveDatas` sits
 at `+0x70`). `EStageType` includes `PLAGUE`, `CONTAMINACTBOSS`, and `EVENT` (added @1.3.0).
 
 ```
@@ -144,9 +144,9 @@ StageInfoData.Act                 +0x48   (int)
 StageInfoData.StageNo             +0x4C   (int)
 StageInfoData.StageLevel          +0x50   (int)
 StageInfoData.WaveAmount          +0x54   (int)
-xo.StageCache.StageInfoData       +0x10   (bizi)
+xo.StageCache.StageInfoData       +0x10   (bizw @1.3.2, was bizi @1.3.0)
 Il2CppClass.static_fields         +0xB8
-xo.xi static block -> StageCache  +0xA8   (bizb)
+xo.xi static block -> StageCache  +0xA8   (bizp @1.3.2, was bizb @1.3.0)
 ```
 
 ### Re-dumping after a game update
